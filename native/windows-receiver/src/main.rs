@@ -43,7 +43,8 @@ fn run() -> Result<()> {
     state.log("DeXDesk 0.1 starting: native Rust / Windows Media Foundation / Direct3D 11");
     ui::run(
         state,
-        args.iter().any(|a| a == "--preview" || a == "--smoke-ui"),
+        args.iter().any(|a| a == "--preview" || a == "--smoke-ui" || a == "--preview-settings"),
         args.iter().any(|a| a == "--smoke-ui"),
+        args.iter().any(|a| a == "--preview-settings"),
     )
 }

@@ -21,9 +21,9 @@ use windows::{
             Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE},
             Gdi::*,
         },
-        System::{LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
+        System::{ApplicationInstallationAndServicing::*, LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
         UI::{
-            Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, Shell::ShellExecuteW,
+            Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, Shell::{ShellExecuteW, SetWindowSubclass, RemoveWindowSubclass, DefSubclassProc},
             WindowsAndMessaging::*,
         },
     },
@@ -34,6 +34,13 @@ const SAVE: usize = 102;
 const CANCEL: usize = 103;
 const LOG: usize = 104;
 const DISCONNECT: usize = 105;
+const HELPER: usize = 204;
+const SPEED_LABEL: usize = 205;
+const SESSION: usize = 206;
+const INFO: usize = 207;
+const QUALITY_LABEL: usize = 208;
+const SURFACE: COLORREF = COLORREF(0x00271f19);
+const BORDER: COLORREF = COLORREF(0x00574a40);
 const TICK: usize = 1;
 const HEALTH: usize = 2;
 const TBM_GETPOS: u32 = WM_USER;
@@ -72,12 +79,15 @@ struct App {
     last_frames: Cell<u64>,
     last_clock: Cell<Instant>,
     fps: Cell<f64>,
+    preview: bool,
+    dialog_font: Cell<HFONT>,
+    dialog_heading: Cell<HFONT>,
     smoke: bool,
     opened: Instant,
 }
 
 impl App {
-    fn new(state: Arc<AppState>, smoke: bool) -> Self {
+    fn new(state: Arc<AppState>, smoke: bool, preview: bool) -> Self {
         Self {
             state,
             parent: Cell::new(HWND::default()),
@@ -105,6 +115,9 @@ impl App {
             last_frames: Cell::new(0),
             last_clock: Cell::new(Instant::now()),
             fps: Cell::new(0.0),
+            preview,
+            dialog_font: Cell::new(HFONT::default()),
+            dialog_heading: Cell::new(HFONT::default()),
             smoke,
             opened: Instant::now(),
         }
@@ -428,180 +441,147 @@ impl App {
         match result {
             Ok(window) => {
                 self.dialog.set(window);
+                // CreateWindow can apply its original size after WM_CREATE. Finalise
+                // measured bounds only after it returns, before showing the window.
+                self.settings_layout(window, self.settings_dpi(window));
+                let mut bounds = RECT::default();
+                let _ = GetWindowRect(window, &mut bounds);
+                let _ = SetWindowPos(window, None,
+                    parent.left + (parent.right-parent.left-(bounds.right-bounds.left))/2,
+                    parent.top + (parent.bottom-parent.top-(bounds.bottom-bounds.top))/2,
+                    0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                 let _ = EnableWindow(self.parent.get(), false);
-                let _ = ShowWindow(window, SW_SHOW);
+                let _ = ShowWindow(window, if self.preview { SW_SHOWNOACTIVATE } else { SW_SHOW });
+                // Refresh the nonclient frame after the first show as well; the
+                // inactive preview must receive the same dark caption treatment.
+                let dark = BOOL(1);
+                let _ = DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    &dark as *const _ as *const _, std::mem::size_of::<BOOL>() as u32);
+                let _ = SetWindowPos(window, None, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
             Err(error) => self.message(&format!("Could not open settings: {error}")),
         }
     }
     unsafe fn settings_controls(&self, window: HWND) {
+        let dark = BOOL(1);
+        let _ = DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const _ as *const _, std::mem::size_of::<BOOL>() as u32);
         let settings = self.state.settings.lock().unwrap().clone();
-        let control =
-            |class: PCWSTR, label: &str, style: WINDOW_STYLE, x, y, width, height, id: usize| {
-                let label = wide(label);
-                let result = CreateWindowExW(
-                    WINDOW_EX_STYLE(0),
-                    class,
-                    PCWSTR(label.as_ptr()),
-                    WS_CHILD | WS_VISIBLE | style,
-                    self.scale(x),
-                    self.scale(y),
-                    self.scale(width),
-                    self.scale(height),
-                    window,
-                    HMENU(id as *mut _),
-                    HINSTANCE(GetModuleHandleW(None).unwrap_or_default().0),
-                    None,
-                );
-                match result {
-                    Ok(handle) => {
-                        SendMessageW(
-                            handle,
-                            WM_SETFONT,
-                            WPARAM(self.regular.get().0 as usize),
-                            LPARAM(1),
-                        );
-                        handle
-                    }
-                    Err(error) => {
-                        self.state
-                            .log(format!("Could not create settings control: {error}"));
-                        HWND::default()
-                    }
-                }
-            };
-        control(
-            w!("STATIC"),
-            "Cast quality target",
-            WINDOW_STYLE(0),
-            24,
-            24,
-            390,
-            24,
-            0,
-        );
-        let combo = control(
-            w!("COMBOBOX"),
-            "",
-            WINDOW_STYLE(CBS_DROPDOWNLIST as u32 | WS_VSCROLL.0 | WS_TABSTOP.0),
-            24,
-            54,
-            390,
-            150,
-            201,
-        );
-        for label in [
-            "1080p - target 60 FPS (recommended)",
-            "1080p - target 30 FPS",
-            "720p - target 60 FPS",
-        ] {
+        let control = |class: PCWSTR, label: &str, style: u32, id: usize| {
             let label = wide(label);
-            SendMessageW(
-                combo,
-                CB_ADDSTRING,
-                WPARAM(0),
-                LPARAM(label.as_ptr() as isize),
-            );
-        }
-        let selected = match settings.quality {
-            Quality::FullHd60 => 0,
-            Quality::FullHd30 => 1,
-            Quality::Hd60 => 2,
+            let handle = CreateWindowExW(WINDOW_EX_STYLE(0), class, PCWSTR(label.as_ptr()),
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style), 0, 0, 1, 1, window,
+                HMENU(id as *mut _), HINSTANCE(GetModuleHandleW(None).unwrap_or_default().0), None)
+                .unwrap_or_default();
+            handle
         };
-        SendMessageW(combo, CB_SETCURSEL, WPARAM(selected), LPARAM(0));
+        control(w!("STATIC"), "Cast &quality target", 0, QUALITY_LABEL);
+        let combo = control(w!("COMBOBOX"), "", CBS_DROPDOWNLIST as u32 | CBS_OWNERDRAWFIXED as u32 |
+            CBS_HASSTRINGS as u32 | WS_VSCROLL.0 | WS_TABSTOP.0, 201);
+        // Only the documented SetWindowTheme API is used. This optional theme name
+        // supplies a dark arrow/scrollbar on Windows 11; owner drawing guarantees
+        // readable item colours even if that theme is absent.
+        let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), None);
+        for label in ["1080p - target 60 FPS (recommended)", "1080p - target 30 FPS", "720p - target 60 FPS"] {
+            let label = wide(label);
+            SendMessageW(combo, CB_ADDSTRING, WPARAM(0), LPARAM(label.as_ptr() as isize));
+        }
+        SendMessageW(combo, CB_SETCURSEL, WPARAM(match settings.quality {
+            Quality::FullHd60 => 0, Quality::FullHd30 => 1, Quality::Hd60 => 2,
+        }), LPARAM(0));
+        let _ = SetWindowSubclass(combo, Some(settings_button_proc), 1, 0);
         self.quality.set(combo);
-        control(
-            w!("STATIC"),
-            "Changes apply on the next connection. The phone chooses actual FPS.",
-            WINDOW_STYLE(0),
-            24,
-            90,
-            390,
-            40,
-            0,
-        );
-        control(
-            w!("STATIC"),
-            "Scroll speed",
-            WINDOW_STYLE(0),
-            24,
-            142,
-            390,
-            24,
-            0,
-        );
-        let speed = control(TRACKBAR_CLASSW, "", WS_TABSTOP, 24, 169, 390, 32, 202);
+        control(w!("STATIC"), "Changes apply on the next connection. The phone chooses actual FPS.", 0, HELPER);
+        control(w!("STATIC"), "Scroll s&peed", 0, SPEED_LABEL);
+        let speed = control(TRACKBAR_CLASSW, "", WS_TABSTOP.0 | TBS_NOTICKS | TBS_FIXEDLENGTH, 202);
         SendMessageW(speed, TBM_SETRANGE, WPARAM(1), LPARAM(30 | (120 << 16)));
-        SendMessageW(
-            speed,
-            TBM_SETPOS,
-            WPARAM(1),
-            LPARAM(settings.scroll_speed as isize),
-        );
+        SendMessageW(speed, TBM_SETPOS, WPARAM(1), LPARAM(settings.scroll_speed as isize));
         self.speed.set(speed);
-        let top = control(
-            w!("BUTTON"),
-            "Keep window on top",
-            WINDOW_STYLE(BS_AUTOCHECKBOX as u32) | WS_TABSTOP,
-            24,
-            211,
-            390,
-            28,
-            203,
-        );
-        SendMessageW(
-            top,
-            BM_SETCHECK,
-            WPARAM(if settings.always_on_top {
-                BST_CHECKED.0 as usize
-            } else {
-                BST_UNCHECKED.0 as usize
-            }),
-            LPARAM(0),
-        );
+        let top = control(w!("BUTTON"), "&Keep window on top", BS_AUTOCHECKBOX as u32 | WS_TABSTOP.0, 203);
+        // Classic checkbox honours WM_CTLCOLORBTN, unlike the light themed label.
+        let _ = SetWindowTheme(top, w!(""), w!(""));
+        SendMessageW(top, BM_SETCHECK, WPARAM(settings.always_on_top as usize), LPARAM(0));
+        let _ = SetWindowSubclass(top, Some(settings_button_proc), 1, 0);
         self.top.set(top);
-        let information = control(
-            w!("STATIC"),
-            &self.connection_info(),
-            WINDOW_STYLE(0),
-            24,
-            250,
-            390,
-            50,
-            0,
-        );
-        self.information.set(information);
-        control(
-            w!("BUTTON"),
-            "Diagnostics",
-            WS_TABSTOP,
-            24,
-            316,
-            110,
-            30,
-            LOG,
-        );
-        control(
-            w!("BUTTON"),
-            "Disconnect",
-            WS_TABSTOP,
-            146,
-            316,
-            110,
-            30,
-            DISCONNECT,
-        );
-        control(w!("BUTTON"), "Cancel", WS_TABSTOP, 222, 366, 90, 32, CANCEL);
-        control(
-            w!("BUTTON"),
-            "Save",
-            WINDOW_STYLE(BS_DEFPUSHBUTTON as u32) | WS_TABSTOP,
-            324,
-            366,
-            90,
-            32,
-            SAVE,
-        );
+        control(w!("STATIC"), "Session", 0, SESSION);
+        self.information.set(control(w!("STATIC"), &self.connection_info(), 0, INFO));
+        for (id, label) in [(LOG, "&Diagnostics"), (DISCONNECT, "D&isconnect"), (CANCEL, "&Cancel"), (SAVE, "&Save")] {
+            let button = control(w!("BUTTON"), label, BS_OWNERDRAW as u32 | WS_TABSTOP.0, id);
+            let _ = SetWindowSubclass(button, Some(settings_button_proc), 1, 0);
+        }
+        self.settings_layout(window, self.settings_dpi(window));
+        SetTimer(window, 3, 500, None);
+    }
+    unsafe fn settings_dpi(&self, window: HWND) -> u32 {
+        if cfg!(debug_assertions) && self.preview {
+            std::env::var("ADAPT_DEX_PREVIEW_DPI").ok().and_then(|s| s.parse::<u32>().ok())
+                .filter(|dpi| [96, 120, 144, 192].contains(dpi)).unwrap_or(GetDpiForWindow(window))
+        } else { GetDpiForWindow(window) }
+    }
+    unsafe fn settings_layout(&self, window: HWND, dpi: u32) {
+        let scale = |n: i32| (n * dpi as i32 + 48) / 96;
+        let regular = font(scale(16), 400, w!("Segoe UI"));
+        let heading = font(scale(16), 600, w!("Segoe UI"));
+        let old = [self.dialog_font.replace(regular), self.dialog_heading.replace(heading)];
+        let dc = GetDC(window);
+        let unit = scale(8);
+        let width = measured(dc, regular, "1080p - target 60 FPS (recommended)", 10000).right
+            .max(scale(440)) + unit * 4;
+        let content = width - unit * 6;
+        let line = measured(dc, regular, "Ag", content).bottom;
+        let row = line + unit * 2;
+        let mut y = unit * 3;
+        let place = |id: usize, x, y, w, h, bold| {
+            if let Ok(child) = GetDlgItem(window, id as i32) {
+                SendMessageW(child, WM_SETFONT, WPARAM(if bold { heading } else { regular }.0 as usize), LPARAM(1));
+                let _ = MoveWindow(child, x, y, w, h, true);
+            }
+        };
+        place(QUALITY_LABEL, unit*3, y, content, line, true); y += line + unit;
+        place(201, unit*3, y, content, row * 5, false);
+        SendMessageW(self.quality.get(), CB_SETITEMHEIGHT, WPARAM(usize::MAX), LPARAM(row as isize));
+        SendMessageW(self.quality.get(), CB_SETITEMHEIGHT, WPARAM(0), LPARAM(row as isize));
+        y += row + unit;
+        let helper = measured(dc, regular, "Changes apply on the next connection. The phone chooses actual FPS.", content).bottom;
+        place(HELPER, unit*3, y, content, helper, false); y += helper + unit*3;
+        place(SPEED_LABEL, unit*3, y, content, line, true); y += line + unit;
+        SendMessageW(self.speed.get(), TBM_SETTHUMBLENGTH, WPARAM((row-unit) as usize), LPARAM(0));
+        place(202, unit*3, y, content, row, false); y += row + unit;
+        place(203, unit*3, y, content, row, false); y += row + unit*3;
+        place(SESSION, unit*3, y, content, line, true); y += line + unit;
+        // Reserve for the longer connected status, even while disconnected.
+        let info = measured(dc, regular, "Connected: 1920 x 1080, 60 FPS selected\nLive: 120.0 FPS decoded - Windows native video", content).bottom
+            .max(measured(dc, regular, &self.connection_info(), content).bottom);
+        place(INFO, unit*4, y+unit, content-unit*2, info, false); y += info + unit*4;
+        let button_width = |label: &str| measured(dc, regular, label, 10000).right + unit*4;
+        let diag = button_width("Diagnostics");
+        let disconnect = button_width("Disconnect");
+        place(LOG, unit*3, y, diag, row, false);
+        place(DISCONNECT, unit*4+diag, y, disconnect, row, false); y += row + unit*4;
+        let save = button_width("Save").max(unit*12);
+        let cancel = button_width("Cancel").max(unit*12);
+        place(CANCEL, width-unit*4-save-cancel, y, cancel, row, false);
+        place(SAVE, width-unit*3-save, y, save, row, true); y += row + unit*3;
+        let _ = ReleaseDC(window, dc);
+        for value in old { if !value.is_invalid() { let _ = DeleteObject(value); } }
+        let mut rect = RECT { left: 0, top: 0, right: width, bottom: y };
+        let _ = AdjustWindowRectExForDpi(&mut rect, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            false, WS_EX_DLGMODALFRAME, dpi);
+        let _ = SetWindowPos(window, None, 0, 0, rect.right-rect.left, rect.bottom-rect.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        let _ = InvalidateRect(window, None, true);
+        self.settings_status(window);
+    }
+    unsafe fn settings_status(&self, window: HWND) {
+        let value = SendMessageW(self.speed.get(), TBM_GETPOS, WPARAM(0), LPARAM(0)).0;
+        let label = wide(&format!("Scroll s&peed   {value}"));
+        if let Ok(child) = GetDlgItem(window, SPEED_LABEL as i32) {
+            let _ = SetWindowTextW(child, PCWSTR(label.as_ptr()));
+        }
+        if let Ok(child) = GetDlgItem(window, DISCONNECT as i32) {
+            let _ = EnableWindow(child, self.state.session_active.load(Ordering::Acquire));
+        }
     }
     fn connection_info(&self) -> String {
         if let Some(mode) = self.mode() {
@@ -645,8 +625,9 @@ impl App {
         let window = self.dialog.replace(HWND::default());
         if !window.is_invalid() {
             let _ = EnableWindow(self.parent.get(), true);
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
             let _ = DestroyWindow(window);
-            let _ = SetForegroundWindow(self.parent.get());
+            if !self.preview { let _ = SetForegroundWindow(self.parent.get()); }
         }
     }
     unsafe fn message(&self, text: &str) {
@@ -664,24 +645,76 @@ impl App {
     }
 }
 
-pub fn run(state: Arc<AppState>, preview: bool, smoke: bool) -> Result<()> {
+// Box<App> owns every window borrowing its address. Drop also runs on early
+// errors and Rust unwinding, while the box allocation is still alive.
+impl Drop for App {
+    fn drop(&mut self) {
+        self.state.running.store(false, Ordering::Release);
+        self.state.disconnect.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.get_mut().take() {
+            // Avoid logging (and potentially poisoned locks) during unwinding.
+            let _ = worker.join();
+        }
+        unsafe {
+            self.state.hwnd.store(0, Ordering::Release);
+            self.state.video_hwnd.store(0, Ordering::Release);
+            let windows = [
+                self.dialog.replace(HWND::default()),
+                self.video.replace(HWND::default()),
+                self.parent.replace(HWND::default()),
+            ];
+            // Detach every borrower before destruction can send messages to
+            // another window. A failed DestroyWindow cannot leave a stale App.
+            for window in windows {
+                if !window.is_invalid() {
+                    SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                }
+            }
+            for window in windows {
+                if !window.is_invalid() {
+                    let _ = DestroyWindow(window);
+                }
+            }
+            for font in [&self.regular, &self.title, &self.small, &self.icon, &self.dialog_font, &self.dialog_heading] {
+                let font = font.replace(HFONT::default());
+                if !font.is_invalid() {
+                    let _ = DeleteObject(font);
+                }
+            }
+        }
+    }
+}
+
+struct InstanceMutex(HANDLE);
+impl Drop for InstanceMutex {
+    fn drop(&mut self) {
+        unsafe { let _ = CloseHandle(self.0); }
+    }
+}
+
+pub fn run(state: Arc<AppState>, preview: bool, smoke: bool, preview_settings: bool) -> Result<()> {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let mutex = CreateMutexW(None, false, w!("Local\\ADAPT Wireless DeXSingleInstance"))?;
-        if GetLastError() == ERROR_ALREADY_EXISTS {
-            if let Ok(window) = FindWindowW(MAIN_CLASS, None) {
-                let _ = ShowWindow(window, SW_RESTORE);
-                let _ = SetForegroundWindow(window);
+        let _styles = VisualStyles::activate()?;
+        let _mutex = if preview {
+            None
+        } else {
+            let mutex = CreateMutexW(None, false, w!("Local\\ADAPT Wireless DeXSingleInstance"))?;
+            let guard = InstanceMutex(mutex);
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                if let Ok(window) = FindWindowW(MAIN_CLASS, None) {
+                    let _ = ShowWindow(window, SW_RESTORE);
+                    let _ = SetForegroundWindow(window);
+                }
+                return Ok(());
             }
-            CloseHandle(mutex)?;
-            return Ok(());
-        }
+            Some(guard)
+        };
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_BAR_CLASSES,
         };
         if !InitCommonControlsEx(&common).as_bool() {
-            CloseHandle(mutex)?;
             anyhow::bail!("Windows could not initialize native controls");
         }
         let instance = HINSTANCE(GetModuleHandleW(None)?.0);
@@ -701,11 +734,10 @@ pub fn run(state: Arc<AppState>, preview: bool, smoke: bool) -> Result<()> {
                 ..Default::default()
             };
             if RegisterClassW(&class) == 0 {
-                CloseHandle(mutex)?;
                 return Err(windows::core::Error::from_win32().into());
             }
         }
-        let app = Box::new(App::new(state.clone(), smoke));
+        let app = Box::new(App::new(state.clone(), smoke, preview));
         let settings = state.settings.lock().unwrap().clone();
         let window = CreateWindowExW(
             WINDOW_EX_STYLE(0),
@@ -739,7 +771,8 @@ pub fn run(state: Arc<AppState>, preview: bool, smoke: bool) -> Result<()> {
             &dark as *const _ as *const _,
             std::mem::size_of::<BOOL>() as u32,
         );
-        let _ = ShowWindow(window, SW_SHOW);
+        let _ = ShowWindow(window, if preview { SW_SHOWNOACTIVATE } else { SW_SHOW });
+        if preview_settings { app.open_settings(); }
         if preview {
             state.set_phase(Phase::Error(
                 "UI preview - wireless receiver is not started".into(),
@@ -756,6 +789,14 @@ pub fn run(state: Arc<AppState>, preview: bool, smoke: bool) -> Result<()> {
             if result.0 < 0 {
                 return Err(windows::core::Error::from_win32().into());
             }
+            if !app.dialog.get().is_invalid() && message.message == WM_KEYDOWN {
+                if (message.wParam.0 == VK_ESCAPE.0 as usize || message.wParam.0 == VK_RETURN.0 as usize)
+                    && SendMessageW(app.quality.get(), CB_GETDROPPEDSTATE, WPARAM(0), LPARAM(0)).0 == 0 {
+                    let id = if message.wParam.0 == VK_ESCAPE.0 as usize { CANCEL } else { SAVE };
+                    SendMessageW(app.dialog.get(), WM_COMMAND, WPARAM(id), LPARAM(0));
+                    continue;
+                }
+            }
             if !app.dialog.get().is_invalid()
                 && IsDialogMessageW(app.dialog.get(), &message).as_bool()
             {
@@ -764,23 +805,6 @@ pub fn run(state: Arc<AppState>, preview: bool, smoke: bool) -> Result<()> {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-        state.running.store(false, Ordering::Release);
-        if let Some(worker) = app.worker.borrow_mut().take() {
-            if worker.join().is_err() {
-                state.log("Receiver worker stopped unexpectedly");
-            }
-        }
-        for font in [
-            app.regular.get(),
-            app.title.get(),
-            app.small.get(),
-            app.icon.get(),
-        ] {
-            if !font.is_invalid() {
-                let _ = DeleteObject(font);
-            }
-        }
-        CloseHandle(mutex)?;
     }
     Ok(())
 }
@@ -790,7 +814,19 @@ unsafe fn app_pointer(window: HWND, message: u32, lparam: LPARAM) -> *const App 
         let create = &*(lparam.0 as *const CREATESTRUCTW);
         SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
     }
-    GetWindowLongPtrW(window, GWLP_USERDATA) as *const App
+    let pointer = GetWindowLongPtrW(window, GWLP_USERDATA) as *const App;
+    if !pointer.is_null() {
+        let app = &*pointer;
+        if message == WM_NCDESTROY {
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            for cell in [&app.dialog, &app.video, &app.parent] {
+                if cell.get() == window {
+                    cell.set(HWND::default());
+                }
+            }
+        }
+    }
+    pointer
 }
 
 unsafe extern "system" fn main_proc(
@@ -804,6 +840,9 @@ unsafe extern "system" fn main_proc(
         return DefWindowProcW(window, message, wparam, lparam);
     }
     let app = &*pointer;
+    if message == WM_NCCREATE {
+        app.parent.set(window);
+    }
     match message {
         WM_CREATE => {
             app.parent.set(window);
@@ -1021,6 +1060,9 @@ unsafe extern "system" fn video_proc(
         return DefWindowProcW(window, message, wparam, lparam);
     }
     let app = &*pointer;
+    if message == WM_NCCREATE {
+        app.video.set(window);
+    }
     let x = (lparam.0 & 0xffff) as i16 as i32;
     let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
     match message {
@@ -1085,33 +1127,83 @@ unsafe extern "system" fn settings_proc(
         return DefWindowProcW(window, message, wparam, lparam);
     }
     let app = &*pointer;
+    if message == WM_NCCREATE {
+        app.dialog.set(window);
+    }
     match message {
         WM_CREATE => {
             app.settings_controls(window);
             LRESULT(0)
         }
+        WM_DPICHANGED => {
+            let rect = &*(lparam.0 as *const RECT);
+            let _ = SetWindowPos(window, None, rect.left, rect.top, 0, 0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            app.settings_layout(window, (wparam.0 & 0xffff) as u32);
+            LRESULT(0)
+        }
+        WM_TIMER | WM_HSCROLL => { app.settings_status(window); LRESULT(0) }
         WM_ERASEBKGND => {
             let mut rect = RECT::default();
             let _ = GetClientRect(window, &mut rect);
-            FillRect(
-                HDC(wparam.0 as *mut _),
-                &rect,
-                GetSysColorBrush(COLOR_WINDOW),
-            );
+            let dc = HDC(wparam.0 as *mut _);
+            fill(dc, &rect, BACKGROUND);
+            let mut card = RECT::default();
+            if GetWindowRect(app.information.get(), &mut card).is_ok() {
+                let mut origin = POINT { x: card.left, y: card.top };
+                let _ = ScreenToClient(window, &mut origin);
+                let _ = OffsetRect(&mut card, origin.x-card.left, origin.y-card.top);
+                let pad = (GetDpiForWindow(window) as i32 * 8 / 96).max(1);
+                let _ = InflateRect(&mut card, pad, pad);
+                fill(dc, &card, SURFACE);
+            }
             LRESULT(1)
         }
-        WM_CTLCOLORSTATIC => {
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLORLISTBOX => {
             let dc = HDC(wparam.0 as *mut _);
-            SetBkColor(dc, COLORREF(GetSysColor(COLOR_WINDOW)));
-            SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
-            LRESULT(GetSysColorBrush(COLOR_WINDOW).0 as isize)
+            let id = GetDlgCtrlID(HWND(lparam.0 as *mut _)) as usize;
+            let bg = if message == WM_CTLCOLORLISTBOX || id == INFO { SURFACE } else { BACKGROUND };
+            SetBkColor(dc, bg);
+            SetDCBrushColor(dc, bg);
+            SetTextColor(dc, if id == HELPER || id == INFO { MUTED } else { WHITE });
+            LRESULT(GetStockObject(DC_BRUSH).0 as isize)
         }
+        WM_MEASUREITEM => {
+            let item = &mut *(lparam.0 as *mut MEASUREITEMSTRUCT);
+            item.itemHeight = (GetDpiForWindow(window) * 38 / 96).max(24);
+            LRESULT(1)
+        }
+        WM_DRAWITEM => {
+            settings_draw(app, &*(lparam.0 as *const DRAWITEMSTRUCT));
+            LRESULT(1)
+        }
+        WM_NOTIFY => {
+            let header = &*(lparam.0 as *const NMHDR);
+            if header.hwndFrom == app.speed.get() && header.code == NM_CUSTOMDRAW {
+                let draw = &*(lparam.0 as *const NMCUSTOMDRAW);
+                return slider_draw(draw);
+            }
+            LRESULT(0)
+        }
+        WM_NEXTDLGCTL => {
+            let next = if lparam.0 != 0 { HWND(wparam.0 as *mut _) } else {
+                GetNextDlgTabItem(window, GetFocus(), wparam.0 != 0).unwrap_or_default()
+            };
+            let _ = SetFocus(next);
+            LRESULT(0)
+        }
+        DM_GETDEFID => LRESULT(((DC_HASDEFID as usize) << 16 | SAVE) as isize),
         WM_COMMAND => {
             match wparam.0 & 0xffff {
                 SAVE => match app.apply_settings() {
                     Ok(()) => app.close_settings(),
                     Err(error) => app.message(&format!("Could not save settings: {error:#}")),
                 },
+                1 => match app.apply_settings() {
+                    Ok(()) => app.close_settings(),
+                    Err(error) => app.message(&format!("Could not save settings: {error:#}")),
+                },
+                2 => app.close_settings(),
                 CANCEL => app.close_settings(),
                 LOG => {
                     if let Ok(directory) = settings::data_dir() {
@@ -1178,4 +1270,215 @@ unsafe fn text(
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
+}
+
+// All drawing uses stock DC objects; no per-paint GDI allocations survive a call.
+unsafe fn fill(dc: HDC, rect: &RECT, color: COLORREF) {
+    SetDCBrushColor(dc, color);
+    FillRect(dc, rect, HBRUSH(GetStockObject(DC_BRUSH).0));
+}
+unsafe fn measured(dc: HDC, font: HFONT, value: &str, width: i32) -> RECT {
+    let previous = SelectObject(dc, font);
+    let mut rect = RECT { right: width, ..Default::default() };
+    let mut value: Vec<u16> = value.encode_utf16().collect();
+    DrawTextW(dc, &mut value, &mut rect, DT_CALCRECT | DT_WORDBREAK);
+    SelectObject(dc, previous);
+    rect
+}
+unsafe extern "system" fn settings_button_proc(window: HWND, message: u32,
+    wparam: WPARAM, lparam: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    match message {
+        WM_PAINT if GetDlgCtrlID(window) == 201 => {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(window, &mut paint);
+            let mut rect = RECT::default();
+            let _ = GetClientRect(window, &mut rect);
+            let selected_font = HFONT(SendMessageW(window, WM_GETFONT, WPARAM(0), LPARAM(0)).0 as *mut _);
+            let old = SelectObject(dc, selected_font);
+            let mut metrics = TEXTMETRICW::default();
+            let _ = GetTextMetricsW(dc, &mut metrics);
+            let pad = (metrics.tmHeight/2).max(1);
+            let focused = GetFocus() == window;
+            let open = SendMessageW(window, CB_GETDROPPEDSTATE, WPARAM(0), LPARAM(0)).0 != 0;
+            let disabled = !IsWindowEnabled(window).as_bool();
+            let mut cursor = POINT::default();
+            let _ = GetCursorPos(&mut cursor);
+            let _ = ScreenToClient(window, &mut cursor);
+            let hot = cursor.x >= 0 && cursor.x < rect.right && cursor.y >= 0 && cursor.y < rect.bottom;
+            fill(dc, &rect, if focused || open { ACCENT } else if hot { MUTED } else { BORDER });
+            let _ = InflateRect(&mut rect, -1, -1);
+            fill(dc, &rect, if open { BORDER } else { SURFACE });
+            rect.left += pad;
+            rect.right -= pad*3;
+            let mut label = [0u16; 256];
+            let index = SendMessageW(window, CB_GETCURSEL, WPARAM(0), LPARAM(0)).0;
+            let count = if index >= 0 {
+                SendMessageW(window, CB_GETLBTEXT, WPARAM(index as usize), LPARAM(label.as_mut_ptr() as isize)).0.max(0) as usize
+            } else { 0 };
+            SetBkMode(dc, TRANSPARENT);
+            text(dc, selected_font, if disabled { MUTED } else { WHITE },
+                &String::from_utf16_lossy(&label[..count.min(255)]), rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+            rect.left = rect.right;
+            rect.right += pad*3;
+            text(dc, selected_font, if disabled { MUTED } else { WHITE }, "\u{2304}", rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dc, old);
+            let _ = EndPaint(window, &paint);
+            return LRESULT(0);
+        }
+        WM_PAINT if GetDlgCtrlID(window) == 203 => {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(window, &mut paint);
+            let mut rect = RECT::default();
+            let _ = GetClientRect(window, &mut rect);
+            fill(dc, &rect, BACKGROUND);
+            let selected_font = HFONT(SendMessageW(window, WM_GETFONT, WPARAM(0), LPARAM(0)).0 as *mut _);
+            let old = SelectObject(dc, selected_font);
+            let mut metrics = TEXTMETRICW::default();
+            let _ = GetTextMetricsW(dc, &mut metrics);
+            let size = metrics.tmHeight.max(12);
+            let pad = (size / 2).max(1);
+            let state = SendMessageW(window, BM_GETSTATE, WPARAM(0), LPARAM(0)).0 as u32;
+            let checked = SendMessageW(window, BM_GETCHECK, WPARAM(0), LPARAM(0)).0 == 1;
+            let disabled = !IsWindowEnabled(window).as_bool();
+            let box_rect = RECT { left: 1, top: (rect.bottom-size)/2, right: size+1, bottom: (rect.bottom+size)/2 };
+            let mut cursor = POINT::default();
+            let _ = GetCursorPos(&mut cursor);
+            let _ = ScreenToClient(window, &mut cursor);
+            let hot = cursor.x >= 0 && cursor.x < rect.right && cursor.y >= 0 && cursor.y < rect.bottom;
+            fill(dc, &box_rect, if disabled { MUTED } else if state & BST_PUSHED != 0 { WHITE }
+                else if checked || hot { ACCENT } else { BORDER });
+            let mut inside = box_rect;
+            let _ = InflateRect(&mut inside, -1, -1);
+            if !checked { fill(dc, &inside, SURFACE); }
+            SetBkMode(dc, TRANSPARENT);
+            if checked { text(dc, selected_font, BACKGROUND, "\u{2713}", box_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
+            let mut label = [0u16; 128];
+            let count = GetWindowTextW(window, &mut label) as usize;
+            rect.left = size + pad;
+            text(dc, selected_font, if disabled { MUTED } else if state & BST_PUSHED != 0 { ACCENT } else { WHITE },
+                &String::from_utf16_lossy(&label[..count]), rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            if GetFocus() == window { let _ = DrawFocusRect(dc, &rect); }
+            SelectObject(dc, old);
+            let _ = EndPaint(window, &paint);
+            return LRESULT(0);
+        }
+        WM_ERASEBKGND if [201, 203].contains(&GetDlgCtrlID(window)) => return LRESULT(1),
+        WM_MOUSEMOVE => {
+            let mut tracking = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE, hwndTrack: window, ..Default::default() };
+            let _ = TrackMouseEvent(&mut tracking);
+            let _ = InvalidateRect(window, None, false);
+        }
+        WM_MOUSELEAVE | WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE => { let _ = InvalidateRect(window, None, false); }
+        WM_NCDESTROY => { let _ = RemoveWindowSubclass(window, Some(settings_button_proc), 1); }
+        // Dialog navigation may try to change an owner-drawn button's type.
+        BM_SETSTYLE => return LRESULT(0),
+        _ => {}
+    }
+    DefSubclassProc(window, message, wparam, lparam)
+}
+unsafe fn settings_draw(app: &App, draw: &DRAWITEMSTRUCT) {
+    let dc = draw.hDC;
+    let rect = draw.rcItem;
+    let selected = draw.itemState.0 & ODS_SELECTED.0 != 0;
+    let disabled = draw.itemState.0 & ODS_DISABLED.0 != 0;
+    let focus = draw.itemState.0 & ODS_FOCUS.0 != 0;
+    let mut cursor = POINT::default();
+    let _ = GetCursorPos(&mut cursor);
+    let _ = ScreenToClient(draw.hwndItem, &mut cursor);
+    let hover = cursor.x >= rect.left && cursor.x < rect.right && cursor.y >= rect.top && cursor.y < rect.bottom;
+    let primary = draw.CtlID as usize == SAVE;
+    let combo = draw.CtlID == 201;
+    let bg = if disabled { SURFACE } else if combo {
+        if selected { BORDER } else { SURFACE }
+    } else if selected { if primary { COLORREF(0x00d0a060) } else { BORDER } }
+    else if primary { if hover { COLORREF(0x00ffd098) } else { ACCENT } }
+    else if hover { COLORREF(0x003e3229) } else { SURFACE };
+    if combo { fill(dc, &rect, bg); } else {
+        fill(dc, &rect, BACKGROUND);
+        let brush = SelectObject(dc, GetStockObject(DC_BRUSH));
+        let pen = SelectObject(dc, GetStockObject(DC_PEN));
+        SetDCBrushColor(dc, bg);
+        SetDCPenColor(dc, if primary { ACCENT } else { BORDER });
+        let _ = RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, (GetDpiForWindow(draw.hwndItem)*8/96) as i32, (GetDpiForWindow(draw.hwndItem)*8/96) as i32);
+        SelectObject(dc, pen);
+        SelectObject(dc, brush);
+    }
+    let mut inner = rect;
+    let pad = (GetDpiForWindow(draw.hwndItem) as i32 * 8 / 96).max(1);
+    inner.left += pad;
+    inner.right -= pad;
+    let mut label = [0u16; 256];
+    let count = if combo {
+        if draw.itemID == u32::MAX { 0 } else {
+            SendMessageW(draw.hwndItem, CB_GETLBTEXT, WPARAM(draw.itemID as usize), LPARAM(label.as_mut_ptr() as isize)).0.max(0) as usize
+        }
+    } else { GetWindowTextW(draw.hwndItem, &mut label) as usize };
+    let color = if disabled { MUTED } else if primary { BACKGROUND }
+        else if draw.CtlID as usize == DISCONNECT { COLORREF(0x00a9b8ff) } else { WHITE };
+    SetBkMode(dc, TRANSPARENT);
+    text(dc, app.dialog_font.get(), color, &String::from_utf16_lossy(&label[..count.min(255)]), inner,
+        DT_SINGLELINE | DT_VCENTER | if combo { DT_LEFT } else { DT_CENTER });
+    if focus {
+        let mut focus_rect = rect;
+        let _ = InflateRect(&mut focus_rect, -((pad/2).max(2)), -((pad/2).max(2)));
+        SetTextColor(dc, WHITE);
+        SetBkColor(dc, bg);
+        let _ = DrawFocusRect(dc, &focus_rect);
+    }
+}
+unsafe fn slider_draw(draw: &NMCUSTOMDRAW) -> LRESULT {
+    if draw.dwDrawStage == CDDS_PREPAINT { return LRESULT(CDRF_NOTIFYITEMDRAW as isize); }
+    if draw.dwDrawStage == CDDS_ITEMPREPAINT {
+        match draw.dwItemSpec as u32 {
+            TBCD_CHANNEL => { // channel
+                fill(draw.hdc, &draw.rc, BORDER);
+                return LRESULT(CDRF_SKIPDEFAULT as isize);
+            }
+            TBCD_THUMB => { // thumb; the native control retains pointer and keyboard behaviour
+                let color = if draw.uItemState.0 & CDIS_DISABLED.0 != 0 { MUTED }
+                    else if draw.uItemState.0 & (CDIS_SELECTED.0 | CDIS_HOT.0) != 0 { WHITE } else { ACCENT };
+                let old_brush = SelectObject(draw.hdc, GetStockObject(DC_BRUSH));
+                let old_pen = SelectObject(draw.hdc, GetStockObject(DC_PEN));
+                SetDCBrushColor(draw.hdc, color);
+                SetDCPenColor(draw.hdc, color);
+                let radius = draw.rc.right-draw.rc.left;
+                let _ = RoundRect(draw.hdc, draw.rc.left, draw.rc.top, draw.rc.right, draw.rc.bottom, radius, radius);
+                SelectObject(draw.hdc, old_pen);
+                SelectObject(draw.hdc, old_brush);
+                return LRESULT(CDRF_SKIPDEFAULT as isize);
+            }
+            _ => {}
+        }
+    }
+    LRESULT(CDRF_DODEFAULT as isize)
+}
+
+struct VisualStyles(HANDLE, usize);
+impl VisualStyles {
+    unsafe fn activate() -> Result<Self> {
+        // The exact same manifest used by resource_stamp is available in ordinary
+        // builds too. Explicit activation also works when a manifest is embedded.
+        let path = settings::data_dir()?.join("visual-styles.manifest");
+        std::fs::write(&path, include_bytes!("../app.manifest"))?;
+        let source = wide(&path.to_string_lossy());
+        let handle = CreateActCtxW(&ACTCTXW {
+            cbSize: std::mem::size_of::<ACTCTXW>() as u32,
+            dwFlags: 0, lpSource: PCWSTR(source.as_ptr()), ..Default::default()
+        })?;
+        let mut cookie = 0;
+        if let Err(error) = ActivateActCtx(handle, &mut cookie) {
+            ReleaseActCtx(handle);
+            return Err(error.into());
+        }
+        Ok(Self(handle, cookie))
+    }
+}
+impl Drop for VisualStyles {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeactivateActCtx(0, self.1);
+            ReleaseActCtx(self.0);
+        }
+    }
 }

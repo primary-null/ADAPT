@@ -1,0 +1,12 @@
+ADAPT Android planning baseline (checked 2026-11-12)
+API  Android  Codename             Release status
+ 29  10       Q                    released
+ 30  11       R                    released
+ 31  12       S                    released
+ 32  12L      S_V2                 released
+ 33  13       TIRAMISU             released
+ 34  14       UPSIDE_DOWN_CAKE     released
+ 35  15       VANILLA_ICE_CREAM    released
+ 36  16       BAKLAVA              released
+ 37  17       CINNAMON_BUN         released
+The matrix maps released platform versions to API levels; it does not certify ADAPT on every version or OEM build.

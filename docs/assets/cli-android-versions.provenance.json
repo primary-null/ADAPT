@@ -1,0 +1,91 @@
+{
+  "schema": "adapt.showcase.capture-provenance/1",
+  "kind": "actual_offline_cli_capture",
+  "project": {
+    "name": "adapt-adb",
+    "version": "0.1.0",
+    "license": "MIT"
+  },
+  "command": {
+    "display": "adapt --no-banner --no-tips android versions",
+    "argv": [
+      "adapt",
+      "--no-banner",
+      "--no-tips",
+      "android",
+      "versions"
+    ],
+    "executed_as": [
+      "python",
+      "-B",
+      "-m",
+      "adapt_adb",
+      "--no-banner",
+      "--no-tips",
+      "android",
+      "versions"
+    ],
+    "working_directory": ".",
+    "env_overrides": {
+      "PYTHONPATH": "src",
+      "PYTHONIOENCODING": "utf-8",
+      "NO_COLOR": "1",
+      "ADAPT_NO_BANNER": "1",
+      "ADAPT_TIPS": "0",
+      "TERM": "dumb",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "stdin": "closed (devnull)",
+    "offline": true,
+    "device_access": false,
+    "network_access": false
+  },
+  "exit_code": 0,
+  "stdout": {
+    "file": "docs/assets/cli-android-versions.txt",
+    "sha256": "9c0d07d3e7a1e04fbf27df826865336f70c98eaadf462bf62e4a81b530b58470",
+    "bytes": 614,
+    "lines": 12,
+    "raw_sha256": "6f3f63d80b6e0dd299b72ce1acdc61612ce2b4b66bb5591dbde7037b47e8e970",
+    "normalization": "CRLF converted to LF; no other change"
+  },
+  "stderr": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "source": {
+    "tree": "src/adapt_adb/**/*.py",
+    "tree_sha256": "1f0cf2c9cb1c0454ca1002e156f45dd090e52ba71ccb1c80bec20fc47c4749ff",
+    "key_files": [
+      {
+        "path": "src/adapt_adb/android_support.py",
+        "sha256": "b728bfc029981775b9b4bc81c21f9d576bacabd62b1ef80465e0b42ea355aa40"
+      },
+      {
+        "path": "src/adapt_adb/cli.py",
+        "sha256": "792a674de0193fb054ef99bf29b68b2759900389f72e8c35d36bf40d97f74c6f"
+      },
+      {
+        "path": "src/adapt_adb/__main__.py",
+        "sha256": "0efc1fcee6ace126d478c73d25ddaf90e987851331838cdec86e115d6b9dfd62"
+      },
+      {
+        "path": "pyproject.toml",
+        "sha256": "4f19520652f856c931cd4727fdaa7833aaccabe80ae22ab819feb1495a729b17"
+      }
+    ]
+  },
+  "rendered_capture": {
+    "label": "Rendered capture drawn by scripts/build_showcase.py. Not a Windows Terminal screenshot.",
+    "files": [
+      "docs/assets/cli-android-versions-rendered.png",
+      "docs/assets/cli-android-versions-rendered.svg"
+    ]
+  },
+  "python": "3.13",
+  "generator": "scripts/build_showcase.py",
+  "notes": [
+    "Output was not edited; the .txt is exactly this stdout with LF line endings.",
+    "The release date in the first line is part of the CLI's own data, not a capture timestamp."
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "schema": "adapt.showcase.manifest/1",
+  "generator": "scripts/build_showcase.py",
+  "project_version": "0.1.0",
+  "views": {
+    "total": 10,
+    "generated": 9,
+    "actual": 1,
+    "note": "9 of 10 counts equal showcase views; it is not a pixel measurement."
+  },
+  "android_screenshots": 0,
+  "font": "CascadiaMono.ttf",
+  "pillow": "12.3.0",
+  "determinism": "Outputs are reproducible for the same source, Pillow version and monospace font; image hashes can differ across machines with different fonts.",
+  "assets": [
+    {
+      "path": "docs/assets/adapt-title.gif",
+      "bytes": 443379,
+      "sha256": "dd3e4b92f862ea6259b571dcca1e5c05aabdbfd958a0a3469e073074879c2354",
+      "width": 608,
+      "height": 246,
+      "frames": 35,
+      "frame_ms": 60
+    },
+    {
+      "path": "docs/assets/adapt-title.png",
+      "bytes": 11036,
+      "sha256": "857039d96587e51cc85e7baf9a2c85f97bf01140ef3d241ef4a4a933d2abf80a",
+      "width": 1216,
+      "height": 492
+    },
+    {
+      "path": "docs/assets/showcase-overview.png",
+      "bytes": 529210,
+      "sha256": "97e1308ec8186ad8eed8b7a12620de648c0094fe28253c085d01c6674074dd51",
+      "width": 1272,
+      "height": 3624
+    },
+    {
+      "path": "docs/assets/cli-android-versions-rendered.png",
+      "bytes": 62664,
+      "sha256": "548d5301daf72801848bb1f6d087dde93fb1bfd366e466e2627a85905c5a7d93",
+      "width": 1194,
+      "height": 476
+    },
+    {
+      "path": "docs/showcase/index.html",
+      "bytes": 74040,
+      "sha256": "7e39bf83117ec809c3764d3005c09b93d5f303f3283882dd7ae4865cccb6de64"
+    },
+    {
+      "path": "docs/showcase/README.md",
+      "bytes": 1692,
+      "sha256": "aef5046d7d8ae8fd1b072b616e50e5a219ef12628a75ba0b2b7b5f48aac44561"
+    },
+    {
+      "path": "docs/assets/adapt-title.svg",
+      "bytes": 7828,
+      "sha256": "5a88eb7c5989b7deab3f5fe6bcc3fe6d3f51dcc81d1780ca23b7fda2426bb46d"
+    },
+    {
+      "path": "docs/assets/cli-android-versions-rendered.svg",
+      "bytes": 4219,
+      "sha256": "0bb76d883e9fd923140367932da32a92a21248b1ab40accde41880b6c678e41a"
+    },
+    {
+      "path": "docs/assets/cli-android-versions.txt",
+      "bytes": 614,
+      "sha256": "9c0d07d3e7a1e04fbf27df826865336f70c98eaadf462bf62e4a81b530b58470"
+    },
+    {
+      "path": "docs/assets/cli-android-versions.provenance.json",
+      "bytes": 2648,
+      "sha256": "f93c69db25f6604673b658378b6b1c372b7821b5e87e0d4b40bd1583a88f0d88"
+    }
+  ]
+}

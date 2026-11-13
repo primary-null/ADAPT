@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adapt-adb"
+version = "0.1.0"
+description = "Android Device Agent Provisioning Toolkit"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [
+    { name = "ADAPT Contributors" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "typer>=0.9.0",
+    "packaging>=23.0",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.0.0",
+    "Pillow>=10.0.0",
+]
+
+[project.scripts]
+adapt = "adapt_adb.cli:app"
+
+[project.urls]
+Repository = "https://github.com/primary-null/ADAPT"
+Issues = "https://github.com/primary-null/ADAPT/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+adapt_adb = ["resources/dex_bridge/*.java", "resources/dex_bridge/*.jar", "resources/dex_bridge/*.json", "resources/dex_bridge/*.md"]

@@ -1,0 +1,18 @@
+# Android ADB udev rules for ADAPT (Android Device Agent Provisioning Toolkit)
+#
+# Installation:
+# 1. Install the rules file to /etc/udev/rules.d/51-android.rules:
+#    sudo tee /etc/udev/rules.d/51-android.rules < packaging/linux/51-android.rules > /dev/null
+#
+# 2. Reload udev rules and re-trigger USB events:
+#    sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# 3. Ensure your user is in the plugdev group (required for SSH/headless sessions where logind uaccess ACLs do not apply):
+#    sudo usermod -aG plugdev "$USER"
+#    (Log out and back in, or run `newgrp plugdev`, then reconnect your USB device.)
+
+# Match any USB composite interface advertising the Android ADB class (0xff), subclass (0x42), and protocol (0x01)
+SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="ff", ATTR{bInterfaceSubClass}=="42", ATTR{bInterfaceProtocol}=="01", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+
+# Google Inc. (18d1) explicit vendor example
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", TAG+="uaccess", GROUP="plugdev", MODE="0660"

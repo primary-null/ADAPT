@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "adapt": {
+      "command": "adapt",
+      "args": [
+        "mcp",
+        "--read-only"
+      ]
+    }
+  }
+}

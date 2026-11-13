@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "min_api": 29,
+  "build_tools": "36.0.0",
+  "source_sha256": "7bc1a2cd5aea0d459b3d5b6d0f21ea6bb8da8bda6fc700f4f33b8377e3d20409",
+  "jar_sha256": "4e0a72ddfc4fd577f52ff5e5a556e2c55f1b5d6880f77838389594f9ccc58414"
+}

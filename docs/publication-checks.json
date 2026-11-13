@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-13",
+  "phase": "prepublication source checks",
+  "scope": "Selected public source; not a physical-device or cross-platform certification.",
+  "python": {
+    "version": "3.13.15",
+    "host": "Windows",
+    "tests": 579,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "test_files": 32,
+    "command": "python -m pytest -q"
+  },
+  "fixture_sanitization": {
+    "file": "tests/test_tailscale_mode.py",
+    "change": "All model fixtures and matching assertions use neutral EXAMPLE_* values.",
+    "focused_tests_passed": 35,
+    "full_suite_after_final_edits": 579
+  },
+  "native": {
+    "toolchain": "Rust 1.99.1 x86_64-pc-windows-gnu",
+    "command": "cargo test --locked --offline",
+    "passed": 15,
+    "failed": 0,
+    "runtime_receiver_started": false
+  },
+  "distribution": {
+    "status": "wheel and sdist built and scanned locally; no artifact publication",
+    "artifacts": [
+      {
+        "name": "adapt_adb-0.1.0-py3-none-any.whl",
+        "sha256": "706f3a9dffbf85e120f1fcd51ea60f9a140a4327a0428b6e2d308638b11820bc",
+        "license": "MIT",
+        "package_source_members_matched": 38,
+        "readme_present": true
+      },
+      {
+        "name": "adapt_adb-0.1.0.tar.gz",
+        "sha256": "2fae5fd1cf1f6aa459f9e824c9b6c18704d82e5d0d711b7d20c6d71920eaed72",
+        "readme_present": true,
+        "license_present": true
+      }
+    ],
+    "private_identifier_hits": 0,
+    "wheel_matches_public_package_source": true
+  },
+  "public_source_sha256": [
+    {
+      "path": "src/adapt_adb/__init__.py",
+      "sha256": "dff875132406134c0921bef97b7a366eef85fd29fec619e53d6d4030cc6c91ed"
+    },
+    {
+      "path": "src/adapt_adb/__main__.py",
+      "sha256": "0efc1fcee6ace126d478c73d25ddaf90e987851331838cdec86e115d6b9dfd62"
+    },
+    {
+      "path": "src/adapt_adb/adb.py",
+      "sha256": "753e26e444e427605844408a1d193a75cfa913d299406624659b988f44fbbe19"
+    },
+    {
+      "path": "src/adapt_adb/android_support.py",
+      "sha256": "b728bfc029981775b9b4bc81c21f9d576bacabd62b1ef80465e0b42ea355aa40"
+    },
+    {
+      "path": "src/adapt_adb/banner.py",
+      "sha256": "9c69a65f06e8bed55a7d27012e4cb3ebdd056354eeec2527ed7752da616bbaac"
+    },
+    {
+      "path": "src/adapt_adb/cli.py",
+      "sha256": "792a674de0193fb054ef99bf29b68b2759900389f72e8c35d36bf40d97f74c6f"
+    },
+    {
+      "path": "src/adapt_adb/console.py",
+      "sha256": "a716b67dd0529408838dd26ef0fc4af42d1a3c02a35b4a4fc645a502ac92b0ac"
+    },
+    {
+      "path": "src/adapt_adb/desktop.py",
+      "sha256": "0ad4d1949e3fbcb84830eaf3990692aa5ec668271effae43776e480717dac93c"
+    },
+    {
+      "path": "src/adapt_adb/dev_options.py",
+      "sha256": "d6a9183d6bb02632475121d970dff37ddcb2ed65b4907b1fb422cbb171b3eb6c"
+    },
+    {
+      "path": "src/adapt_adb/development.py",
+      "sha256": "47982093580c006a292433326320e8d9ee1965cb2efe3100ad09d51adb96c118"
+    },
+    {
+      "path": "src/adapt_adb/device_state.py",
+      "sha256": "c35d3b455c7f50bc3eb1439602a957521aa836af8668cf903f519c4958e95534"
+    },
+    {
+      "path": "src/adapt_adb/dex.py",
+      "sha256": "92bcebe1723c18914c1af6287154d65021f6a9cad8e70c5514d0c6ddf2f4470f"
+    },
+    {
+      "path": "src/adapt_adb/dex_pc.py",
+      "sha256": "adaa0cd4d7b2b1f504e6c66e83a9bdba1ff9b7bbaade650db6797f8f6c0960aa"
+    },
+    {
+      "path": "src/adapt_adb/diagnostics.py",
+      "sha256": "001fd6be376b2fa41323998c1572050911305214e1b7bd90c9403248a5bad1b6"
+    },
+    {
+      "path": "src/adapt_adb/doctor.py",
+      "sha256": "c35c236c1a7f02287eadff2a96819543d625bb8fc737ad0deede94bf83c03031"
+    },
+    {
+      "path": "src/adapt_adb/everything.py",
+      "sha256": "6c4fa0d8ddcd7666a3f529a205ae2f62a786cff907c821766963bae186d678c6"
+    },
+    {
+      "path": "src/adapt_adb/help_system.py",
+      "sha256": "3ef74c7c12cf52feb40a60ade6395ee09ba5107a8f62f6ed6a9ed32ec7e01435"
+    },
+    {
+      "path": "src/adapt_adb/hints.py",
+      "sha256": "aab0bb647c782c4518f09533a38cd0c7c47b1e147ae18ddd152d626702c71084"
+    },
+    {
+      "path": "src/adapt_adb/insights.py",
+      "sha256": "61544bbc2948aad11fb4c83290d3d9fbef1664f5ef007077e320bd302daac9b0"
+    },
+    {
+      "path": "src/adapt_adb/mcp/__init__.py",
+      "sha256": "3031997b56f3999f6631cda31fab6870397b6ba42f86fdeee10901df64fe65cc"
+    },
+    {
+      "path": "src/adapt_adb/mcp/access.py",
+      "sha256": "c0153652004867c054c2ab032fd856706c329197a580a6462b7a5b0c567f934d"
+    },
+    {
+      "path": "src/adapt_adb/mcp/server.py",
+      "sha256": "ce20f734882267b995f97af2b3d130235bdb60e6e6e57612251a0691caaaa562"
+    },
+    {
+      "path": "src/adapt_adb/mcp/tools.py",
+      "sha256": "35bbf71fe3bcc0c8451cda60b3d3348128dd0fb2b9230dcf21c495789427c77c"
+    },
+    {
+      "path": "src/adapt_adb/progress.py",
+      "sha256": "1a73956cad36ec88e710ece2c797e08d9f59d7f6364ac3351f42df114430a493"
+    },
+    {
+      "path": "src/adapt_adb/rapid.py",
+      "sha256": "5ffd58bcce7882cb7172c2113d96bf1a5cbbb45cf8fdaf1811f674d36b5bd1d4"
+    },
+    {
+      "path": "src/adapt_adb/render/__init__.py",
+      "sha256": "817c904cce3fa2611297d094a944df004c1b075ff15bf82b9dcf8152075716f4"
+    },
+    {
+      "path": "src/adapt_adb/render/screenshot.py",
+      "sha256": "7ff279aaf4e2ae205cc6f408e01c73686f8d6e63b52518d127db2aca57df23e4"
+    },
+    {
+      "path": "src/adapt_adb/render/ui_summary.py",
+      "sha256": "2755eecba15cc5ac97c40f8f778e9c0cecf010eaf9d0e13d7ac0705cb3227fcc"
+    },
+    {
+      "path": "src/adapt_adb/safety.py",
+      "sha256": "6b10201d5c6ce1540a7d4f7a0f3ad8fde1935c05abda708e683fab013aaac008"
+    },
+    {
+      "path": "src/adapt_adb/scrcpy_install.py",
+      "sha256": "16859889dbb5c003bb52449dd03e3859def0f6d24fbcd0948e32623f21f72bfc"
+    },
+    {
+      "path": "src/adapt_adb/ssh_worker.py",
+      "sha256": "989ae686442df28aa099afafb133cb90232929e246b4e6f349da5e7ef1ed3203"
+    },
+    {
+      "path": "src/adapt_adb/tailscale_mode.py",
+      "sha256": "796b36f1b4b288e22cfe74458d5053e67af4a4c5f4fca887c27925e0c38292db"
+    },
+    {
+      "path": "src/adapt_adb/terminal_ui.py",
+      "sha256": "42d8bae93a424eb5c231d1be089a9cc7c59b5e0afae2906b74e8da0163a01e86"
+    },
+    {
+      "path": "src/adapt_adb/tool_catalog.py",
+      "sha256": "0a16182f5ba9be7383b748a4e8a605bf3c501af68bafab9d636b037de003cc7c"
+    }
+  ],
+  "privacy_scope": "Raw research, private receipts, local runtime captures, caches, native executables and build outputs are excluded. Automated scans do not guarantee absence of every sensitive value.",
+  "live_device_work_this_publication_pass": false,
+  "privacy_checks": {
+    "gitleaks_selected_tree": "no findings",
+    "private_identifier_scan": "no matches in selected public files and decoded PDF/archive metadata",
+    "android_screenshots": 0,
+    "documentation_relative_links_checked": 133,
+    "broken_documentation_links": 0,
+    "limitations": "Pattern-based checks and manual review are bounded; no guarantee of detecting every sensitive value."
+  },
+  "showcase": {
+    "views": 10,
+    "generated": 9,
+    "actual_offline_cli_capture": 1,
+    "generator_verification": "passed"
+  }
+}

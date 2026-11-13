@@ -1,0 +1,7 @@
+# Preserve exact bytes: helper integrity and capture provenance hash source files.
+# Editors may use LF; Git must not rewrite bytes during add or checkout.
+* -text
+*.jar binary
+*.png binary
+*.gif binary
+*.pdf binary

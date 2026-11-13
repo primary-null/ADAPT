@@ -1,0 +1,468 @@
+{
+  "counts": {
+    "functional_areas": 19,
+    "visible_cli_entries": 77,
+    "visible_leaf_commands": 64,
+    "visible_groups_including_root": 13,
+    "hidden_aliases": 2,
+    "mcp_tools": 24,
+    "mcp_read_only_tools": 19,
+    "mcp_mutating_tools": 5,
+    "catalog_tools": 16,
+    "catalog_goals": 6,
+    "automatic_acquisitions": 2,
+    "manual_catalog_entries": 14,
+    "developer_profiles": 4,
+    "inspected_settings": 13,
+    "authored_help_topics": 59,
+    "configured_api_baselines": 9,
+    "physical_phones_with_saved_evidence": 2,
+    "python_tests": 579,
+    "python_test_files": 32,
+    "native_tests": 15
+  },
+  "functional_areas": [
+    {
+      "id": "01",
+      "area": "Host provisioning",
+      "entry": "adapt setup",
+      "capability": "Official Google Platform-Tools acquisition, digest verification, safe extraction, version gate, and user-scope setup.",
+      "maturity": "Offline-tested",
+      "evidence": "Tested offline across mock/fixture scenarios in tests/test_setup_download.py.",
+      "boundary": "Fresh installer acceptance is not established on both host OSes; repository checksum fallback is documented.",
+      "mapped_cli_commands": [
+        "adapt setup"
+      ],
+      "mapped_mcp_tools": [
+        "setup_status"
+      ],
+      "generic_examples": [
+        "adapt setup --dry-run",
+        "adapt setup --yes --isolated"
+      ]
+    },
+    {
+      "id": "02",
+      "area": "Doctor and driver guidance",
+      "entry": "adapt doctor",
+      "capability": "Toolchain detection, port 5037 shared-daemon safety check, USB driver/udev permission checks, and interactive Next action menu.",
+      "maturity": "Live / partial",
+      "evidence": "Windows host observations and offline diagnostics in tests/test_doctor.py.",
+      "boundary": "Device Manager opens for manual driver work on Windows; does not install OEM drivers automatically. On Linux provides udev commands.",
+      "mapped_cli_commands": [
+        "adapt doctor"
+      ],
+      "mapped_mcp_tools": [
+        "doctor"
+      ],
+      "generic_examples": [
+        "adapt doctor",
+        "adapt doctor --fix",
+        "adapt doctor --json"
+      ]
+    },
+    {
+      "id": "03",
+      "area": "ADB and wireless",
+      "entry": "adapt adb; adapt pair; adapt connect; adapt devices",
+      "capability": "Exact transport targeting (-s), daemon preflight, bounded wireless pairing/connection with port separation, and guarded shell execution.",
+      "maturity": "Live / partial",
+      "evidence": "Bounded USB/Wi-Fi and routed ADB observations; see docs/validation.md. Raw device receipts are not published.",
+      "boundary": "Pairing alone is not a connected transport. Android 11+ requires separate pairing and connection ports. Android 10 requires legacy USB-first workflow.",
+      "mapped_cli_commands": [
+        "adapt adb",
+        "adapt pair",
+        "adapt connect",
+        "adapt devices"
+      ],
+      "mapped_mcp_tools": [
+        "list_devices",
+        "device_info"
+      ],
+      "generic_examples": [
+        "adapt devices",
+        "adapt pair IP:PAIR_PORT",
+        "adapt connect IP:CONNECT_PORT",
+        "adapt adb -- -s SERIAL shell getprop ro.build.version.release"
+      ]
+    },
+    {
+      "id": "04",
+      "area": "Console and original branding",
+      "entry": "adapt console",
+      "capability": "Original fading ASCII logo banner, 9 functional command category screens, Home/Back/Page navigation, and basic terminal fallback.",
+      "maturity": "Live / partial",
+      "evidence": "Interactive verification on Windows terminal; VT sequence handling and --no-redraw append-only mode tested.",
+      "boundary": "Rapid remains an integrated option within ADAPT, not a separate fork. Redraw can be disabled for screen readers.",
+      "mapped_cli_commands": [
+        "adapt console",
+        "adapt home"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt console",
+        "adapt console --no-redraw"
+      ]
+    },
+    {
+      "id": "05",
+      "area": "Help and contextual tips",
+      "entry": "adapt help-me; adapt tips; adapt guide",
+      "capability": "Full command inventory, 59 authored help topics with generic examples, contextual guidance tips, and saved user tip preferences.",
+      "maturity": "Offline-tested",
+      "evidence": "100% offline verification across tests/test_help_system.py, tests/test_hints.py, and tests/test_cli_help.py.",
+      "boundary": "Tips are automatically silenced when stdout is not a TTY or when --json is passed to keep machine output clean.",
+      "mapped_cli_commands": [
+        "adapt help-me",
+        "adapt tips",
+        "adapt guide"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt help-me wireless",
+        "adapt tips off",
+        "adapt guide testing"
+      ]
+    },
+    {
+      "id": "06",
+      "area": "Goal-based tool gathering",
+      "entry": "adapt tools list/info/plan",
+      "capability": "Curated catalog of 16 Android tools across 6 workflow goals; local PATH detection, upstream source tracking, and ROM build guidance.",
+      "maturity": "Guidance / planning",
+      "evidence": "Offline catalog inspection tested in tests/test_tool_catalog.py.",
+      "boundary": "Catalog discovery observes PATH; does not verify provenance, build AOSP trees, or install prerequisites automatically.",
+      "mapped_cli_commands": [
+        "adapt tools list",
+        "adapt tools info",
+        "adapt tools plan"
+      ],
+      "mapped_mcp_tools": [
+        "tool_catalog"
+      ],
+      "generic_examples": [
+        "adapt tools list --goal testing",
+        "adapt tools info scrcpy",
+        "adapt tools plan lineage-build --device devicename --branch branchname"
+      ]
+    },
+    {
+      "id": "07",
+      "area": "Confirmed scrcpy installation",
+      "entry": "adapt tools install scrcpy",
+      "capability": "Pinned acquisition of scrcpy v5.0.1, SHA-256 archive validation, zip-slip / tar-bomb protections, and install receipt tracking.",
+      "maturity": "Offline-tested",
+      "evidence": "Unit and integration testing of archive extraction and hash verification in tests/test_scrcpy_install.py.",
+      "boundary": "Fresh real upstream archive download is tested offline; native Debian packaging is handled via OS package manager.",
+      "mapped_cli_commands": [
+        "adapt tools install"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt tools install scrcpy --dry-run",
+        "adapt tools install scrcpy --yes"
+      ]
+    },
+    {
+      "id": "08",
+      "area": "Give Me Everything",
+      "entry": "adapt everything",
+      "capability": "Batch inspection of host environment, catalog detection, confirmed setup of supported tools, and optional exact-device checks.",
+      "maturity": "Offline-tested",
+      "evidence": "Tested across multiple dry-run and execution scenarios in tests/test_everything.py.",
+      "boundary": "Only 2 tools (platform-tools, scrcpy) support automatic acquisition; 14 other catalog tools receive guidance. Zero automatic device mutations.",
+      "mapped_cli_commands": [
+        "adapt everything",
+        "adapt give-me-everything"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt everything --dry-run",
+        "adapt everything --yes --device SERIAL --json"
+      ]
+    },
+    {
+      "id": "09",
+      "area": "Android capability matrix",
+      "entry": "adapt android versions/capabilities",
+      "capability": "Mapping 9 API baselines (API 29-37, Android 10-17 including 12L) to supported features (USB, wireless pairing, Wi-Fi 2.0, legacy TCP, DeX).",
+      "maturity": "Live / partial",
+      "evidence": "Physical phone verification on Fold3 (API 33) and S25 (API 37); remaining API levels covered by offline matrix fixtures.",
+      "boundary": "API level reports OS eligibility, not hardware/OEM certification. Presence of an API does not guarantee OEM feature support.",
+      "mapped_cli_commands": [
+        "adapt android versions",
+        "adapt android capabilities"
+      ],
+      "mapped_mcp_tools": [
+        "android_versions",
+        "android_capabilities"
+      ],
+      "generic_examples": [
+        "adapt android versions",
+        "adapt android capabilities -s SERIAL --json"
+      ]
+    },
+    {
+      "id": "10",
+      "area": "Root, ROM and bootloader detection",
+      "entry": "adapt detect scan/inspect",
+      "capability": "Passive observation of ADB and fastboot endpoints, SU candidates, custom ROM properties (Lineage, crDroid), and bootloader lock state.",
+      "maturity": "Offline-tested",
+      "evidence": "Tested across various property dumps and mock outputs in tests/test_device_state.py.",
+      "boundary": "Zero transitions: no reboot, flashing, or unlocking. Absence of SU binary does not prove a device is stock unrooted. Samsung Download mode is not fastboot.",
+      "mapped_cli_commands": [
+        "adapt detect scan",
+        "adapt detect inspect"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt detect scan --transport all",
+        "adapt detect inspect -s SERIAL --transport adb --json"
+      ]
+    },
+    {
+      "id": "11",
+      "area": "Recoverable developer profiles",
+      "entry": "adapt dev-options apply/inspect/restore",
+      "capability": "13 inspected settings across Global, System, and Secure tables; 4 profiles (fast-ui, touches, desktop-testing, stay-awake) with conflict-aware snapshots.",
+      "maturity": "Live / partial",
+      "evidence": "Live stay-awake inspection on Fold3/S25; snapshot creation, atomic write, and rollback tested in tests/test_dev_options.py.",
+      "boundary": "Mutates only allowlisted keys. Restores only if current device value matches snapshot target or original; flags external conflicts.",
+      "mapped_cli_commands": [
+        "adapt dev-options apply",
+        "adapt dev-options inspect",
+        "adapt dev-options restore"
+      ],
+      "mapped_mcp_tools": [
+        "developer_options_inspect"
+      ],
+      "generic_examples": [
+        "adapt dev-options inspect -s SERIAL --json",
+        "adapt dev-options apply --profile stay-awake -s SERIAL --snapshot stay-awake.json",
+        "adapt dev-options restore -s SERIAL --snapshot stay-awake.json"
+      ]
+    },
+    {
+      "id": "12",
+      "area": "App/build/debug validation",
+      "entry": "adapt app; adapt debug",
+      "capability": "Package installation status, version code, and debuggability validation; debug app inspection and command planning; build terminology.",
+      "maturity": "Offline-tested",
+      "evidence": "Tested across app validation, debug configuration, and build mode fixtures in tests/test_development.py.",
+      "boundary": "Validates installed state via pm/dumpsys. Does not attach debugger, launch processes, verify cryptographic APK signatures, or infer R8.",
+      "mapped_cli_commands": [
+        "adapt app validate",
+        "adapt app build-modes",
+        "adapt debug inspect",
+        "adapt debug plan"
+      ],
+      "mapped_mcp_tools": [
+        "app_validate",
+        "debug_app_inspect",
+        "build_modes"
+      ],
+      "generic_examples": [
+        "adapt app validate -s SERIAL --package com.example.app --expect-debuggable false --json",
+        "adapt debug inspect -s SERIAL --json",
+        "adapt debug plan -s SERIAL --package com.example.app --wait --json"
+      ]
+    },
+    {
+      "id": "13",
+      "area": "Logs and vendor diagnostics",
+      "entry": "adapt logs capture/diagnostic/guide",
+      "capability": "Bounded app-UID logcat extraction (main/crash buffers), fixed-tag system diagnostics (window, dex, print), and vendor logging documentation.",
+      "maturity": "Live / partial",
+      "evidence": "Live DeX system-log capture on Fold3; log capture and tag filtering tested in tests/test_diagnostics.py.",
+      "boundary": "Read-only bounded extraction (max 500 lines). Never runs logcat -c. Logs may contain private data. Empty logcat is not proof of no crash.",
+      "mapped_cli_commands": [
+        "adapt logs capture",
+        "adapt logs diagnostic",
+        "adapt logs guide"
+      ],
+      "mapped_mcp_tools": [
+        "app_logs",
+        "diagnostic_logs",
+        "logging_guide",
+        "logcat_tail"
+      ],
+      "generic_examples": [
+        "adapt logs capture -s SERIAL --package com.example.app --lines 200 --output app-logs.json",
+        "adapt logs diagnostic -s SERIAL --topic window --minutes 2 --output window.json",
+        "adapt logs guide --topic samsung"
+      ]
+    },
+    {
+      "id": "14",
+      "area": "Generic desktop app testing",
+      "entry": "adapt desktop enable/inspect/plan/start",
+      "capability": "Inspect secondary display eligibility, apply recoverable desktop/freeform options, and launch apps in isolated virtual displays via scrcpy.",
+      "maturity": "Offline-tested",
+      "evidence": "Virtual display planning, parameter validation, and scrcpy command construction tested in tests/test_desktop.py.",
+      "boundary": "Virtual displays test Android multi-window app behavior; they do not prove Samsung DeX or desktop window manager decorations.",
+      "mapped_cli_commands": [
+        "adapt desktop enable",
+        "adapt desktop inspect",
+        "adapt desktop plan",
+        "adapt desktop start"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt desktop inspect -s SERIAL --json",
+        "adapt desktop plan -s SERIAL --app com.example.app --size 1920x1080 --dpi 160 --json",
+        "adapt desktop start -s SERIAL --app com.example.app --size 1920x1080 --dpi 160 --yes"
+      ]
+    },
+    {
+      "id": "15",
+      "area": "Samsung DeX and PC bridge",
+      "entry": "adapt dex",
+      "capability": "Logical display discovery, dual-mirroring with scrcpy, temporary Java bridge probe, and experimental PC receiver session lifecycle supervision.",
+      "maturity": "Live prototype",
+      "evidence": "Live dual-mirroring, display inspection, and native Windows receiver prototype verified on physical Fold3; 1 controlled reconnect passed.",
+      "boundary": "Native receiver is experimental source, manually built and outside the Python package. Display targeting requires fresh runtime evidence; no display ID is fixed.",
+      "mapped_cli_commands": [
+        "adapt dex inspect",
+        "adapt dex list-displays",
+        "adapt dex mirror",
+        "adapt dex pc-attach",
+        "adapt dex pc-plan",
+        "adapt dex pc-probe",
+        "adapt dex pc-receiver-plan",
+        "adapt dex pc-restore",
+        "adapt dex pc-start",
+        "adapt dex pc-status",
+        "adapt dex pc-stop",
+        "adapt dex plan-dual-mirror"
+      ],
+      "mapped_mcp_tools": [
+        "dex_inspect",
+        "dex_displays"
+      ],
+      "generic_examples": [
+        "adapt dex inspect -s SERIAL --json",
+        "adapt dex list-displays -s SERIAL",
+        "adapt dex mirror -s SERIAL --dex-display 2 --yes",
+        "adapt dex pc-start -s SERIAL --method loopback --snapshot dex-session.json --yes",
+        "adapt dex pc-stop --snapshot dex-session.json"
+      ]
+    },
+    {
+      "id": "16",
+      "area": "SSH workers and hypervisors",
+      "entry": "adapt ssh",
+      "capability": "Explicit remote worker inspection, strict OpenSSH option enforcement (BatchMode, strict host checking), and MCP-over-SSH configuration output.",
+      "maturity": "Offline-tested",
+      "evidence": "Command line generation, PowerShell encoding, and strict option validation tested in tests/test_ssh_worker.py.",
+      "boundary": "Architecture guidance for hypervisors (Proxmox, VMware, Hyper-V, VirtualBox, XCP-ng); no hypervisor API adapters or live SSH acceptance.",
+      "mapped_cli_commands": [
+        "adapt ssh mcp-config",
+        "adapt ssh plan",
+        "adapt ssh run",
+        "adapt ssh status"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt ssh status --json",
+        "adapt ssh plan android-worker --operation doctor --json",
+        "adapt ssh run android-worker --operation inspect --device SERIAL --json",
+        "adapt ssh mcp-config android-worker --device SERIAL --json"
+      ]
+    },
+    {
+      "id": "17",
+      "area": "Tailscale mode",
+      "entry": "adapt tailscale",
+      "capability": "13 leaf operations for peer discovery, TCP port probing, pairing/connecting over tailnet, guarded remote ADB commands, and worker integration.",
+      "maturity": "Live / partial",
+      "evidence": "Local peer status parsing, pairing verification on S25, and mock suite in tests/test_tailscale_mode.py.",
+      "boundary": "An online peer does not prove an active ADB listener. On the tested Samsung firmware service.adb.tls.port was empty, creating a verification gap for the strict TLS check.",
+      "mapped_cli_commands": [
+        "adapt tailscale adb",
+        "adapt tailscale check",
+        "adapt tailscale connect",
+        "adapt tailscale disconnect",
+        "adapt tailscale guide",
+        "adapt tailscale pair",
+        "adapt tailscale peers",
+        "adapt tailscale plan",
+        "adapt tailscale probe",
+        "adapt tailscale status",
+        "adapt tailscale worker-mcp-config",
+        "adapt tailscale worker-plan",
+        "adapt tailscale worker-run"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt tailscale status --json",
+        "adapt tailscale peers",
+        "adapt tailscale probe --peer PHONE_PEER --port CONNECT_PORT",
+        "adapt tailscale pair --peer PHONE_PEER --port PAIR_PORT",
+        "adapt tailscale connect --peer PHONE_PEER --port CONNECT_PORT --json",
+        "adapt tailscale check --peer PHONE_PEER --port CONNECT_PORT --json",
+        "adapt tailscale adb --peer PHONE_PEER --port CONNECT_PORT -- shell getprop ro.product.model",
+        "adapt tailscale disconnect --peer PHONE_PEER --port CONNECT_PORT --yes"
+      ]
+    },
+    {
+      "id": "18",
+      "area": "Rapid ADAPT",
+      "entry": "adapt rapid plan",
+      "capability": "Structured plan generation for the focused testing cycle: check -> prepare -> reproduce -> capture -> restore.",
+      "maturity": "Guidance / planning",
+      "evidence": "Plan validation and JSON schema structure tested in tests/test_development.py.",
+      "boundary": "Explain-only plan. Generates commands but executes none; not an automated journey runner or session rollback supervisor.",
+      "mapped_cli_commands": [
+        "adapt rapid plan"
+      ],
+      "mapped_mcp_tools": [],
+      "generic_examples": [
+        "adapt rapid plan -s SERIAL --package com.example.app --session-dir test-session --json",
+        "adapt rapid plan -s SERIAL --package com.example.app --fast-ui"
+      ]
+    },
+    {
+      "id": "19",
+      "area": "AI / MCP access",
+      "entry": "adapt mcp",
+      "capability": "Local stdio Model Context Protocol (MCP) server offering 24 tools (19 read-only, 5 mutating) with exact transport filtering and bounded outputs.",
+      "maturity": "Offline-tested",
+      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py.",
+      "boundary": "No live external AI client registration or live MCP-over-SSH exercised. DeX MCP input currently lacks explicit display targeting (assumes phone display).",
+      "mapped_cli_commands": [
+        "adapt mcp"
+      ],
+      "mapped_mcp_tools": [
+        "doctor",
+        "setup_status",
+        "list_devices",
+        "device_info",
+        "screenshot",
+        "ui_summary",
+        "tap",
+        "swipe",
+        "key",
+        "type",
+        "install_apk",
+        "logcat_tail",
+        "dex_inspect",
+        "dex_displays",
+        "android_versions",
+        "android_capabilities",
+        "developer_options_inspect",
+        "tool_catalog",
+        "app_validate",
+        "app_logs",
+        "debug_app_inspect",
+        "diagnostic_logs",
+        "logging_guide",
+        "build_modes"
+      ],
+      "generic_examples": [
+        "adapt mcp --read-only",
+        "adapt mcp --read-only --device SERIAL",
+        "codex mcp add adapt -- adapt mcp --read-only"
+      ]
+    }
+  ]
+}

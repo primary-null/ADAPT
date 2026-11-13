@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ADAPT Showcase</title>
+<meta name="description" content="Interactive visual tour of ADAPT 0.1.0: nine generated, source-derived terminal illustrations and one actual offline CLI capture.">
+<style>
+:root{
+  --fb-fg:#14201a; --fb-muted:#4d5d55; --fb-card:#ffffff; --fb-border:#c9d5ce; --fb-soft:#eef3f0;
+  --t-bg:#0b110e; --t-bar:#121b16; --t-fg:#c9d4ce; --t-dim:#7f8c85;
+  --acc:#1c8c4e; --acc-soft:rgba(75,227,122,.16);
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{--fb-fg:#e4ece7; --fb-muted:#9fb0a7; --fb-card:#151c18; --fb-border:#2a362f; --fb-soft:#1b241f; --acc:#2fa965;}
+}
+:root{
+  --c-fg:var(--foreground,var(--fb-fg));
+  --c-muted:var(--muted-foreground,var(--fb-muted));
+  --c-card:var(--card,var(--fb-card));
+  --c-border:var(--border,var(--fb-border));
+  --c-soft:var(--fb-soft);
+  --r:var(--radius,12px);
+  --mono:var(--font-mono,ui-monospace,"Cascadia Mono","SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace);
+  --sans:var(--font-sans,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;background:transparent;color:var(--c-fg);font-family:var(--sans);line-height:1.5}
+body{font-size:15px}
+main{max-width:78rem;margin:0 auto;display:grid;gap:12px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.card{background:var(--c-card);border:1px solid var(--c-border);border-radius:var(--r);padding:16px}
+h1,h2,h3,p{margin:0}
+h2{font-size:1.05rem;line-height:1.3}
+h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted);margin:14px 0 6px}
+h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
+code{font-family:var(--mono);font-size:.85em;background:var(--c-soft);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
+a{color:inherit;text-underline-offset:3px}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* hero */
+.hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;align-items:center}
+.logo-box{background:var(--t-bg);border-radius:calc(var(--r) - 2px);padding:18px 22px;overflow:hidden;max-width:100%}
+.logo,.subtitle{margin:0;font-family:var(--mono);color:var(--t-fg);white-space:pre}
+.logo{font-size:clamp(11px,3.4vw,19px);line-height:1.04}
+.subtitle{font-size:clamp(7px,1.9vw,11.5px);letter-spacing:.02em;margin-top:.9em;color:#9aa7a0;text-align:center}
+.l0{color:#00ff00}.l1{color:#87ff87}.l2{color:#fff}.l3{color:#ccc}.l4{color:#808080}
+.logo .c{display:inline-block;opacity:1}
+.logo.anim .c{animation:sheen 4.2s ease-in-out infinite;animation-delay:calc((var(--col) - 33) * 55ms)}
+@keyframes sheen{0%,62%,100%{opacity:.82;filter:brightness(.92)}14%{opacity:1;filter:brightness(1.5)}30%{opacity:.92;filter:brightness(1)}}
+.lede{margin-top:6px;color:var(--c-muted)}
+.lede strong{color:var(--c-fg)}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center}
+.btn{background:var(--c-soft);border:1px solid var(--c-border);border-radius:calc(var(--r) - 4px);padding:7px 12px;min-height:36px}
+.btn:hover{border-color:var(--acc)}
+.btn[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.meter{display:flex;gap:4px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.meter i{display:block;width:26px;height:14px;border-radius:4px;border:1px solid var(--c-muted);
+  background:repeating-linear-gradient(135deg,transparent 0 3px,var(--c-border) 3px 6px)}
+.meter i.real{background:var(--acc);border-color:var(--acc)}
+.meter span{margin-left:8px;font-size:.88rem}
+.fine{font-size:.82rem;color:var(--c-muted);margin-top:6px}
+
+/* legend */
+.legend{display:grid;gap:10px}
+.legend-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.legend h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted)}
+.chip{font:12px/1 var(--mono);background:var(--t-bg);color:var(--t-fg);padding:5px 8px;border-radius:6px;display:inline-flex;gap:6px;align-items:center}
+.legend p{font-size:.88rem}
+
+/* picker */
+.pickbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.picker{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;flex:1 1 30rem}
+.picker button{display:inline-flex;gap:7px;align-items:center;background:var(--c-soft);border:1px solid var(--c-border);
+  border-radius:calc(var(--r) - 4px);padding:7px 11px;min-height:38px;font-size:.88rem}
+.picker button:hover{border-color:var(--acc)}
+.picker button[aria-current="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.picker .n{font:700 .78rem var(--mono);opacity:.85}
+.picker .k{width:8px;height:8px;border-radius:50%;border:1.5px solid currentColor;display:inline-block}
+.picker .k.real{background:currentColor}
+.navs{display:flex;gap:6px;align-items:center}
+.pos{font:.82rem var(--mono);color:var(--c-muted);min-width:5.5ch;text-align:center}
+
+/* panels */
+.panels{display:grid;gap:12px}
+.panel[hidden]{display:none}
+.all-views .panels{grid-template-columns:repeat(auto-fit,minmax(min(100%,40rem),1fr))}
+.panel{container-type:inline-size;display:flex;flex-direction:column;gap:10px;min-width:0}
+.phead{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.phead h2{flex:1 1 12rem}
+.num{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--c-soft);
+  border:1px solid var(--c-border);font:700 .8rem var(--mono)}
+.badge{font:700 .68rem/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;padding:6px 10px;border-radius:999px}
+.badge.gen{border:1px dashed var(--c-muted)}
+.badge.act{background:var(--acc);color:#fff;border:1px solid var(--acc)}
+.blurb{color:var(--c-muted);font-size:.92rem}
+.pbody{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);align-items:start}
+@container (min-width:56rem){.pbody{grid-template-columns:minmax(0,max-content) minmax(0,1fr)}}
+.term{background:var(--t-bg);border:1px solid #223028;border-radius:calc(var(--r) - 2px);overflow:hidden;min-width:0;max-width:100%}
+.term-bar{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;background:var(--t-bar);color:var(--t-dim);font:12px var(--mono)}
+.term-bar .cmd{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.term-bar .tag{white-space:nowrap;border:1px solid #2c3b33;border-radius:999px;padding:1px 8px}
+.term-body{margin:0;padding:12px;height:calc(var(--rows) * 1.45em + 26px);overflow:auto;font:13px/1.45 var(--mono);
+  color:var(--t-fg);white-space:pre;tab-size:4}
+.ln{display:block;min-height:1.45em;border-left:2px solid transparent;padding-left:6px;margin-left:-8px}
+.term-body[data-active] .ln{opacity:.34}
+.term-body[data-active] .ln.on{opacity:1;background:var(--acc-soft);border-left-color:#4be37a}
+.c-t{color:#c9d4ce}.c-w{color:#fff;font-weight:700}.c-d{color:#7f8c85}.c-g{color:#4be37a}.c-y{color:#e8c14a}
+.c-r{color:#f06a6a}.c-pg{color:#87ff87}.c-L0{color:#00ff00}.c-L1{color:#87ff87}.c-L2{color:#fff}.c-L3{color:#ccc}.c-L4{color:#808080}
+.side{min-width:0}
+.kind{font-size:.88rem}
+.hls{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.hls li{display:grid;gap:3px;font-size:.88rem}
+.hl{justify-self:start;text-align:left;background:var(--c-soft);border:1px solid var(--c-border);
+  border-radius:calc(var(--r) - 4px);padding:5px 10px;font-weight:600;font-size:.85rem}
+.hl:hover{border-color:var(--acc)}
+.hl[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.hls span{color:var(--c-muted)}
+.src{margin-top:12px;font-size:.86rem}
+.src summary{cursor:pointer;font-weight:600}
+.src ul{margin:8px 0;padding-left:1.1rem;display:grid;gap:3px}
+.src p{color:var(--c-muted)}
+.prov{margin-top:12px;font-size:.86rem}
+.prov dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:6px 0}
+.prov dt{color:var(--c-muted)}
+.prov dd{margin:0;overflow-wrap:anywhere}
+.links{margin-top:6px}
+
+/* notes */
+.notes ul{margin:8px 0 0;padding-left:1.15rem;display:grid;gap:6px;font-size:.9rem}
+.notes h2{font-size:1rem}
+@media (max-width:40rem){
+  .hero{grid-template-columns:minmax(0,1fr)}
+  .logo-box{padding:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  .logo.anim .c{animation:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body style="--rows:26">
+<main id="top">
+  <h1 class="sr-only">ADAPT, the Android Device Agent Provisioning Toolkit: visual showcase</h1>
+
+  <section class="card hero" aria-label="ADAPT title">
+    <div class="logo-box" aria-hidden="true">
+      <pre class="logo"> <span class="c l0" style="--col:1">█</span><span class="c l0" style="--col:2">█</span><span class="c l0" style="--col:3">█</span>   <span class="c l1" style="--col:7">▓</span><span class="c l1" style="--col:8">▓</span><span class="c l1" style="--col:9">▓</span><span class="c l1" style="--col:10">▓</span>    <span class="c l2" style="--col:15">█</span><span class="c l2" style="--col:16">█</span><span class="c l2" style="--col:17">█</span>   <span class="c l3" style="--col:21">▓</span><span class="c l3" style="--col:22">▓</span><span class="c l3" style="--col:23">▓</span><span class="c l3" style="--col:24">▓</span>   <span class="c l4" style="--col:28">▒</span><span class="c l4" style="--col:29">▒</span><span class="c l4" style="--col:30">▒</span><span class="c l4" style="--col:31">▒</span><span class="c l4" style="--col:32">▒</span>
+<span class="c l0" style="--col:0">█</span><span class="c l0" style="--col:1">█</span> <span class="c l0" style="--col:3">█</span><span class="c l0" style="--col:4">█</span>  <span class="c l1" style="--col:7">▓</span><span class="c l1" style="--col:8">▓</span> <span class="c l1" style="--col:10">▓</span><span class="c l1" style="--col:11">▓</span>  <span class="c l2" style="--col:14">█</span><span class="c l2" style="--col:15">█</span> <span class="c l2" style="--col:17">█</span><span class="c l2" style="--col:18">█</span>  <span class="c l3" style="--col:21">▓</span><span class="c l3" style="--col:22">▓</span> <span class="c l3" style="--col:24">▓</span><span class="c l3" style="--col:25">▓</span>    <span class="c l4" style="--col:30">▒</span>  
+<span class="c l0" style="--col:0">█</span><span class="c l0" style="--col:1">█</span><span class="c l0" style="--col:2">█</span><span class="c l0" style="--col:3">█</span><span class="c l0" style="--col:4">█</span>  <span class="c l1" style="--col:7">▓</span><span class="c l1" style="--col:8">▓</span> <span class="c l1" style="--col:10">▓</span><span class="c l1" style="--col:11">▓</span>  <span class="c l2" style="--col:14">█</span><span class="c l2" style="--col:15">█</span><span class="c l2" style="--col:16">█</span><span class="c l2" style="--col:17">█</span><span class="c l2" style="--col:18">█</span>  <span class="c l3" style="--col:21">▓</span><span class="c l3" style="--col:22">▓</span><span class="c l3" style="--col:23">▓</span><span class="c l3" style="--col:24">▓</span>     <span class="c l4" style="--col:30">▒</span>  
+<span class="c l0" style="--col:0">█</span><span class="c l0" style="--col:1">█</span> <span class="c l0" style="--col:3">█</span><span class="c l0" style="--col:4">█</span>  <span class="c l1" style="--col:7">▓</span><span class="c l1" style="--col:8">▓</span> <span class="c l1" style="--col:10">▓</span><span class="c l1" style="--col:11">▓</span>  <span class="c l2" style="--col:14">█</span><span class="c l2" style="--col:15">█</span> <span class="c l2" style="--col:17">█</span><span class="c l2" style="--col:18">█</span>  <span class="c l3" style="--col:21">▓</span><span class="c l3" style="--col:22">▓</span>       <span class="c l4" style="--col:30">▒</span>  
+<span class="c l0" style="--col:0">█</span><span class="c l0" style="--col:1">█</span> <span class="c l0" style="--col:3">█</span><span class="c l0" style="--col:4">█</span>  <span class="c l1" style="--col:7">▓</span><span class="c l1" style="--col:8">▓</span><span class="c l1" style="--col:9">▓</span><span class="c l1" style="--col:10">▓</span>   <span class="c l2" style="--col:14">█</span><span class="c l2" style="--col:15">█</span> <span class="c l2" style="--col:17">█</span><span class="c l2" style="--col:18">█</span>  <span class="c l3" style="--col:21">▓</span><span class="c l3" style="--col:22">▓</span>       <span class="c l4" style="--col:30">▒</span>  </pre>
+      <p class="subtitle">ANDROID DEVICE AGENT PROVISIONING TOOLKIT</p>
+    </div>
+    <div>
+      <p class="lede"><strong>ADAPT 0.1.0</strong> &middot; MIT &middot; Python 3.11+. A visual tour of ten terminal views.
+        Nine are <strong>generated illustrations</strong> built from the source with synthetic values; nothing was run on a host or device to make them.
+        One is the <strong>actual output</strong> of an offline CLI command, rendered to an image.</p>
+      <div class="meter" role="img" aria-label="Nine of ten views generated, one actual"><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class="real"></i><span>9 generated + 1 actual</span></div>
+      <p class="fine">&ldquo;9 of 10&rdquo; counts equal showcase views. It is not a pixel measurement of how much is generated or real.</p>
+      <div class="controls">
+        <button type="button" class="btn" id="motion" aria-pressed="false">Pause title animation</button>
+        <button type="button" class="btn" id="mode" aria-pressed="false">Show all 10 views</button>
+      </div>
+      <p class="fine">The title animation is a branding effect for this page and the README only. The terminal banner itself stays static.</p>
+    </div>
+  </section>
+
+  <section class="card legend" aria-labelledby="legend-h">
+    <h2 id="legend-h">How to read this page</h2>
+    <div class="legend-row">
+      <span class="badge gen">Generated</span><span>Illustration derived from source, synthetic values, not a run.</span>
+    </div>
+    <div class="legend-row">
+      <span class="badge act">Actual</span><span>Real offline stdout, normalized line endings, verified by hash.</span>
+    </div>
+    <div class="legend-row"><span>Status words:</span><span class="chip"><span class="c-g">READY</span></span><span class="chip"><span class="c-y">WAITING</span></span><span class="chip"><span class="c-r">BLOCKED</span></span><span class="chip"><span class="c-d">SKIP</span></span>
+      <span>Banner letters:</span><span class="chip"><span class="c-L0">A</span><span class="c-L1">D</span><span class="c-L2">A</span><span class="c-L3">P</span><span class="c-L4">T</span></span></div>
+    <p>Pick a view, then press a <em>highlight</em> to light the matching terminal lines. Arrow keys move along the picker. Press Esc inside a terminal to clear highlights.</p>
+  </section>
+
+  <section class="card" aria-label="View picker">
+    <div class="pickbar">
+      <ul class="picker"><li><button type="button" data-view="1" aria-controls="view-1"><span class="n">01</span>Home<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="2" aria-controls="view-2"><span class="n">02</span>Host doctor<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="3" aria-controls="view-3"><span class="n">03</span>Developer profiles<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="4" aria-controls="view-4"><span class="n">04</span>Tool catalog and ROM plans<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="5" aria-controls="view-5"><span class="n">05</span>Android matrix<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="6" aria-controls="view-6"><span class="n">06</span>Tailscale stages<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="7" aria-controls="view-7"><span class="n">07</span>DeX native (experimental)<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="8" aria-controls="view-8"><span class="n">08</span>Rapid ADAPT plan<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="9" aria-controls="view-9"><span class="n">09</span>MCP and SSH access<span class="k" aria-hidden="true"></span><span class="sr-only">(generated illustration)</span></button></li><li><button type="button" data-view="10" aria-controls="view-10"><span class="n">10</span>Actual CLI output<span class="k real" aria-hidden="true"></span><span class="sr-only">(actual capture)</span></button></li></ul>
+      <div class="navs">
+        <button type="button" class="btn" id="prev" aria-label="Previous view">&larr;</button>
+        <span class="pos" id="pos" aria-live="polite">1 / 10</span>
+        <button type="button" class="btn" id="next" aria-label="Next view">&rarr;</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="panels">
+<article class="panel card" id="view-1" data-kind="generated" aria-labelledby="h-1">
+  <header class="phead">
+    <span class="num" aria-hidden="true">1</span>
+    <h2 id="h-1">Home screen with the original banner</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">The console&#x27;s main menu under the real green-white-gray banner (static in the terminal).</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt console</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 1: Home"><span class="ln" data-h="mask fade"><span class="c-t">                  </span><span class="c-L0"> ███ </span><span class="c-t">  </span><span class="c-L1">▓▓▓▓ </span><span class="c-t">  </span><span class="c-L2"> ███ </span><span class="c-t">  </span><span class="c-L3">▓▓▓▓ </span><span class="c-t">  </span><span class="c-d">▒▒▒▒▒</span></span><span class="ln" data-h="mask fade"><span class="c-t">                  </span><span class="c-L0">██ ██</span><span class="c-t">  </span><span class="c-L1">▓▓ ▓▓</span><span class="c-t">  </span><span class="c-L2">██ ██</span><span class="c-t">  </span><span class="c-L3">▓▓ ▓▓</span><span class="c-t">  </span><span class="c-d">  ▒  </span></span><span class="ln" data-h="mask fade"><span class="c-t">                  </span><span class="c-L0">█████</span><span class="c-t">  </span><span class="c-L1">▓▓ ▓▓</span><span class="c-t">  </span><span class="c-L2">█████</span><span class="c-t">  </span><span class="c-L3">▓▓▓▓ </span><span class="c-t">  </span><span class="c-d">  ▒  </span></span><span class="ln" data-h="mask fade"><span class="c-t">                  </span><span class="c-L0">██ ██</span><span class="c-t">  </span><span class="c-L1">▓▓ ▓▓</span><span class="c-t">  </span><span class="c-L2">██ ██</span><span class="c-t">  </span><span class="c-L3">▓▓   </span><span class="c-t">  </span><span class="c-d">  ▒  </span></span><span class="ln" data-h="mask fade"><span class="c-t">                  </span><span class="c-L0">██ ██</span><span class="c-t">  </span><span class="c-L1">▓▓▓▓ </span><span class="c-t">  </span><span class="c-L2">██ ██</span><span class="c-t">  </span><span class="c-L3">▓▓   </span><span class="c-t">  </span><span class="c-d">  ▒  </span></span><span class="ln"></span><span class="ln"><span class="c-t">              ANDROID DEVICE AGENT PROVISIONING TOOLKIT</span></span><span class="ln"></span><span class="ln"><span class="c-w">ADAPT / MAIN MENU</span></span><span class="ln"></span><span class="ln" data-h="nav"><span class="c-t">Choose an area. Supply a device explicitly when running its command.</span></span><span class="ln" data-h="areas"><span class="c-g">[1]</span><span class="c-t"> Host, drivers &amp; setup</span></span><span class="ln" data-h="areas"><span class="c-g">[2]</span><span class="c-t"> Devices, wireless &amp; Tailscale</span></span><span class="ln" data-h="areas"><span class="c-g">[3]</span><span class="c-t"> Apps &amp; developer testing</span></span><span class="ln" data-h="areas"><span class="c-g">[4]</span><span class="c-t"> Displays &amp; Samsung DeX</span></span><span class="ln" data-h="areas"><span class="c-g">[5]</span><span class="c-t"> Tools, ROM workflows &amp; Give Me Everything</span></span><span class="ln" data-h="areas"><span class="c-g">[6]</span><span class="c-t"> AI / MCP &amp; SSH workers</span></span><span class="ln" data-h="areas rapid"><span class="c-g">[7]</span><span class="c-t"> Rapid ADAPT</span></span><span class="ln" data-h="areas"><span class="c-g">[8]</span><span class="c-t"> Logs, help &amp; preferences</span></span><span class="ln" data-h="areas"><span class="c-g">[9]</span><span class="c-t"> All ADAPT commands</span></span><span class="ln"></span><span class="ln"><span class="c-d">Page 1/1</span></span><span class="ln" data-h="nav"><span class="c-t">[H] Home   [B] Back   [N/P] Page   [Q] Exit</span></span><span class="ln"><span class="c-t">ADAPT &gt; </span><span class="c-w">_</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="mask" aria-pressed="false">68% fill mask</button><span>85 of 125 cells are filled across five 5x5 letter masks. Computed from the mask in banner.py when this page is built.</span></li><li><button type="button" class="hl" data-h="fade" aria-pressed="false">Green, white, gray</button><span>Letter colors are ANSI 46, 120, 97, 37 and 90 with shades █ ▓ █ ▓ ▒. The terminal banner is static; only this page animates the title.</span></li><li><button type="button" class="hl" data-h="areas" aria-pressed="false">Nine areas</button><span>The list is read from AREAS in terminal_ui.py. Rapid ADAPT is area 7 of the same application.</span></li><li><button type="button" class="hl" data-h="nav" aria-pressed="false">Nothing runs on open</button><span>Opening menus performs no host or device check and installs nothing (docs/console.md).</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/banner.py</code></li><li><code>src/adapt_adb/terminal_ui.py</code></li><li><code>docs/console.md</code></li></ul>
+        <p>Illustration of one screen. Real terminals size the banner to their width and honor NO_COLOR, TERM=dumb and --no-banner.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-2" data-kind="generated" aria-labelledby="h-2">
+  <header class="phead">
+    <span class="num" aria-hidden="true">2</span>
+    <h2 id="h-2">Host check and preflight (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">The real console report renderer fed a synthetic report, so the layout and state words are the product&#x27;s own.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt doctor</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 2: Host doctor"><span class="ln"><span class="c-t">ADAPT / HOST CHECK  |  WAITING</span></span><span class="ln"><span class="c-t">----------------------------------------------------------------</span></span><span class="ln"><span class="c-t">  OS: Windows 11 (x86_64)</span></span><span class="ln"><span class="c-t">  ADB Version: 35.0.2</span></span><span class="ln"><span class="c-t">  ADB Path: %LOCALAPPDATA%\Android\platform-tools\adb.exe</span></span><span class="ln"><span class="c-t">  Origin: google_official</span></span><span class="ln" data-h="ladder"><span class="c-t">  Status: device_unauthorized_or_no_permissions (exit code 2)</span></span><span class="ln"></span><span class="ln"><span class="c-t">CHECKS</span></span><span class="ln" data-h="states daemon"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    ADB daemon / port 5037 free or owned by this user; versions</span></span><span class="ln"><span class="c-t">  match</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    Platform-Tools / adb found on PATH</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    ADB version / platform-tools 34.0.0 or newer</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    Distribution source / Google official distribution</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    Command path / no shadowing adb earlier on PATH</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    Android SDK / left untouched</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-g">READY</span><span class="c-t">    Windows USB driver / no USB driver problem reported</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-d">SKIP</span><span class="c-t">     Linux USB access / Linux-only check</span></span><span class="ln" data-h="states"><span class="c-t">  </span><span class="c-y">WAITING</span><span class="c-t">  Device transports / 1 transport is unauthorized</span></span><span class="ln"></span><span class="ln"><span class="c-t">TRANSPORTS / reported connection counts</span></span><span class="ln"><span class="c-t">  device=0  unauthorized=1  offline=0  no_permissions=0  other=0</span></span><span class="ln"></span><span class="ln" data-h="next"><span class="c-t">Next: ACTIONS</span></span><span class="ln" data-h="next"><span class="c-t">  [1] Run checks again</span></span><span class="ln" data-h="next"><span class="c-t">  [q] Exit</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="ladder" aria-pressed="false">Exit-code ladder</button><span>3 unsafe shared server, then 1 missing toolchain, then 2 device unauthorized, then 0 ok. The highest-precedence failure wins (docs/doctor.md).</span></li><li><button type="button" class="hl" data-h="states" aria-pressed="false">Four states</button><span>READY, WAITING, BLOCKED and SKIP. Status is always text; color only adds emphasis (console.py).</span></li><li><button type="button" class="hl" data-h="daemon" aria-pressed="false">Daemon checked first</button><span>Port 5037 ownership and version are evaluated before adb devices -l, so a mismatch can never trigger a client auto-kill.</span></li><li><button type="button" class="hl" data-h="next" aria-pressed="false">Next actions</button><span>Interactive terminals get a numbered Next menu. --json and pipes never prompt.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/console.py</code></li><li><code>src/adapt_adb/doctor.py</code></li><li><code>docs/doctor.md</code></li></ul>
+        <p>Synthetic report. No host check ran; paths are the documented %LOCALAPPDATA% location, not a real machine.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-3" data-kind="generated" aria-labelledby="h-3">
+  <header class="phead">
+    <span class="num" aria-hidden="true">3</span>
+    <h2 id="h-3">Developer Options profiles with recovery (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">Four fixed profiles and the snapshot lifecycle that makes each one reversible.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt dev-options apply --profile ...</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 3: Developer profiles"><span class="ln"><span class="c-w">ADAPT / DEV-OPTIONS</span><span class="c-t">  |  4 bounded profiles</span></span><span class="ln"><span class="c-d">----------------------------------------------------------------</span></span><span class="ln" data-h="identity"><span class="c-t">Target  -s DEMO-PIXEL-7A2F  </span><span class="c-d">(synthetic; serial always explicit)</span></span><span class="ln" data-h="identity"><span class="c-t">Bound   ro.serialno + build fingerprint + current Android user</span></span><span class="ln"></span><span class="ln"><span class="c-pg">PROFILE</span><span class="c-t">          </span><span class="c-pg">WRITES</span><span class="c-t">                 </span><span class="c-d">(inspect reads 13 keys)</span></span><span class="ln" data-h="profiles"><span class="c-t">fast-ui          3 animation scales -&gt; 0</span></span><span class="ln" data-h="profiles"><span class="c-t">touches          system show_touches -&gt; 1</span></span><span class="ln" data-h="profiles"><span class="c-t">stay-awake       stay_on_while_plugged_in |= 2 (keeps AC bits)</span></span><span class="ln" data-h="profiles"><span class="c-t">desktop-testing  enable_freeform_support -&gt; 1</span></span><span class="ln" data-h="profiles"><span class="c-t">                 force_desktop_mode_on_external_displays -&gt; 1</span></span><span class="ln"></span><span class="ln" data-h="snapshot"><span class="c-pg">RECOVERY RECORD</span><span class="c-t">  new file, created exclusively before 1st write</span></span><span class="ln" data-h="snapshot"><span class="c-t">  holds: identity, each original value (or &#x27;absent&#x27;), intent</span></span><span class="ln" data-h="snapshot"><span class="c-t">  existing path / dangling symlink is never overwritten</span></span><span class="ln"></span><span class="ln" data-h="restore"><span class="c-pg">LIFECYCLE</span></span><span class="ln" data-h="restore"><span class="c-t">  prepared -&gt; applying -&gt; applied   (every write read back)</span></span><span class="ln" data-h="restore"><span class="c-t">  applying -&gt; partial_failure       (rollback keeps the record)</span></span><span class="ln" data-h="restore"><span class="c-t">  applied -&gt; restoring -&gt; restored</span></span><span class="ln" data-h="restore"><span class="c-t">  changed meanwhile -&gt; </span><span class="c-y">restore_conflict</span><span class="c-t">, not overwritten</span></span><span class="ln"></span><span class="ln" data-h="snapshot"><span class="c-t">$ adapt dev-options apply --profile stay-awake -s DEMO-PIXEL-7A2F \</span></span><span class="ln" data-h="snapshot"><span class="c-t">      --snapshot snapshots/stay-awake.json</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="profiles" aria-pressed="false">Fixed profiles only</button><span>Profile values are asserted against dev_options._PROFILE_VALUES at build time. ADAPT writes no other keys and no properties.</span></li><li><button type="button" class="hl" data-h="identity" aria-pressed="false">Exact target</button><span>A serial is required and physical identity is read separately; a USB serial or wireless endpoint is never treated as identity.</span></li><li><button type="button" class="hl" data-h="snapshot" aria-pressed="false">Snapshot first</button><span>The recovery file is created exclusively with the originals before the first device write.</span></li><li><button type="button" class="hl" data-h="restore" aria-pressed="false">Conflict-safe restore</button><span>Restore refuses to overwrite a value changed by something else and retains the record (docs/dev-options.md).</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/dev_options.py</code></li><li><code>docs/dev-options.md</code></li><li><code>docs/rapid-adapt.md</code></li></ul>
+        <p>Illustration of the contract. OEM firmware may ignore a setting; readback shows the requested value, not effective behavior.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-4" data-kind="generated" aria-labelledby="h-4">
+  <header class="phead">
+    <span class="num" aria-hidden="true">4</span>
+    <h2 id="h-4">Tool catalog and build-host plans (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">Goals map to catalogued tools; build goals classify the host and fail closed.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt tools list | plan GOAL</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 4: Tool catalog and ROM plans"><span class="ln"><span class="c-w">ADAPT / TOOLS</span><span class="c-t">  |  16 records, 6 goals</span></span><span class="ln"><span class="c-d">----------------------------------------------------------------</span></span><span class="ln" data-h="detect"><span class="c-t">Detection is a PATH lookup only; no catalogued tool is executed.</span></span><span class="ln"></span><span class="ln" data-h="goals"><span class="c-pg">GOAL</span><span class="c-t">              </span><span class="c-pg">TOOLS</span></span><span class="ln" data-h="goals"><span class="c-t">testing           platform-tools, android-sdk-command-line, perfetto</span></span><span class="ln" data-h="goals"><span class="c-t">mirroring         platform-tools, scrcpy</span></span><span class="ln" data-h="goals"><span class="c-t">remote-worker     openssh</span></span><span class="ln" data-h="goals"><span class="c-t">aosp-build        git, repo, gpg, java, python, ccache</span></span><span class="ln" data-h="goals"><span class="c-t">lineage-build     git, repo, gpg, java, python, ccache</span></span><span class="ln" data-h="goals"><span class="c-t">image-inspection  python, avbtool, unpack_bootimg, simg2img, lpunpack,</span></span><span class="ln" data-h="goals"><span class="c-t">                  payload-dumper-go</span></span><span class="ln"></span><span class="ln" data-h="hosts"><span class="c-pg">BUILD HOST CHECK</span><span class="c-t">  goal aosp-build, synthetic hosts</span></span><span class="ln" data-h="hosts"><span class="c-t">  windows-native x86_64  </span><span class="c-r">unsupported</span></span><span class="ln" data-h="hosts"><span class="c-t">  wsl            x86_64  </span><span class="c-y">qualified_unverified</span></span><span class="ln" data-h="hosts"><span class="c-t">  linux-native   x86_64  </span><span class="c-y">requires_upstream_review</span></span><span class="ln" data-h="hosts"><span class="c-t">  linux-native   arm64   </span><span class="c-r">unsupported_architecture</span></span><span class="ln"></span><span class="ln" data-h="acq"><span class="c-pg">ACQUISITION</span><span class="c-t">  automatic: platform-tools, scrcpy (pinned)</span></span><span class="ln" data-h="acq"><span class="c-t">  the other 14 records: official link, you install</span></span><span class="ln"></span><span class="ln" data-h="lineage"><span class="c-t">$ adapt tools plan lineage-build</span></span><span class="ln" data-h="lineage"><span class="c-t">  </span><span class="c-y"># incomplete, exit 2: --branch and --device are both required</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="goals" aria-pressed="false">Goals from the catalog</button><span>Goal and tool lists are read from tool_catalog.GOALS. ADAPT is not a universal ROM builder or flasher.</span></li><li><button type="button" class="hl" data-h="detect" aria-pressed="false">Presence is not trust</button><span>Detection never runs a discovered program, so &#x27;found&#x27; proves neither version, publisher nor safety.</span></li><li><button type="button" class="hl" data-h="hosts" aria-pressed="false">Hosts fail closed</button><span>Classifications come from the real _host_assessment() for four synthetic hosts. Native Windows is unsupported for AOSP builds; Linux needs upstream review.</span></li><li><button type="button" class="hl" data-h="lineage" aria-pressed="false">Context required</button><span>A lineage-build plan without both a branch and a device is incomplete; supplied values stay user_supplied_unverified.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/tool_catalog.py</code></li><li><code>docs/tools.md</code></li></ul>
+        <p>Synthetic hosts only. Nothing was looked up on this machine and no tool was downloaded.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-5" data-kind="generated" aria-labelledby="h-5">
+  <header class="phead">
+    <span class="num" aria-hidden="true">5</span>
+    <h2 id="h-5">Android capability matrix (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">Each cell is computed by the real evaluate_capabilities() for an API level with no device evidence.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt android capabilities -s SERIAL</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 5: Android matrix"><span class="ln"><span class="c-w">ADAPT / ANDROID</span><span class="c-t">  |  eligibility by API level (offline)</span></span><span class="ln"><span class="c-d">----------------------------------------------------------------</span></span><span class="ln" data-h="axis"><span class="c-pg">API                         </span><span class="c-t">  29  30  31  32  33  34  35  36  37</span></span><span class="ln" data-h="axis"><span class="c-d">Android                     </span><span class="c-t">  10  11  12 12L  13  14  15  16  17</span></span><span class="ln" data-h="floor"><span class="c-t">USB ADB                     </span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">Pairing wireless ADB        </span><span class="c-d">   -</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">ADB Wi-Fi 2.0               </span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-d">   -</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">Legacy USB-first TCP        </span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">ADB screenshot              </span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">UI Automator                </span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="floor"><span class="c-t">scrcpy audio                </span><span class="c-d">   -</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span><span class="c-g">   E</span></span><span class="ln" data-h="oem"><span class="c-t">Mirror existing display     </span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span></span><span class="ln" data-h="oem"><span class="c-t">New virtual display         </span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span></span><span class="ln" data-h="oem"><span class="c-t">Input to other displays     </span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span></span><span class="ln" data-h="oem"><span class="c-t">Developer Options keys      </span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span><span class="c-y">   ?</span></span><span class="ln"></span><span class="ln"><span class="c-g">E</span><span class="c-t"> version-eligible   </span><span class="c-y">?</span><span class="c-t"> OEM / runtime dependent   </span><span class="c-d">-</span><span class="c-t"> below API floor</span></span><span class="ln" data-h="caveat"><span class="c-t">No device observed: eligibility is not acceptance on any build.</span></span><span class="ln" data-h="caveat"><span class="c-d">Android 12 has two API levels (31 and 32 = 12L).</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="floor" aria-pressed="false">API floors</button><span>Pairing-based wireless ADB starts at API 30 and ADB Wi-Fi 2.0 at API 37 (Android 17), from the feature table in android_support.py.</span></li><li><button type="button" class="hl" data-h="oem" aria-pressed="false">OEM-dependent rows</button><span>Display, input and Developer Options rows stay &#x27;?&#x27; because OEM build, permissions and runtime state decide the result.</span></li><li><button type="button" class="hl" data-h="caveat" aria-pressed="false">Not certification</button><span>The matrix never produces observed_runtime_evidence from an SDK number alone; only caller-supplied evidence can.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/android_support.py</code></li><li><code>docs/android-support.md</code></li></ul>
+        <p>Version eligibility only. ADAPT has not run native acceptance tests on every Android version or OEM build.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-6" data-kind="generated" aria-labelledby="h-6">
+  <header class="phead">
+    <span class="num" aria-hidden="true">6</span>
+    <h2 id="h-6">Tailscale connection stages (documented, not proven)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">The six documented stages, what each one proves, and what it deliberately does not.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt tailscale plan | pair | connect | check</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 6: Tailscale stages"><span class="ln"><span class="c-w">ADAPT / TAILSCALE</span><span class="c-t">  |  direct Android ADB, by stage</span></span><span class="ln"><span class="c-d">----------------------------------------------------------------</span></span><span class="ln"><span class="c-d">Placeholders only: PHONE, PAIR_PORT, CONNECT_PORT.</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">1 status</span><span class="c-t">   tailscale status | peers | guide</span></span><span class="ln" data-h="proves"><span class="c-d">           cached local daemon view; &#x27;online&#x27; is not a service check</span></span><span class="ln" data-h="stages"><span class="c-g">2 plan</span><span class="c-t">     tailscale plan --peer PHONE --port CONNECT_PORT</span></span><span class="ln" data-h="proves"><span class="c-d">           offline; requires no credential</span></span><span class="ln" data-h="stages ports"><span class="c-g">3 pair</span><span class="c-t">     tailscale pair --peer PHONE --port PAIR_PORT</span></span><span class="ln" data-h="proves"><span class="c-d">           code at a hidden prompt or --code-stdin, never an argument</span></span><span class="ln" data-h="stages ports"><span class="c-g">4 connect</span><span class="c-t">  tailscale connect --peer PHONE --port CONNECT_PORT</span></span><span class="ln" data-h="proves"><span class="c-d">           &#x27;verified&#x27; only after get-state, serial/build/user ids,</span></span><span class="ln" data-h="proves"><span class="c-d">           model, SDK and a TLS listener on the requested port</span></span><span class="ln" data-h="stages"><span class="c-g">5 check</span><span class="c-t">    tailscale check --peer PHONE --port CONNECT_PORT</span></span><span class="ln" data-h="stages"><span class="c-g">6 use</span><span class="c-t">      tailscale adb ... -- &lt;one guarded device command&gt;</span></span><span class="ln"></span><span class="ln" data-h="ports"><span class="c-pg">PORTS</span><span class="c-t">   PAIR_PORT is temporary; CONNECT_PORT is on the main</span></span><span class="ln" data-h="ports"><span class="c-t">        Wireless debugging screen. Re-read both before each attempt.</span></span><span class="ln" data-h="proves"><span class="c-y">NOT PROVEN</span><span class="c-t">  peer online | tcp_open | paired == connected</span></span><span class="ln" data-h="proves"><span class="c-d">             pairing authorizes a key; it is not a transport</span></span><span class="ln"></span><span class="ln" data-h="gap"><span class="c-t">Direct tailnet ADB: </span><span class="c-y">NOT CONFIRMED</span><span class="c-t"> end to end</span></span><span class="ln" data-h="gap"><span class="c-d">  (the current live verifier has a gap; this is the documented flow)</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="stages" aria-pressed="false">Six stages</button><span>Commands and order follow docs/tailscale.md. ADAPT uses an existing Tailscale client and never edits VPN or tailnet policy.</span></li><li><button type="button" class="hl" data-h="ports" aria-pressed="false">Two ports</button><span>Pairing and connection use different ports. Both change, so ADAPT never reuses or guesses them.</span></li><li><button type="button" class="hl" data-h="proves" aria-pressed="false">What a result proves</button><span>Each status is an observation: peer online, TCP open, key paired and transport verified are four separate facts.</span></li><li><button type="button" class="hl" data-h="gap" aria-pressed="false">Not confirmed</button><span>Direct tailnet ADB has not been confirmed end to end because the current live verifier has a gap. This view shows the plan, not a pass.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/tailscale_mode.py</code></li><li><code>docs/tailscale.md</code></li></ul>
+        <p>Illustration of the documented flow with placeholders. No peer, port or pairing code exists here; nothing was probed.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-7" data-kind="generated" aria-labelledby="h-7">
+  <header class="phead">
+    <span class="num" aria-hidden="true">7</span>
+    <h2 id="h-7">Samsung DeX for PC, native receiver (experimental)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">The conservative activation flow and the evidence gates that decide whether a desktop is real.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt dex pc-plan | pc-start | pc-stop</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 7: DeX native (experimental)"><span class="ln"><span class="c-w">ADAPT / DEX PC</span><span class="c-t">  |  </span><span class="c-y">EXPERIMENTAL</span><span class="c-t">  Samsung Android 13-17 planning</span></span><span class="ln"><span class="c-d">----------------------------------------------------------------</span></span><span class="ln" data-h="flow"><span class="c-g">1 pc-plan</span><span class="c-t">     offline plan for --method loopback | overlay</span></span><span class="ln" data-h="flow"><span class="c-g">2 pc-start</span><span class="c-t">    needs --yes, shared-ADB preflight, NEW snapshot</span></span><span class="ln" data-h="gates"><span class="c-g">3 gates</span><span class="c-t">       scrcpy starts only when all of these hold:</span></span><span class="ln" data-h="gates"><span class="c-t">             - Samsung desktop state enabled / dual display</span></span><span class="ln" data-h="gates"><span class="c-t">             - a newly created non-zero external display matches</span></span><span class="ln" data-h="gates"><span class="c-t">             - overlay method: an overlay: display identity</span></span><span class="ln" data-h="gates"><span class="c-d">             display 0, blank or unconfirmed = failed activation</span></span><span class="ln" data-h="flow"><span class="c-g">4 pc-status</span><span class="c-t">   observe the supervised session</span></span><span class="ln" data-h="flow"><span class="c-g">5 pc-stop</span><span class="c-t">     supervised cleanup</span></span><span class="ln" data-h="flow"><span class="c-g">6 pc-restore</span><span class="c-t">  identity, current value and readback checked</span></span><span class="ln"></span><span class="ln" data-h="methods"><span class="c-pg">METHODS</span></span><span class="ln" data-h="methods"><span class="c-t">  loopback  source-bundled helper, compiled locally</span></span><span class="ln" data-h="methods"><span class="c-d">            (scripts/build_dex_bridge.py, manual build)</span></span><span class="ln" data-h="methods"><span class="c-t">  overlay   overlay_display_devices=WxH/DPI,hdmi</span></span><span class="ln"></span><span class="ln" data-h="native"><span class="c-pg">NATIVE WINDOWS RECEIVER</span><span class="c-t">  native/windows-receiver (Rust)</span></span><span class="ln" data-h="native"><span class="c-t">  source included, manual build; 15 unit tests in source</span></span><span class="ln" data-h="native"><span class="c-y">  history: one Android 13 reconnect observed, not universal</span></span><span class="ln" data-h="native"><span class="c-d">  experimental source: manual launch; no CLI backend</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="flow" aria-pressed="false">Plan, start, restore</button><span>pc-start refuses without --yes, a shared-ADB preflight and an exclusively created snapshot bound to the device identity.</span></li><li><button type="button" class="hl" data-h="gates" aria-pressed="false">Evidence gates</button><span>A generic or blank display is a failed activation, never a working DeX desktop. Display 0 and manufacturer text prove nothing (docs/dex-pc.md).</span></li><li><button type="button" class="hl" data-h="methods" aria-pressed="false">Two methods</button><span>Loopback needs Samsung API availability and vendor permission, which ADAPT never grants. Overlay requests a simulated display.</span></li><li><button type="button" class="hl" data-h="native" aria-pressed="false">Experimental receiver</button><span>15 native tests exist in source. One Android 13 reconnect was observed historically; this is not support for every Android version or device.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/dex_pc.py</code></li><li><code>native/windows-receiver/src</code></li><li><code>scripts/build_dex_bridge.py</code></li><li><code>docs/dex-pc.md</code></li><li><code>docs/dex.md</code></li></ul>
+        <p>Experimental. No DeX session ran to make this view and Windows receiver launch is not part of the shipped CLI.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-8" data-kind="generated" aria-labelledby="h-8">
+  <header class="phead">
+    <span class="num" aria-hidden="true">8</span>
+    <h2 id="h-8">Rapid ADAPT integrated test plan (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">The check, prepare, reproduce, capture, restore loop, produced by the real plan() with a synthetic target.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt rapid plan -s SERIAL --package PKG</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 8: Rapid ADAPT plan"><span class="ln" data-h="noexec"><span class="c-w">ADAPT / RAPID ADAPT OPTION / TEST LOOP / PLAN ONLY</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">CHECK</span><span class="c-t"> / Observe Android capabilities and original testing settings</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt android capabilities -s DEMO --json</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt dev-options inspect -s DEMO --json</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt app validate -s DEMO --package com.example.app --json</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">PREPARE</span><span class="c-t"> / Keep the screen on while USB-powered; preserve existing</span></span><span class="ln" data-h="stages"><span class="c-t">  charging modes</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt dev-options apply --profile stay-awake -s DEMO --snapshot \</span></span><span class="ln" data-h="cmds"><span class="c-t">      s/stay-awake.json</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">REPRODUCE</span><span class="c-t"> / Run one deliberate app journey and record UI/timing</span></span><span class="ln" data-h="stages"><span class="c-t">  evidence</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">CAPTURE</span><span class="c-t"> / Collect focused existing logs; empty output is not a passing</span></span><span class="ln" data-h="stages"><span class="c-t">  test</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt logs capture -s DEMO --package com.example.app --lines 200 \</span></span><span class="ln" data-h="cmds"><span class="c-t">      --output s/app-logs.json</span></span><span class="ln"></span><span class="ln" data-h="stages"><span class="c-g">RESTORE</span><span class="c-t"> / Restore only profiles actually applied; retain snapshots and</span></span><span class="ln" data-h="stages"><span class="c-t">  resolve conflicts</span></span><span class="ln" data-h="cmds"><span class="c-t">  adapt dev-options restore -s DEMO --snapshot s/stay-awake.json</span></span><span class="ln"></span><span class="ln" data-h="noexec"><span class="c-y">Nothing is executed or created by the plan. Each step is yours.</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="stages" aria-pressed="false">Five stages</button><span>check, prepare, reproduce, capture, restore. Rapid ADAPT is an option inside ADAPT, not a separate tool.</span></li><li><button type="button" class="hl" data-h="cmds" aria-pressed="false">Real command shapes</button><span>The commands come from rapid.plan() with a synthetic serial; copy them only after replacing it with your own.</span></li><li><button type="button" class="hl" data-h="noexec" aria-pressed="false">Plan only</button><span>The plan reports device_access false, no commands executed and no files created. It is not a session supervisor.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/rapid.py</code></li><li><code>docs/rapid-adapt.md</code></li></ul>
+        <p>Synthetic serial DEMO and package com.example.app. Fast UI is opt-in and omitted here because it can hide animation bugs.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-9" data-kind="generated" aria-labelledby="h-9">
+  <header class="phead">
+    <span class="num" aria-hidden="true">9</span>
+    <h2 id="h-9">MCP and SSH worker access layers (illustrative)</h2>
+    <span class="badge gen">Generated</span>
+  </header>
+  <p class="blurb">Where the server-side restrictions sit between an AI client and the tools.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt mcp --read-only --device SERIAL</span><span class="tag">illustrative</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 9: MCP and SSH access"><span class="ln" data-h="stdio"><span class="c-w">$</span><span class="c-t"> adapt mcp --read-only --device DEMO-PIXEL-7A2F</span></span><span class="ln"></span><span class="ln" data-h="stdio"><span class="c-t">AI client  </span><span class="c-g">--stdio JSON-RPC--&gt;</span><span class="c-t">  adapt mcp   local, no network port</span></span><span class="ln" data-h="stdio"><span class="c-d">                                  |</span></span><span class="ln" data-h="policy"><span class="c-t">                       </span><span class="c-pg">AccessPolicy</span><span class="c-t"> (server side)</span></span><span class="ln" data-h="policy"><span class="c-t">  --read-only   exposes 19 observation tools,</span></span><span class="ln" data-h="policy"><span class="c-t">                hides the 5 that can change a device</span></span><span class="ln" data-h="policy"><span class="c-t">  --device ID   device tools accept only that exact transport;</span></span><span class="ln" data-h="policy"><span class="c-t">                host-wide doctor is hidden</span></span><span class="ln"></span><span class="ln" data-h="policy"><span class="c-pg">hidden when read-only</span><span class="c-t">  install_apk key swipe tap type</span></span><span class="ln" data-h="tools"><span class="c-pg">observation tools</span></span><span class="ln" data-h="tools"><span class="c-t">  android_capabilities android_versions app_logs app_validate</span></span><span class="ln" data-h="tools"><span class="c-t">  build_modes debug_app_inspect developer_options_inspect</span></span><span class="ln" data-h="tools"><span class="c-t">  device_info dex_displays dex_inspect diagnostic_logs doctor</span></span><span class="ln" data-h="tools"><span class="c-t">  list_devices logcat_tail logging_guide screenshot setup_status</span></span><span class="ln" data-h="tools"><span class="c-t">  tool_catalog ui_summary</span></span><span class="ln"></span><span class="ln" data-h="ssh"><span class="c-pg">SSH WORKER</span><span class="c-t">  adapt ssh run android-worker --operation OP</span></span><span class="ln" data-h="ssh"><span class="c-t">  OP: doctor scan inspect android desktop dex tools</span></span><span class="ln" data-h="ssh"><span class="c-t">  no remote shell, install or device mutation is exposed</span></span><span class="ln" data-h="ssh"><span class="c-d">  the worker owns ADB and USB; this PC needs only OpenSSH</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Generated.</strong> Source-derived illustration with synthetic values. Nothing was run on a host, network or device.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="stdio" aria-pressed="false">Local stdio only</button><span>An AI client launches adapt mcp as a subprocess. There is no HTTP service, and no banner or tips are written to protocol output.</span></li><li><button type="button" class="hl" data-h="policy" aria-pressed="false">Server-side policy</button><span>Restrictions live in AccessPolicy, independent of a client&#x27;s own prompts. Tool sets are read from mcp/access.py at build time.</span></li><li><button type="button" class="hl" data-h="tools" aria-pressed="false">19 observation tools</button><span>Counted from OBSERVATION_TOOLS. Resources and prompts are not implemented yet (docs/clients.md).</span></li><li><button type="button" class="hl" data-h="ssh" aria-pressed="false">Allowlisted SSH operations</button><span>Seven read-only operations run on a chosen worker through existing OpenSSH configuration; there is no generic remote command.</span></li></ul>
+      
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/mcp/access.py</code></li><li><code>src/adapt_adb/ssh_worker.py</code></li><li><code>docs/clients.md</code></li><li><code>docs/ssh-workers.md</code></li></ul>
+        <p>Synthetic serial. No MCP server or SSH connection was started to make this view.</p>
+      </details>
+    </div>
+  </div>
+</article>
+<article class="panel card" id="view-10" data-kind="actual" aria-labelledby="h-10">
+  <header class="phead">
+    <span class="num" aria-hidden="true">10</span>
+    <h2 id="h-10">Actual CLI output: android versions</h2>
+    <span class="badge act">Actual</span>
+  </header>
+  <p class="blurb">The only real capture: offline command stdout with normalized line endings, rendered below.</p>
+  <div class="pbody">
+    <div class="term">
+      <div class="term-bar"><span class="cmd">$ adapt --no-banner --no-tips android versions</span><span class="tag">real stdout</span></div>
+      <pre class="term-body" tabindex="0" role="region" aria-label="Terminal output for view 10: Actual CLI output"><span class="ln" data-h="real"><span class="c-t">ADAPT Android planning baseline (checked 2026-11-12)</span></span><span class="ln" data-h="real table"><span class="c-t">API  Android  Codename             Release status</span></span><span class="ln" data-h="real table"><span class="c-t"> 29  10       Q                    released</span></span><span class="ln" data-h="real table"><span class="c-t"> 30  11       R                    released</span></span><span class="ln" data-h="real table"><span class="c-t"> 31  12       S                    released</span></span><span class="ln" data-h="real table"><span class="c-t"> 32  12L      S_V2                 released</span></span><span class="ln" data-h="real table"><span class="c-t"> 33  13       TIRAMISU             released</span></span><span class="ln" data-h="real table"><span class="c-t"> 34  14       UPSIDE_DOWN_CAKE     released</span></span><span class="ln" data-h="real table"><span class="c-t"> 35  15       VANILLA_ICE_CREAM    released</span></span><span class="ln" data-h="real table"><span class="c-t"> 36  16       BAKLAVA              released</span></span><span class="ln" data-h="real"><span class="c-t"> 37  17       CINNAMON_BUN         released</span></span><span class="ln" data-h="real caveat"><span class="c-t">The matrix maps released platform versions to API levels; it does not certify ADAPT on every version or OEM build.</span></span></pre>
+    </div>
+    <div class="side">
+      <p class="kind"><strong>Actual.</strong> Real output of an offline CLI command, rendered below. Not a Windows Terminal screenshot.</p>
+      <h3>Highlights <span class="hint">(press one to light its lines)</span></h3>
+      <ul class="hls"><li><button type="button" class="hl" data-h="real" aria-pressed="false">Real stdout</button><span>Captured by running the CLI from this checkout (exit 0, sha256 9c0d07d3e7a1...). Not edited, not colored.</span></li><li><button type="button" class="hl" data-h="table" aria-pressed="false">API 29 to 37</button><span>Nine released platform versions mapped to API levels. Android 12 appears twice: API 31 and 32 (12L).</span></li><li><button type="button" class="hl" data-h="caveat" aria-pressed="false">Planning data</button><span>The matrix does not certify ADAPT on every Android version or OEM build.</span></li></ul>
+      <div class="prov"><h3>Provenance</h3><dl><dt>Command</dt><dd><code>adapt --no-banner --no-tips android versions</code></dd><dt>Exit code</dt><dd>0</dd><dt>stdout sha256</dt><dd><code>9c0d07d3e7a1e04fbf27df826865336f70c98eaadf462bf62e4a81b530b58470</code></dd><dt>Source tree sha256</dt><dd><code>1f0cf2c9cb1c0454ca1002e156f45dd090e52ba71ccb1c80bec20fc47c4749ff</code></dd></dl><p class="links">Files: <a href="../assets/cli-android-versions.txt">stdout .txt</a> &middot; <a href="../assets/cli-android-versions.provenance.json">provenance .json</a> &middot; <a href="../assets/cli-android-versions-rendered.png">rendered .png</a> &middot; <a href="../assets/cli-android-versions-rendered.svg">rendered .svg</a></p></div>
+      <details class="src"><summary>Sources and boundary</summary>
+        <ul><li><code>src/adapt_adb/android_support.py</code></li><li><code>src/adapt_adb/cli.py</code></li><li><code>docs/android-support.md</code></li></ul>
+        <p>Offline and read-only: no device, host probe or network. The image is a rendered capture, not a Windows Terminal screenshot.</p>
+      </details>
+    </div>
+  </div>
+</article>
+  </div>
+
+  <section class="card notes" aria-labelledby="notes-h">
+    <h2 id="notes-h">What this showcase does not claim</h2>
+    <ul>
+      <li>Generated views show the shape of ADAPT output, not results. No host check, device, network or pairing ran, and every serial, package and peer name is a placeholder.</li>
+      <li>There are no Android screenshots here. The rendered capture image is drawn by <code>scripts/build_showcase.py</code>; it is not a Windows Terminal screenshot.</li>
+      <li>Samsung DeX for PC is experimental. Fifteen native unit tests exist in source, one Android 13 reconnect was observed historically, and that is not support for every device or Android version. Receiver launch is not a shipped CLI backend.</li>
+      <li>Direct Tailnet ADB is not confirmed end to end because the current live verifier has a gap; view 6 shows the documented stages only.</li>
+      <li>Android 10 to 17 rows are planning data from the CLI's own matrix, not certification on every OEM build.</li>
+    </ul>
+  </section>
+</main>
+<script>
+(function () {
+  var doc = document, root = doc.documentElement;
+  root.classList.add('js');
+  var panels = [].slice.call(doc.querySelectorAll('.panel'));
+  var picks = [].slice.call(doc.querySelectorAll('.picker button'));
+  var modeBtn = doc.getElementById('mode');
+  var pos = doc.getElementById('pos');
+  var cur = 0, all = false;
+
+  function store() { try { history.replaceState(null, '', all ? '#all' : '#view-' + (cur + 1)); } catch (e) {} }
+  function show(i) {
+    cur = (i + panels.length) % panels.length;
+    panels.forEach(function (p, k) { p.hidden = !all && k !== cur; });
+    picks.forEach(function (b, k) { if (k === cur) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+    pos.textContent = all ? 'all' : (cur + 1) + ' / ' + panels.length;
+    store();
+  }
+  function setAll(v) {
+    all = v; root.classList.toggle('all-views', v);
+    modeBtn.setAttribute('aria-pressed', String(v));
+    modeBtn.textContent = v ? 'Show one view' : 'Show all 10 views';
+    show(cur);
+  }
+  picks.forEach(function (b, k) {
+    b.addEventListener('click', function () {
+      show(k);
+      if (all) { panels[k].scrollIntoView({ block: 'start' }); }
+    });
+    b.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (e.key === 'Home') d = -cur; if (e.key === 'End') d = panels.length - 1 - cur;
+      if (!d) return;
+      e.preventDefault(); show(cur + d); picks[cur].focus();
+    });
+  });
+  doc.getElementById('prev').addEventListener('click', function () { show(cur - 1); });
+  doc.getElementById('next').addEventListener('click', function () { show(cur + 1); });
+  modeBtn.addEventListener('click', function () { setAll(!all); });
+
+  panels.forEach(function (p) {
+    var term = p.querySelector('.term-body');
+    var btns = [].slice.call(p.querySelectorAll('button.hl'));
+    function clear() {
+      term.removeAttribute('data-active');
+      [].forEach.call(term.querySelectorAll('.ln.on'), function (l) { l.classList.remove('on'); });
+      btns.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var turnOn = b.getAttribute('aria-pressed') !== 'true';
+        clear();
+        if (!turnOn) return;
+        var key = b.getAttribute('data-h');
+        b.setAttribute('aria-pressed', 'true');
+        term.setAttribute('data-active', key);
+        var first = null;
+        [].forEach.call(term.querySelectorAll('.ln'), function (l) {
+          if ((' ' + (l.getAttribute('data-h') || '') + ' ').indexOf(' ' + key + ' ') > -1) {
+            l.classList.add('on'); if (!first) first = l;
+          }
+        });
+        if (first && first.offsetTop < term.scrollTop + 4) term.scrollTop = Math.max(0, first.offsetTop - 12);
+        if (first && first.offsetTop > term.scrollTop + term.clientHeight - 24) term.scrollTop = first.offsetTop - 12;
+      });
+    });
+    term.addEventListener('keydown', function (e) { if (e.key === 'Escape') clear(); });
+  });
+
+  var logo = doc.querySelector('.logo'), mb = doc.getElementById('motion');
+  var mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  function motion(on) {
+    logo.classList.toggle('anim', on);
+    mb.textContent = on ? 'Pause title animation' : 'Play title animation';
+    mb.setAttribute('aria-pressed', String(!on));
+  }
+  motion(!(mq && mq.matches));
+  mb.addEventListener('click', function () { motion(!logo.classList.contains('anim')); });
+  if (mq && mq.addEventListener) mq.addEventListener('change', function (e) { motion(!e.matches); });
+
+  var h = (location.hash || '').replace('#', '');
+  var m = /^view-(\d+)$/.exec(h);
+  var start = m ? Math.min(panels.length, Math.max(1, +m[1])) - 1 : 0;
+  cur = start;
+  setAll(h === 'all');
+})();
+</script>
+</body>
+</html>

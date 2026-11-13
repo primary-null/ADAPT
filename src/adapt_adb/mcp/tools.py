@@ -1,0 +1,1038 @@
+"""MCP tool definitions and implementations for ADAPT v1."""
+
+from __future__ import annotations
+
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import adapt_adb.adb as _adb_mod
+from adapt_adb.adb import AdbProbeError
+from adapt_adb.render.screenshot import capture_screenshot_jpeg
+from adapt_adb.render.ui_summary import capture_ui_summary
+
+_ORIG_GET_CONNECTED_DEVICES = _adb_mod.get_connected_devices
+
+ALLOWED_KEYS = ("BACK", "HOME", "ENTER", "APP_SWITCH", "POWER", "DEL")
+ALLOWED_LOG_LEVELS = ("V", "D", "I", "W", "E", "F")
+
+TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "doctor",
+        "description": "Inspect platform-tools path, version, daemon status, OS driver/udev hints, and connected devices.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "setup_status",
+        "description": "Report whether platform-tools are installed, whether setup would download or update PATH, and OS hints.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_devices",
+        "description": "List connected Android transports from `adb devices -l`.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "device_info",
+        "description": "Return model, Android SDK/release, screen resolution/density, and lock state for a device.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "screenshot",
+        "description": "Capture a device screenshot via `exec-out screencap -p` and scale to JPEG (max_dimension <= 1280).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "max_dimension": {"type": "integer", "default": 1024, "maximum": 1280},
+                "quality": {"type": "integer", "default": 80, "minimum": 40, "maximum": 90},
+            },
+        },
+    },
+    {
+        "name": "ui_summary",
+        "description": "Dump UI hierarchy and return compact interactive/labeled nodes with bounds and centers (no raw XML).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "tap",
+        "description": "Tap screen coordinates (x, y) on the target device.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+            },
+            "required": ["x", "y"],
+        },
+    },
+    {
+        "name": "swipe",
+        "description": "Swipe from (x1, y1) to (x2, y2) over duration_ms on the target device.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "x1": {"type": "integer"},
+                "y1": {"type": "integer"},
+                "x2": {"type": "integer"},
+                "y2": {"type": "integer"},
+                "duration_ms": {"type": "integer", "default": 300},
+            },
+            "required": ["x1", "y1", "x2", "y2"],
+        },
+    },
+    {
+        "name": "key",
+        "description": "Send a hardware/navigation key event (BACK, HOME, ENTER, APP_SWITCH, POWER, DEL).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "key": {
+                    "type": "string",
+                    "enum": list(ALLOWED_KEYS),
+                },
+            },
+            "required": ["key"],
+        },
+    },
+    {
+        "name": "type",
+        "description": "Type text on the target device using escaped `adb shell input text`.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "text": {"type": "string"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "install_apk",
+        "description": "Install an APK on the target device (`-r` by default to keep app data).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "apk": {"type": "string"},
+                "reinstall": {"type": "boolean", "default": True},
+                "grant": {"type": "boolean", "default": False},
+            },
+            "required": ["apk"],
+        },
+    },
+    {
+        "name": "logcat_tail",
+        "description": "Dump recent logcat lines using `adb logcat -d` (non-streaming, default 100, max 500).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string"},
+                "lines": {"type": "integer", "default": 100, "minimum": 1, "maximum": 500},
+                "tag": {"type": "string"},
+                "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)},
+            },
+        },
+    },
+]
+
+TOOL_SCHEMAS.extend([
+    {"name": "dex_inspect", "description": "Inspect Samsung DeX state and logical displays on one explicit target; never starts DeX or mirrors.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+    {"name": "dex_displays", "description": "Read existing logical display IDs without creating a virtual display or launching mirrors.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+    {"name": "android_versions", "description": "Read the offline Android 10-17 planning matrix; not a device certification.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "android_capabilities", "description": "Inspect version-dependent capabilities for one explicit transport without changing settings.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+    {"name": "developer_options_inspect", "description": "Read allowlisted Developer Options settings for one explicit target; no profile changes.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+    {"name": "tool_catalog", "description": "Read official tool acquisition guidance and PATH observations; never installs or executes discovered tools.",
+     "inputSchema": {"type": "object", "properties": {"goal": {"type": "string", "enum": ["testing", "mirroring", "aosp-build", "lineage-build", "image-inspection", "remote-worker"]}}}},
+    {"name": "app_validate", "description": "Check exact current-user package installation and optional version/debuggable expectations. Does not infer R8/signing or launch the app.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "package": {"type": "string"}, "expected_version_code": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807}, "expected_debuggable": {"type": "boolean"}}, "required": ["device", "package"]}},
+    {"name": "app_logs", "description": "Read a finite app-UID logcat main/crash snapshot; no buffer clearing or file export. Empty logs do not prove no crash.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "package": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "buffer": {"type": "string", "enum": ["main", "crash", "main,crash"]}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "package"]}},
+    {"name": "debug_app_inspect", "description": "Read persisted debug-app/wait settings on an exact device; transient runtime selection and debugger attachment remain unverified.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+    {"name": "diagnostic_logs", "description": "Read recent fixed-tag window/DeX/print system logs. May contain multiple apps/users or sensitive details. No verbose toggles, clearing, export or wider fallback; empty output is not a test pass.",
+     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "topic": {"type": "string", "enum": ["window", "dex", "print"]}, "minutes": {"type": "integer", "minimum": 1, "maximum": 10}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "topic"]}},
+    {"name": "logging_guide", "description": "Offline Samsung/vendor/window/print logging guidance; distinguishes producer verbosity, logcat filters and app debugging. Changes nothing.",
+     "inputSchema": {"type": "object", "properties": {"topic": {"type": "string", "enum": ["all", "samsung", "vendor", "window", "dex", "print", "wifi", "app"]}}}},
+    {"name": "build_modes", "description": "Offline developer/AI guidance distinguishing debuggable, variants, R8, profiling, signing and production evidence.",
+     "inputSchema": {"type": "object", "properties": {}}},
+])
+
+for _tool_schema in TOOL_SCHEMAS:
+    _tool_schema["inputSchema"]["additionalProperties"] = False
+
+
+from adapt_adb.safety import ForbiddenArgv, validate_adb_args as _safety_validate_adb_args
+
+
+class ForbiddenCommandError(ForbiddenArgv):
+    """Raised when an ADB invocation violates ADAPT v1 safety rules."""
+
+
+def tool_dex_inspect(device: str, *, displays_only: bool = False) -> dict[str, Any]:
+    from adapt_adb.dex import DexError, inspect_device, list_displays
+    try:
+        return list_displays(device) if displays_only else inspect_device(device)
+    except DexError as exc:
+        return {"error": exc.kind, "message": "DeX inspection failed; run the targeted CLI inspection for details.", "devices": []}
+
+
+def tool_android_capabilities(device: str) -> dict[str, Any]:
+    from adapt_adb.android_support import AndroidSupportError, inspect_capabilities
+    try:
+        return inspect_capabilities(device)
+    except AndroidSupportError as exc:
+        return {"error": exc.kind, "message": str(exc), "devices": []}
+
+
+def tool_android_versions() -> dict[str, Any]:
+    from adapt_adb.android_support import version_matrix
+    return version_matrix()
+
+
+def tool_developer_options_inspect(device: str) -> dict[str, Any]:
+    from adapt_adb.dev_options import DevOptionsError, inspect_device
+    try:
+        return inspect_device(device)
+    except DevOptionsError as exc:
+        return {"error": exc.kind, "message": "Developer Options inspection failed; run the targeted CLI inspection for details.", "devices": []}
+
+
+def tool_catalog(goal: str | None = None) -> dict[str, Any]:
+    from adapt_adb.tool_catalog import build_list_report
+    return build_list_report(goal)
+
+
+def tool_development(name: str, **arguments: Any) -> dict[str, Any]:
+    from adapt_adb import development
+    from adapt_adb import diagnostics, dev_options
+    operations = {"app_validate": development.validate_app, "app_logs": development.capture_logs,
+                  "diagnostic_logs": diagnostics.capture_diagnostics, "logging_guide": diagnostics.logging_guide,
+                  "debug_app_inspect": development.inspect_debug, "build_modes": development.build_modes}
+    if "device" in arguments:
+        arguments["serial"] = arguments.pop("device")
+    try:
+        report = operations[name](**arguments)
+    except (ValueError, dev_options.DevOptionsError) as exc:
+        return {"error": "development_inspection_failed", "message": str(exc), "devices": []}
+    if report.get("status") in {"failed", "inconclusive", "partial"}:
+        report = {**report, "error": "checks_failed" if report["status"] == "failed" else "incomplete_evidence"}
+    return report
+
+
+def validate_adb_args(argv: list[str]) -> None:
+    """Enforce ADAPT v1 safety rules on ADB argv before spawning subprocess."""
+    if not argv:
+        raise ForbiddenCommandError("Empty command is not allowed.")
+
+    first_name = Path(argv[0]).name.lower()
+    if first_name in ("sudo", "sudo.exe"):
+        raise ForbiddenCommandError("Forbidden: sudo is not allowed.")
+
+    safety_args = argv
+    if argv and Path(argv[0]).name.lower() in {"adb", "adb.exe"}:
+        safety_args = argv[1:]
+    try:
+        _safety_validate_adb_args(safety_args)
+    except ForbiddenArgv as exc:
+        raise ForbiddenCommandError(str(exc)) from exc
+
+    if safety_args and safety_args[0] == "logcat" and "-d" not in safety_args:
+        raise ForbiddenCommandError("Forbidden: unbounded logcat without -d is not allowed.")
+
+
+def resolve_adb() -> Path | None:
+    """Resolve the adb binary, checking ADAPT_ADB / ADB_PATH first, then adapt_adb.adb.resolve_adb()."""
+    for env_var in ("ADAPT_ADB", "ADB_PATH"):
+        val = os.environ.get(env_var)
+        if val:
+            cand = Path(val)
+            if cand.is_file():
+                return cand.resolve()
+    return _adb_mod.resolve_adb()
+
+
+def run_adb(
+    adb_path: Path,
+    args: list[str],
+    *,
+    serial: str | None = None,
+    binary: bool = False,
+    timeout: int = 20,
+) -> subprocess.CompletedProcess[Any]:
+    """Run adb safely with optional `-s <serial>`, capturing output so stdout stays clean."""
+    prefix: list[str] = [str(adb_path)]
+    if serial is not None:
+        if not serial:
+            raise ValueError("Device serial must not be empty when targeting a device.")
+        prefix.extend(["-s", serial])
+    command_args = (["-s", serial] if serial is not None else []) + list(args)
+    full_argv = [str(adb_path)] + command_args
+    validate_adb_args(command_args)
+    from adapt_adb.doctor import preflight_adb_server
+
+    preflight_adb_server(adb_path, command_args)
+    return subprocess.run(
+        full_argv,
+        capture_output=True,
+        text=not binary,
+        check=False,
+        timeout=timeout,
+    )
+
+
+def parse_devices_l(output: str) -> list[dict[str, str]]:
+    """Parse TAB-delimited ``adb devices -l`` without redefining serial identity."""
+    identities = _adb_mod.parse_devices_short(output)
+    enriched = _adb_mod.enrich_devices_long(identities, output)
+    return [
+        {
+            "device": item["serial"],
+            "state": item["state"],
+            "model": item.get("model", ""),
+            "product": item.get("product", ""),
+            "transport": item.get("transport", "usb"),
+        }
+        for item in enriched
+    ]
+
+
+def checked_stdout(proc: subprocess.CompletedProcess[Any], operation: str) -> str:
+    """Return stdout only for a successful ADB probe."""
+    if proc.returncode != 0:
+        raise AdbProbeError(f"{operation} failed (exit {proc.returncode})")
+    return proc.stdout or ""
+
+
+def list_connected_devices(adb_path: Path) -> list[dict[str, str]]:
+    """List connected transports via `adb devices -l` (or monkeypatched get_connected_devices)."""
+    if _adb_mod.get_connected_devices is not _ORIG_GET_CONNECTED_DEVICES:
+        raw_list = _adb_mod.get_connected_devices(adb_path)
+        normalized: list[dict[str, str]] = []
+        for item in raw_list:
+            serial = item.get("device") or item.get("serial") or ""
+            normalized.append(
+                {
+                    "device": serial,
+                    "state": item.get("state", "device"),
+                    "model": item.get("model", ""),
+                    "product": item.get("product", ""),
+                    "transport": item.get("transport", "usb"),
+                }
+            )
+        return normalized
+
+    short_proc = run_adb(adb_path, ["devices"], timeout=10)
+    identities = _adb_mod.parse_devices_short(checked_stdout(short_proc, "device enumeration"))
+    long_proc = run_adb(adb_path, ["devices", "-l"], timeout=10)
+    long_output = checked_stdout(long_proc, "device metadata enumeration")
+    enriched = _adb_mod.enrich_devices_long(identities, long_output)
+    return [
+        {
+            "device": item["serial"],
+            "state": item["state"],
+            "model": item.get("model", ""),
+            "product": item.get("product", ""),
+            "transport": item.get("transport", "usb"),
+        }
+        for item in enriched
+    ]
+
+
+def _compact_device_list(devices: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        {
+            "device": d["device"],
+            "model": d.get("model", ""),
+            "state": d.get("state", ""),
+        }
+        for d in devices
+    ]
+
+
+def resolve_target_device(
+    adb_path: Path,
+    requested_device: str | None = None,
+) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]]]:
+    """Resolve target device serial according to MCP-V1 targeting rules.
+
+    Returns (serial, error_dict, all_devices).
+    """
+    try:
+        devices = list_connected_devices(adb_path)
+    except (AdbProbeError, subprocess.TimeoutExpired, OSError, ValueError):
+        return (
+            None,
+            {
+                "error": "adb_probe_failed",
+                "message": "ADB device enumeration failed; target state is unknown.",
+                "devices": [],
+            },
+            [],
+        )
+    compact = _compact_device_list(devices)
+    ready = [d for d in devices if d.get("state") == "device"]
+
+    req = (requested_device or "").strip()
+    if req:
+        matched = next((d for d in devices if d["device"] == req), None)
+        if matched is None:
+            return (
+                None,
+                {
+                    "error": "unknown_device",
+                    "message": f"Device '{req}' not found among connected transports.",
+                    "devices": compact,
+                },
+                devices,
+            )
+        if matched.get("state") != "device":
+            return (
+                None,
+                {
+                    "error": "no_device",
+                    "message": (
+                        f"Device '{req}' is in state '{matched.get('state')}'. "
+                        "Check unauthorized RSA prompt, missing WinUSB/udev, or run 'adapt doctor'."
+                    ),
+                    "devices": compact,
+                },
+                devices,
+            )
+        return matched["device"], None, devices
+
+    if len(ready) == 0:
+        return (
+            None,
+            {
+                "error": "no_device",
+                "message": (
+                    "No connected device in 'device' state. "
+                    "Check unauthorized RSA prompt, missing WinUSB/udev, or run 'adapt doctor'."
+                ),
+                "devices": compact,
+            },
+            devices,
+        )
+
+    if len(ready) > 1:
+        return (
+            None,
+            {
+                "error": "need_device",
+                "message": "Pass device; more than one connected.",
+                "devices": compact,
+            },
+            devices,
+        )
+
+    return ready[0]["device"], None, devices
+
+
+def _extract_version_number(adb_path: Path) -> str | None:
+    try:
+        proc = run_adb(adb_path, ["version"], timeout=10)
+        text = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+        m = re.search(r"Version\s+([0-9]+(?:\.[0-9]+)+)", text)
+        if m:
+            return m.group(1)
+        m2 = re.search(r"version\s+([0-9]+(?:\.[0-9]+)+)", text, re.IGNORECASE)
+        if m2:
+            return m2.group(1)
+        for line in text.splitlines():
+            if line.strip():
+                return line.strip()
+    except (subprocess.SubprocessError, OSError):
+        pass
+    return _adb_mod.get_adb_version(adb_path)
+
+
+def tool_doctor() -> dict[str, Any]:
+    """Execute the `doctor` MCP tool."""
+    import adapt_adb.cli as _cli_mod
+    from adapt_adb.doctor import (
+        EXIT_UNSAFE_SHARED_SERVER,
+        parse_platform_tools_version,
+        run_doctor_checks,
+    )
+
+    active_env = getattr(_cli_mod, "_ACTIVE_DOCTOR_ENV", None)
+    report = run_doctor_checks(active_env, command_name="doctor")
+
+    checks_by_id = {
+        c["id"]: c for c in report.get("checks", []) if isinstance(c, dict) and "id" in c
+    }
+    srv_check = checks_by_id.get("adb_server_5037", {})
+    srv_details = srv_check.get("details") or {}
+    srv_exit_code = srv_check.get("exit_code", 0)
+
+    toolchain = report.get("toolchain") or {}
+    report_adb_str = toolchain.get("adb_path")
+    report_adb_path = Path(report_adb_str) if report_adb_str else None
+
+    has_env_override = bool(os.environ.get("ADAPT_ADB") or os.environ.get("ADB_PATH"))
+    if has_env_override:
+        adb_path = resolve_adb()
+    elif report_adb_path is not None:
+        adb_path = report_adb_path
+    elif active_env is None:
+        adb_path = resolve_adb()
+    else:
+        adb_path = None
+
+    host_os = (report.get("host") or {}).get("os")
+    if host_os == "windows":
+        is_win = True
+        os_name = "windows"
+    elif host_os in ("debian", "linux"):
+        is_win = False
+        os_name = "linux"
+    else:
+        is_win = sys.platform == "win32"
+        os_name = "windows" if is_win else ("linux" if sys.platform.startswith("linux") else sys.platform)
+
+    default_dir = _adb_mod.get_default_platform_tools_dir()
+    managed = False
+    adb_version: str | None = None
+
+    if adb_path is not None:
+        try:
+            managed = adb_path.resolve().parent == default_dir.resolve()
+        except OSError:
+            managed = False
+
+        if report_adb_path is not None and adb_path == report_adb_path:
+            raw_pt_ver = toolchain.get("platform_tools_version")
+            if raw_pt_ver:
+                m_ver = re.match(r"^(\d+(?:\.\d+)+)", str(raw_pt_ver))
+                adb_version = m_ver.group(1) if m_ver else str(raw_pt_ver)
+        if adb_version is None:
+            adb_version = _extract_version_number(adb_path)
+
+    unsafe_server = srv_exit_code == EXIT_UNSAFE_SHARED_SERVER
+    daemon = "missing_adb"
+
+    if unsafe_server:
+        if srv_details.get("version_mismatch"):
+            daemon = "version_mismatch"
+        else:
+            daemon = "root_owned"
+    elif adb_path is not None:
+        if (
+            srv_details.get("listening")
+            and srv_details.get("server_version")
+            and adb_version
+        ):
+            srv_ver = parse_platform_tools_version(
+                f"Version {srv_details['server_version']}"
+            ).get("version_tuple")
+            cli_ver = parse_platform_tools_version(f"Version {adb_version}").get(
+                "version_tuple"
+            )
+            if srv_ver is not None and cli_ver is not None and srv_ver != cli_ver:
+                unsafe_server = True
+                daemon = "version_mismatch"
+
+        if not unsafe_server:
+            daemon = "ok"
+
+    devices: list[dict[str, str]] = []
+    if not unsafe_server and srv_exit_code != EXIT_UNSAFE_SHARED_SERVER and adb_path is not None:
+        devices = list_connected_devices(adb_path)
+
+    udev_status: str | None = None
+    plugdev_status: bool | None = None
+    if not is_win:
+        deb_check = checks_by_id.get("debian_usb_permissions", {})
+        deb_details = deb_check.get("details") or {}
+        if "has_udev_rules" in deb_details:
+            udev_status = "present" if deb_details.get("has_udev_rules") else "missing"
+            plugdev_status = bool(deb_details.get("in_plugdev_group"))
+
+    return {
+        "adb_path": str(adb_path) if adb_path else None,
+        "adb_version": adb_version,
+        "managed": managed,
+        "daemon": daemon,
+        "os": os_name,
+        "driver_hint": "Google USB / WinUSB" if is_win else "udev 51-android.rules + plugdev",
+        "udev": udev_status,
+        "plugdev": plugdev_status,
+        "devices": _compact_device_list(devices),
+    }
+
+
+def tool_setup_status() -> dict[str, Any]:
+    """Execute the `setup_status` MCP tool."""
+    from adapt_adb.doctor import parse_platform_tools_version
+
+    adb_path = resolve_adb()
+    default_dir = _adb_mod.get_default_platform_tools_dir()
+    path_env = os.environ.get("PATH", "")
+    path_parts = [p.strip().lower() for p in path_env.split(os.pathsep) if p.strip()]
+    in_path = str(default_dir).lower() in path_parts or (
+        adb_path is not None and str(adb_path.parent).lower() in path_parts
+    )
+
+    if sys.platform == "win32":
+        hints = ["Google USB driver if Device Manager shows Android"]
+    else:
+        hints = [
+            "Install /etc/udev/rules.d/51-android.rules and add user to plugdev group"
+        ]
+
+    usable = False
+    if adb_path is not None:
+        is_debian_apt = str(adb_path).replace("\\", "/") in ("/usr/bin/adb", "/bin/adb")
+        ver_str = _extract_version_number(adb_path)
+        parsed = parse_platform_tools_version(f"Version {ver_str}" if ver_str else None)
+        meets_min = bool(parsed.get("meets_minimum")) or (ver_str is not None and parsed.get("version_tuple") is None)
+        usable = not is_debian_apt and meets_min
+
+    return {
+        "installed": usable,
+        "adb_path": str(adb_path) if adb_path else str(default_dir / ("adb.exe" if sys.platform == "win32" else "adb")),
+        "would_download": not usable,
+        "would_path": not in_path,
+        "os_hints": hints,
+    }
+
+
+def tool_list_devices() -> dict[str, Any]:
+    """Execute the `list_devices` MCP tool."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+    try:
+        devices = list_connected_devices(adb_path)
+    except (AdbProbeError, subprocess.TimeoutExpired, OSError, ValueError):
+        return {
+            "error": "adb_probe_failed",
+            "message": "ADB device enumeration failed; device state is unknown.",
+            "devices": [],
+        }
+    return {"devices": devices}
+
+
+def tool_device_info(device: str | None = None) -> dict[str, Any]:
+    """Execute the `device_info` MCP tool."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, devices = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    matched = next((d for d in devices if d["device"] == serial), {})
+    try:
+        model_prop = checked_stdout(
+            run_adb(adb_path, ["shell", "getprop", "ro.product.model"], serial=serial),
+            "model probe",
+        )
+        sdk_prop = checked_stdout(
+            run_adb(adb_path, ["shell", "getprop", "ro.build.version.sdk"], serial=serial),
+            "SDK probe",
+        )
+        rel_prop = checked_stdout(
+            run_adb(adb_path, ["shell", "getprop", "ro.build.version.release"], serial=serial),
+            "release probe",
+        )
+        wm_size = checked_stdout(
+            run_adb(adb_path, ["shell", "wm", "size"], serial=serial), "screen-size probe"
+        )
+        wm_density = checked_stdout(
+            run_adb(adb_path, ["shell", "wm", "density"], serial=serial),
+            "screen-density probe",
+        )
+        dumpsys_win = checked_stdout(
+            run_adb(adb_path, ["shell", "dumpsys", "window"], serial=serial),
+            "lock-state probe",
+        )
+    except (AdbProbeError, subprocess.TimeoutExpired, OSError):
+        return {
+            "error": "adb_probe_failed",
+            "message": "Required device information probe failed; device state is unknown.",
+            "devices": [],
+        }
+
+    model = model_prop.strip() or matched.get("model") or "Unknown"
+    try:
+        sdk = int(sdk_prop.strip())
+    except ValueError:
+        sdk = 0
+    release = rel_prop.strip() or ""
+
+    width, height = 0, 0
+    size_match = re.search(r"(\d+)x(\d+)", wm_size)
+    if size_match:
+        width = int(size_match.group(1))
+        height = int(size_match.group(2))
+
+    density = 0
+    dens_match = re.search(r"(\d+)", wm_density)
+    if dens_match:
+        density = int(dens_match.group(1))
+
+    lock = "unknown"
+    if any(
+        marker in dumpsys_win
+        for marker in (
+            "mDreamingLockscreen=true",
+            "isStatusBarKeyguard=true",
+            "mShowingLockscreen=true",
+        )
+    ):
+        lock = "locked"
+    elif any(
+        marker in dumpsys_win
+        for marker in (
+            "mDreamingLockscreen=false",
+            "isStatusBarKeyguard=false",
+            "mShowingLockscreen=false",
+        )
+    ):
+        lock = "unlocked"
+
+    return {
+        "device": serial,
+        "model": model,
+        "sdk": sdk,
+        "release": release,
+        "screen": {
+            "width": width,
+            "height": height,
+            "density": density,
+        },
+        "lock": lock,
+    }
+
+
+def tool_screenshot(
+    device: str | None = None,
+    max_dimension: int = 1024,
+    quality: int = 80,
+) -> tuple[str | None, dict[str, Any]]:
+    """Execute the `screenshot` MCP tool.
+
+    Returns (base64_jpeg_or_none, metadata_or_error_dict).
+    """
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return None, {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return None, err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    try:
+        b64_jpeg, meta = capture_screenshot_jpeg(
+            adb_path,
+            serial,
+            max_dimension=max_dimension,
+            quality=quality,
+            runner=subprocess.run,
+        )
+        return b64_jpeg, meta
+    except Exception:
+        return None, {
+            "error": "screenshot_failed",
+            "message": "Screenshot capture failed.",
+            "devices": [],
+        }
+
+
+def tool_ui_summary(device: str | None = None) -> dict[str, Any]:
+    """Execute the `ui_summary` MCP tool."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    try:
+        return capture_ui_summary(adb_path, serial, runner=subprocess.run)
+    except Exception:
+        return {
+            "error": "ui_summary_failed",
+            "message": "UI summary capture failed.",
+            "devices": [],
+        }
+
+
+def tool_tap(x: int, y: int, device: str | None = None) -> dict[str, Any]:
+    """Execute the `tap` MCP tool."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    ix, iy = int(x), int(y)
+    proc = run_adb(adb_path, ["shell", "input", "tap", str(ix), str(iy)], serial=serial)
+    if proc.returncode != 0:
+        return {
+            "error": "adb_error",
+            "message": (proc.stderr or proc.stdout or "tap failed").strip(),
+            "devices": [],
+        }
+    return {"ok": True, "tapped": [ix, iy]}
+
+
+def tool_swipe(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    duration_ms: int = 300,
+    device: str | None = None,
+) -> dict[str, Any]:
+    """Execute the `swipe` MCP tool."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    args = [
+        "shell",
+        "input",
+        "swipe",
+        str(int(x1)),
+        str(int(y1)),
+        str(int(x2)),
+        str(int(y2)),
+        str(int(duration_ms)),
+    ]
+    proc = run_adb(adb_path, args, serial=serial)
+    if proc.returncode != 0:
+        return {
+            "error": "adb_error",
+            "message": (proc.stderr or proc.stdout or "swipe failed").strip(),
+            "devices": [],
+        }
+    return {"ok": True}
+
+
+def tool_key(key: str, device: str | None = None) -> dict[str, Any]:
+    """Execute the `key` MCP tool."""
+    key_norm = (key or "").strip().upper()
+    if key_norm not in ALLOWED_KEYS:
+        return {
+            "error": "invalid_key",
+            "message": f"Unsupported key '{key}'. Allowed: {', '.join(ALLOWED_KEYS)}",
+            "devices": [],
+        }
+
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    proc = run_adb(adb_path, ["shell", "input", "keyevent", f"KEYCODE_{key_norm}"], serial=serial)
+    if proc.returncode != 0:
+        return {
+            "error": "adb_error",
+            "message": (proc.stderr or proc.stdout or "keyevent failed").strip(),
+            "devices": [],
+        }
+    return {"ok": True, "key": key_norm}
+
+
+def escape_adb_input_text(text: str) -> str:
+    """POSIX-quote one control-free argument for Android ``input text``."""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise ValueError("type accepts single-line text without control characters")
+    return shlex.quote(text.replace(" ", "%s"))
+
+
+def tool_type(text: str, device: str | None = None) -> dict[str, Any]:
+    """Execute the `type` MCP tool."""
+    try:
+        escaped = escape_adb_input_text(text)
+    except (TypeError, ValueError):
+        return {
+            "error": "invalid_params",
+            "message": "type accepts single-line text without control characters.",
+            "devices": [],
+        }
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    proc = run_adb(adb_path, ["shell", "input", "text", escaped], serial=serial)
+    if proc.returncode != 0:
+        return {
+            "error": "adb_error",
+            "message": "Input text operation failed.",
+            "devices": [],
+        }
+    return {"ok": True, "n": len(text)}
+
+
+def tool_install_apk(
+    apk: str,
+    reinstall: bool = True,
+    grant: bool = False,
+    device: str | None = None,
+) -> dict[str, Any]:
+    """Execute the `install_apk` MCP tool (`-r` when reinstall=True)."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    args = ["install"]
+    if reinstall:
+        args.append("-r")
+    if grant:
+        args.append("-g")
+    args.append(str(apk))
+
+    proc = run_adb(adb_path, args, serial=serial, timeout=120)
+    if proc.returncode != 0:
+        return {
+            "error": "install_failed",
+            "message": (proc.stderr or proc.stdout or "install failed").strip(),
+            "devices": [],
+        }
+    return {
+        "ok": True,
+        "apk": Path(apk).name,
+        "reinstall": bool(reinstall),
+    }
+
+
+def tool_logcat_tail(
+    lines: int = 100,
+    tag: str | None = None,
+    level: str | None = None,
+    device: str | None = None,
+) -> dict[str, Any]:
+    """Execute the `logcat_tail` MCP tool (`adb logcat -d`, default 100, max 500)."""
+    adb_path = resolve_adb()
+    if adb_path is None:
+        return {
+            "error": "no_adb",
+            "message": "adb binary not found. Run 'adapt setup' or 'adapt doctor'.",
+            "devices": [],
+        }
+
+    serial, err, _ = resolve_target_device(adb_path, device)
+    if err is not None or serial is None:
+        return err or {"error": "no_device", "message": "No target device.", "devices": []}
+
+    clamped_lines = max(1, min(int(lines), 500))
+    args = ["logcat", "-d", "-t", str(clamped_lines)]
+
+    lvl = (level or "").strip().upper()
+    if lvl and lvl not in ALLOWED_LOG_LEVELS:
+        return {
+            "error": "invalid_level",
+            "message": f"Unsupported logcat level '{level}'. Allowed: {', '.join(ALLOWED_LOG_LEVELS)}",
+            "devices": [],
+        }
+
+    tag_clean = (tag or "").strip()
+    if tag_clean:
+        args.extend(["-s", f"{tag_clean}:{lvl or 'V'}"])
+    elif lvl:
+        args.append(f"*:{lvl}")
+
+    proc = run_adb(adb_path, args, serial=serial, timeout=20)
+    if proc.returncode != 0:
+        return {
+            "error": "logcat_failed",
+            "message": (proc.stderr or proc.stdout or "logcat failed").strip(),
+            "devices": [],
+        }
+
+    raw_lines = [
+        ln.rstrip("\r")
+        for ln in (proc.stdout or "").splitlines()
+        if ln.strip() and not ln.startswith("--------- beginning of ")
+    ]
+    return {"lines": raw_lines[-clamped_lines:]}

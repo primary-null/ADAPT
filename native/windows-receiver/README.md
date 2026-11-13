@@ -71,7 +71,7 @@ Offline tests (they need the locked crates already in your Cargo cache):
 cargo test --locked --offline
 ```
 
-There are **15 offline tests**: `adapt_trace.rs` 3, `protocol.rs` 4, `transport_stream.rs` 3, `input.rs` 2, `receiver.rs` 2 (admission rule), `settings.rs` 1. They do not start the receiver, touch Wi-Fi Direct or involve a phone. All 15 passed again from the public source during publication checks; see [validation](../../docs/validation.md). Re-run them after source changes. Building or passing tests is not a certification.
+There are **20 offline tests**: `adapt_trace.rs` 3, `protocol.rs` 4, `transport_stream.rs` 3, `input.rs` 2, `receiver.rs` 5 (admission, response tracking and deadlines), `media.rs` 2, `settings.rs` 1. They do not start the receiver, touch Wi-Fi Direct or involve a phone. All 20 passed with `cargo test --locked --offline` after the open-admission change. See [validation](../../docs/validation.md) for broader validation limits. Re-run them after source changes. Building or passing tests is not a certification.
 
 ## Run
 

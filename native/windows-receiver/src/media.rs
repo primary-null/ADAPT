@@ -194,7 +194,11 @@ impl NativeVideo {
                 } else {
                     let sample = MFCreateSample()?;
                     sample.AddBuffer(&MFCreateMemoryBuffer(
-                        info.cbSize.max(self.mode.width * self.mode.height * 2),
+                        info.cbSize.max(
+                            output_layout(&self.transform, self.mode)
+                                .map(|layout| layout.required)
+                                .unwrap_or(self.mode.width.saturating_mul(self.mode.height).saturating_mul(2)),
+                        ),
                     )?)?;
                     Some(sample)
                 };
@@ -218,6 +222,8 @@ impl NativeVideo {
                     Err(error) if error.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => break,
                     Err(error) if error.code() == MF_E_TRANSFORM_STREAM_CHANGE => {
                         set_output(&self.transform)?;
+                        // The CPU upload path re-validates the new layout before every copy.
+                        self.upload = None;
                     }
                     Err(error) => return Err(error).context("Windows H.264 decoding failed"),
                 }
@@ -248,10 +254,18 @@ impl NativeVideo {
                 dxgi.GetResource(&ID3D11Texture2D::IID, &mut raw)?;
                 (ID3D11Texture2D::from_raw(raw), dxgi.GetSubresourceIndex()?)
             } else {
+                let layout = output_layout(&self.transform, self.mode)?;
+                if let Some(upload) = &self.upload {
+                    let mut desc = D3D11_TEXTURE2D_DESC::default();
+                    upload.GetDesc(&mut desc);
+                    if (desc.Width, desc.Height) != (layout.width, layout.height) {
+                        self.upload = None;
+                    }
+                }
                 if self.upload.is_none() {
                     let desc = D3D11_TEXTURE2D_DESC {
-                        Width: self.mode.width,
-                        Height: self.mode.height,
+                        Width: layout.width,
+                        Height: layout.height,
                         MipLevels: 1,
                         ArraySize: 1,
                         Format: DXGI_FORMAT_NV12,
@@ -269,19 +283,13 @@ impl NativeVideo {
                 let mut length = 0;
                 buffer.Lock(&mut data, None, Some(&mut length))?;
                 let result = (|| -> Result<()> {
-                    let output = self.transform.GetOutputCurrentType(0)?;
-                    let stride = output
-                        .GetUINT32(&MF_MT_DEFAULT_STRIDE)
-                        .unwrap_or(self.mode.width);
-                    if length < stride * self.mode.height * 3 / 2 {
-                        bail!("Windows returned an incomplete NV12 picture");
-                    }
+                    layout.check_length(length)?;
                     self.context.UpdateSubresource(
                         self.upload.as_ref().unwrap(),
                         0,
                         None,
                         data.cast(),
-                        stride,
+                        layout.stride,
                         length,
                     );
                     Ok(())
@@ -445,5 +453,84 @@ pub fn fit_rect(width: i32, height: i32, mode: VideoMode) -> RECT {
         top: (height - h) / 2,
         right: (width + w) / 2,
         bottom: (height + h) / 2,
+    }
+}
+
+// NV12 has a full-height Y plane followed by a half-height interleaved UV
+// plane. Upload the coded size so padding (e.g. 1088 for 1080) stays before UV.
+struct Nv12Layout {
+    width: u32,
+    height: u32,
+    stride: u32,
+    required: u32,
+}
+
+impl Nv12Layout {
+    fn check_length(&self, length: u32) -> Result<()> {
+        if length < self.required {
+            bail!("Windows returned an incomplete NV12 picture: need {} bytes, got {length}", self.required);
+        }
+        Ok(())
+    }
+}
+
+fn nv12_layout(width: u32, height: u32, stride: i32, mode: VideoMode) -> Result<Nv12Layout> {
+    if width == 0 || height == 0 || width < mode.width || height < mode.height {
+        bail!("Decoder output dimensions do not cover the negotiated video mode");
+    }
+    if width % 2 != 0 || height % 2 != 0 {
+        bail!("Decoder returned odd NV12 dimensions");
+    }
+    if stride <= 0 || (stride as u32) < width {
+        bail!("Decoder NV12 stride must be positive and cover a full texture row");
+    }
+    let stride = stride as u32;
+    let required = stride.checked_mul(height)
+        .and_then(|y| stride.checked_mul(height / 2).and_then(|uv| y.checked_add(uv)))
+        .context("Decoder NV12 byte count overflow")?;
+    Ok(Nv12Layout { width, height, stride, required })
+}
+
+unsafe fn output_layout(transform: &IMFTransform, mode: VideoMode) -> Result<Nv12Layout> {
+    let output = transform.GetOutputCurrentType(0)?;
+    let size = output.GetUINT64(&MF_MT_FRAME_SIZE).context("Decoder output is missing frame dimensions")?;
+    let width = (size >> 32) as u32;
+    // The stride attribute is optional; without it the default NV12 stride is the width.
+    let stride = match output.GetUINT32(&MF_MT_DEFAULT_STRIDE) {
+        Ok(value) => value as i32,
+        Err(_) => i32::try_from(width).context("Decoder output width is out of range")?,
+    };
+    nv12_layout(width, size as u32, stride, mode)
+}
+
+#[cfg(test)]
+mod nv12_tests {
+    use super::*;
+    fn mode() -> VideoMode { VideoMode { width: 1920, height: 1080, fps: 60 } }
+
+    #[test]
+    fn rejects_hostile_layouts() {
+        for stride in [0, -1, i32::MIN, 1919] {
+            assert!(nv12_layout(1920, 1080, stride, mode()).is_err());
+        }
+        assert!(nv12_layout(0, 1080, 1920, mode()).is_err());
+        assert!(nv12_layout(1920, 0, 1920, mode()).is_err());
+        assert!(nv12_layout(1280, 720, 1280, mode()).is_err());
+        assert!(nv12_layout(1920, 1078, 1920, mode()).is_err());
+        assert!(nv12_layout(1921, 1080, 1922, mode()).is_err());
+        assert!(nv12_layout(1920, 1081, 1920, mode()).is_err());
+        assert!(nv12_layout(1920, u32::MAX - 1, 1920, mode()).is_err());
+        // Each plane fits u32, but their sum does not.
+        assert!(nv12_layout(1920, 1080, 3_000_000, mode()).is_err());
+    }
+
+    #[test]
+    fn coded_padding_preserves_chroma_offset() {
+        let layout = nv12_layout(1920, 1088, 2048, mode()).unwrap();
+        assert_eq!(layout.required, 2048 * (1088 + 544));
+        assert!(layout.check_length(layout.required - 1).is_err());
+        assert!(layout.check_length(layout.required).is_ok());
+        assert!(layout.check_length(2048 * (1080 + 540)).is_err());
+        assert_eq!((layout.width, layout.height, layout.stride), (1920, 1088, 2048));
     }
 }

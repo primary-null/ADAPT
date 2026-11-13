@@ -154,7 +154,11 @@ fn connect_phone(
     let id = information.Id()?.to_string();
     let expected = std::env::var("ADAPT_DEX_EXPECTED_NAME").unwrap_or_default();
     let expected_id = std::env::var("ADAPT_DEX_EXPECTED_ID").ok();
-    if !peer_matches(&expected, expected_id.as_deref(), &name, &id) {
+    let allow_name_only = std::env::var("ADAPT_DEX_ALLOW_NAME_ONLY").is_ok_and(|value| value == "1");
+    if expected_id.as_deref().is_none_or(str::is_empty) && !allow_name_only {
+        state.log("ADAPT refused connection: configure ADAPT_DEX_EXPECTED_ID or explicitly opt in with ADAPT_DEX_ALLOW_NAME_ONLY=1");
+    }
+    if !peer_matches(&expected, expected_id.as_deref(), allow_name_only, &name, &id) {
         state.stage(Stage::PeerRejected);
         state.log("ADAPT rejected a transmitter outside the selected phone admission rule");
         return Ok(());
@@ -335,8 +339,7 @@ fn session(
     let mut input_stream = None;
     let mut mode: Option<VideoMode> = None;
     let mut sequence = 0;
-    let mut setup_sequence = 0;
-    let mut play_sequence = 0;
+    let mut playback = PlaybackRequests::default();
     let mut session_id = String::new();
     let mut url = format!("rtsp://{remote}/wfd1.0/streamid=0");
     let mut uibc = String::new();
@@ -345,6 +348,11 @@ fn session(
     let mut bytes = [0u8; 8192];
     let mut last_recover = Instant::now() - Duration::from_secs(2);
     let quality = state.settings.lock().unwrap().quality;
+    let started = Instant::now();
+    let mut first_frame = false;
+    let mut last_message = started;
+    let mut last_frames = state.frames.load(Ordering::Acquire);
+    let mut partial_since: Option<Instant> = None;
     state.log(format!(
         "Starting Miracast; quality target: {}",
         quality.label()
@@ -352,6 +360,14 @@ fn session(
 
     let result = (|| -> Result<()> {
         while !stopping(state) && life.load(Ordering::Acquire) {
+            let frames = state.frames.load(Ordering::Acquire);
+            first_frame |= frames > 0;
+            let now = Instant::now();
+            if frames != last_frames {
+                last_frames = frames;
+                last_message = now;
+            }
+            check_deadlines(now, started, first_frame, last_message, partial_since)?;
             if recover.load(Ordering::Acquire)
                 && last_recover.elapsed() > Duration::from_secs(1)
                 && !session_id.is_empty()
@@ -371,7 +387,10 @@ fn session(
             }
             match stream.read(&mut bytes) {
                 Ok(0) => break,
-                Ok(count) => framer.push(&bytes[..count])?,
+                Ok(count) => {
+                    framer.push(&bytes[..count])?;
+                    partial_since.get_or_insert_with(Instant::now);
+                }
                 Err(error)
                     if matches!(
                         error.kind(),
@@ -383,12 +402,16 @@ fn session(
                 Err(error) => return Err(error.into()),
             }
             while let Some(message) = framer.next_message()? {
+                last_message = Instant::now();
+                partial_since = if framer.has_buffered_bytes() { Some(last_message) } else { None };
                 let received = message.sequence()?;
                 if message.response() {
-                    if !message.start.starts_with("RTSP/1.0 200") {
+                    let answers_sent_request = received != 0 && received <= sequence;
+                    if answers_sent_request && !successful_response(&message.start) {
                         bail!("The phone rejected a control request: {}", message.start);
                     }
-                    if received == setup_sequence {
+                    let Some(response) = playback.consume(received) else { continue };
+                    if response == PlaybackResponse::Setup {
                         session_id = message
                             .headers
                             .get("session")
@@ -398,7 +421,7 @@ fn session(
                             .unwrap_or("")
                             .to_owned();
                         sequence += 1;
-                        play_sequence = sequence;
+                        playback.play = Some(sequence);
                         write(
                             &mut stream,
                             protocol::rtsp(
@@ -408,7 +431,10 @@ fn session(
                                 &format!("Session: {session_id}\r\n"),
                             ),
                         )?;
-                    } else if received == play_sequence {
+                    } else if response == PlaybackResponse::Play {
+                        if input_thread.is_some() || input_stream.is_some() {
+                            bail!("The phone attempted to start a second input channel");
+                        }
                         state.stage(Stage::PlaybackAccepted);
                         let selected = mode.context("The phone did not select a video format")?;
                         let (port, pointer, keyboard) = protocol::input_capability(&uibc);
@@ -530,7 +556,7 @@ fn session(
                         match parameters.get("wfd_trigger_method").map(String::as_str) {
                             Some("SETUP") => {
                                 sequence += 1;
-                                setup_sequence = sequence;
+                                playback.begin_setup(sequence)?;
                                 write(&mut stream,protocol::rtsp(&format!("SETUP {url} RTSP/1.0"),sequence,"",
                                     &format!("Transport: RTP/AVP/UDP;unicast;client_port={rtp_port}-{}\r\n",rtp_port+1)))?;
                             }
@@ -645,7 +671,17 @@ fn video_worker(
                     }
                 }
                 let mut control = [0u8; 1500];
-                while rtcp.recv_from(&mut control).is_ok() {}
+                // Count every datagram, including foreign traffic, against the budget.
+                for _ in 0..32 {
+                    if !life.load(Ordering::Acquire) || stopping(&state) {
+                        break;
+                    }
+                    match rtcp.recv_from(&mut control) {
+                        Ok((_, peer)) if peer.ip() == remote => {}
+                        Ok(_) => continue,
+                        Err(_) => break,
+                    }
+                }
             }
             Ok(())
         })();
@@ -657,23 +693,116 @@ fn video_worker(
     })
 }
 
-// ADAPT admission is an exact name gate, strengthened by an explicit Windows
-// peer ID when available. The name alone is not cryptographic identity proof.
-fn peer_matches(expected: &str, expected_id: Option<&str>, name: &str, id: &str) -> bool {
-    !expected.is_empty() && expected == name && expected_id.map_or(true, |value| value == id)
+// Exact friendly-name binding is not cryptographic identity proof.
+fn peer_matches(expected: &str, expected_id: Option<&str>, allow_name_only: bool, name: &str, id: &str) -> bool {
+    !expected.is_empty() && expected == name && match expected_id {
+        Some(value) if !value.is_empty() => value == id,
+        _ => allow_name_only,
+    }
 }
+
+// Allow slow group/decoder startup, a bounded partial message, and at least
+// four typical WFD keep-alive intervals (GET_PARAMETER is about every 30s).
+const HANDSHAKE_LIMIT: Duration = Duration::from_secs(90);
+const PARTIAL_MESSAGE_LIMIT: Duration = Duration::from_secs(10);
+const CONTROL_IDLE_LIMIT: Duration = Duration::from_secs(150);
+
+fn check_deadlines(now: Instant, started: Instant, first_frame: bool, last_message: Instant, partial_since: Option<Instant>) -> Result<()> {
+    if !first_frame && now.duration_since(started) >= HANDSHAKE_LIMIT {
+        bail!("Miracast handshake timed out before the first decoded frame");
+    }
+    if partial_since.is_some_and(|since| now.duration_since(since) >= PARTIAL_MESSAGE_LIMIT) {
+        bail!("Timed out completing a partial RTSP message");
+    }
+    if first_frame && now.duration_since(last_message) >= CONTROL_IDLE_LIMIT {
+        bail!("Miracast control connection idle timeout");
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct PlaybackRequests {
+    setup_started: bool,
+    setup: Option<u32>,
+    play: Option<u32>,
+}
+
+#[derive(Debug, PartialEq)]
+enum PlaybackResponse { Setup, Play }
+
+impl PlaybackRequests {
+    fn begin_setup(&mut self, sequence: u32) -> Result<()> {
+        if self.setup_started {
+            bail!("The phone requested SETUP more than once");
+        }
+        self.setup_started = true;
+        self.setup = Some(sequence);
+        Ok(())
+    }
+
+    fn consume(&mut self, sequence: u32) -> Option<PlaybackResponse> {
+        if self.setup == Some(sequence) {
+            self.setup.take();
+            Some(PlaybackResponse::Setup)
+        } else if self.play == Some(sequence) {
+            self.play.take();
+            Some(PlaybackResponse::Play)
+        } else {
+            None
+        }
+    }
+}
+
+fn successful_response(start: &str) -> bool {
+    start.starts_with("RTSP/1.0 200 ")
+}
+
 #[cfg(test)]
 mod adapt_admission_tests {
-    use super::peer_matches;
+    use super::*;
+
     #[test]
-    fn unknown_or_unnamed_transmitter_is_not_admitted() {
-        assert!(!peer_matches("", None, "phone", "id"));
-        assert!(!peer_matches("selected", None, "another", "id"));
-        assert!(peer_matches("selected", None, "selected", "id"));
+    fn admission_is_closed_by_default() {
+        assert!(!peer_matches("selected", None, false, "selected", "id"));
+        assert!(!peer_matches("selected", Some(""), false, "selected", "id"));
+        assert!(!peer_matches("", None, true, "phone", "id"));
+        assert!(!peer_matches("selected", None, true, "another", "id"));
+        assert!(peer_matches("selected", None, true, "selected", "id"));
     }
+
     #[test]
     fn selected_windows_peer_id_is_enforced() {
-        assert!(!peer_matches("selected", Some("expected-id"), "selected", "other-id"));
-        assert!(peer_matches("selected", Some("expected-id"), "selected", "expected-id"));
+        for allow in [false, true] {
+            assert!(!peer_matches("selected", Some("expected-id"), allow, "selected", "other-id"));
+            assert!(peer_matches("selected", Some("expected-id"), allow, "selected", "expected-id"));
+        }
+    }
+
+    #[test]
+    fn responses_require_outstanding_request_and_are_consumed_once() {
+        let mut pending = PlaybackRequests::default();
+        assert_eq!(pending.consume(0), None);
+        pending.begin_setup(3).unwrap();
+        assert_eq!(pending.consume(4), None);
+        assert_eq!(pending.consume(3), Some(PlaybackResponse::Setup));
+        assert_eq!(pending.consume(3), None);
+        assert!(pending.begin_setup(5).is_err());
+        assert_eq!(pending.consume(4), None);
+        pending.play = Some(4);
+        assert_eq!(pending.consume(4), Some(PlaybackResponse::Play));
+        assert_eq!(pending.consume(4), None);
+        assert!(successful_response("RTSP/1.0 200 OK"));
+        assert!(!successful_response("RTSP/1.0 2000 OK"));
+        assert!(!successful_response("RTSP/1.0 200"));
+    }
+
+    #[test]
+    fn session_deadlines_bound_silent_and_partial_peers() {
+        let start = Instant::now();
+        assert!(check_deadlines(start + HANDSHAKE_LIMIT, start, false, start + HANDSHAKE_LIMIT, None).is_err());
+        assert!(check_deadlines(start + PARTIAL_MESSAGE_LIMIT, start, false, start, Some(start)).is_err());
+        assert!(check_deadlines(start + CONTROL_IDLE_LIMIT, start, true, start, None).is_err());
+        assert!(check_deadlines(start + Duration::from_secs(70), start, true, start, None).is_ok());
+        assert!(check_deadlines(start + Duration::from_secs(9), start, false, start, Some(start)).is_ok());
     }
 }

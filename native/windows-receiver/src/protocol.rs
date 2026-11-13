@@ -67,6 +67,10 @@ pub struct RtspFramer {
 }
 
 impl RtspFramer {
+    pub fn has_buffered_bytes(&self) -> bool {
+        !self.bytes.is_empty()
+    }
+
     pub fn push(&mut self, data: &[u8]) -> Result<()> {
         if self.bytes.len() + data.len() > 98304 {
             bail!("RTSP message exceeded its size limit");
@@ -319,10 +323,13 @@ mod tests {
             "",
         );
         let mut parser = RtspFramer::default();
+        assert!(!parser.has_buffered_bytes());
         for fragment in text.as_bytes().chunks(3) {
             parser.push(fragment).unwrap();
+            assert!(parser.has_buffered_bytes());
         }
         let message = parser.next_message().unwrap().unwrap();
+        assert!(!parser.has_buffered_bytes());
         assert_eq!(message.sequence().unwrap(), 3);
         assert_eq!(message.body, "wfd_video_formats\r\n");
         assert!(parser.next_message().unwrap().is_none());

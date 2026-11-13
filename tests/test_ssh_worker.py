@@ -3,6 +3,8 @@ import base64
 import json
 import shlex
 import subprocess
+import sys
+import time
 
 import pytest
 from typer.testing import CliRunner
@@ -134,12 +136,55 @@ def test_remote_worker_catalog_does_not_install_ssh():
 
 def test_real_executor_uses_argv_no_stdin_and_timeout(monkeypatch):
     captured = []
-    monkeypatch.setattr(ssh.subprocess, "run", lambda args, **kwargs: captured.append((args, kwargs)) or subprocess.CompletedProcess(args, 0, "{}", ""))
-    # Exercise the process adapter directly rather than the test fixture stub.
-    # _execute itself is preserved below for this isolated adapter check.
-    EXECUTOR(["ssh", "--", "worker", "adapt doctor --json"], 45)
+    popen = subprocess.Popen
+    def start(args, **kwargs):
+        process = popen(args, **kwargs)
+        captured.append((args, kwargs, process))
+        return process
+    monkeypatch.setattr(ssh.subprocess, "Popen", start)
+    result = EXECUTOR([sys.executable, "-c", "import sys; print('{}'); sys.stderr.write('diagnostic')"], 1)
+    assert json.loads(result.stdout)=={} and result.stderr=="diagnostic"
     assert captured[0][1]["shell"] is False
-    assert captured[0][1]["stdin"] == subprocess.DEVNULL and captured[0][1]["timeout"] == 45
+    assert captured[0][1]["stdin"] == subprocess.DEVNULL
+    assert captured[0][2].returncode==0 and captured[0][2].stdout.closed and captured[0][2].stderr.closed
+
+
+@pytest.mark.parametrize("fd,limit_name,message", [(1,"MAX_RESPONSE_BYTES","4 MiB"),(2,"MAX_STDERR_BYTES","64 KiB")])
+def test_real_executor_kills_over_limit_child_and_returns_invalid_response(monkeypatch,fd,limit_name,message):
+    monkeypatch.setattr(ssh,limit_name,1024)
+    children=[];popen=subprocess.Popen
+    def start(args,**kwargs):
+        child=popen(args,**kwargs);children.append(child);return child
+    monkeypatch.setattr(ssh.subprocess,"Popen",start)
+    script=f"import os,time; os.write({fd}, b'x'*8192); time.sleep(30)"
+    monkeypatch.setattr(ssh,"_execute",lambda args,timeout:EXECUTOR([sys.executable,"-c",script],timeout))
+    started=time.monotonic()
+    report=ssh.run("worker",timeout=10)
+    assert time.monotonic()-started<2
+    assert report["status"]=="invalid_response" and message in report["error"]
+    assert children[0].returncode is not None
+    assert children[0].stdout.closed and children[0].stderr.closed
+
+
+def test_real_executor_small_response_parses(monkeypatch):
+    monkeypatch.setattr(ssh,"_execute",lambda args,timeout:EXECUTOR([sys.executable,"-c","print('{\"status\":\"ok\"}')"],timeout))
+    report=ssh.run("worker",timeout=1)
+    assert report["status"]=="remote_completed" and report["remote_report"]=={"status":"ok"}
+
+
+def test_real_executor_timeout_kills_and_reaps(monkeypatch):
+    children=[];popen=subprocess.Popen
+    def start(args,**kwargs):
+        child=popen(args,**kwargs);children.append(child);return child
+    monkeypatch.setattr(ssh.subprocess,"Popen",start)
+    with pytest.raises(subprocess.TimeoutExpired):
+        EXECUTOR([sys.executable,"-c","import time; time.sleep(30)"],.1)
+    assert children[0].returncode is not None and children[0].stdout.closed and children[0].stderr.closed
+
+
+def test_real_executor_invalid_utf8_is_rejected():
+    with pytest.raises(UnicodeError):
+        EXECUTOR([sys.executable,"-c","import os; os.write(1,b'\\xff')"],1)
 
 
 EXECUTOR = ssh._execute

@@ -29,6 +29,8 @@ from adapt_adb.progress import adapting
 RESOURCE = Path(__file__).parent / "resources" / "dex_bridge"
 ENTRY = "org.adaptadb.dex.AdaptDexBridge"
 TERMINAL = {"failed", "stopped", "cleanup_conflict"}
+MAX_SCRCPY_LOG_BYTES = 1024 * 1024
+LOG_TRUNCATION_MARKER = b"\n[ADAPT: session log truncated; further output discarded]\n"
 
 
 class PcSessionError(ValueError):
@@ -156,7 +158,8 @@ def _restore_overlay(adb: Path, state: dict[str, Any]) -> str:
     if current == state["original_overlay"]:
         return "already_original"
     if current != state["overlay_value"]:
-        raise PcSessionError("Overlay changed externally; recovery left it untouched.")
+        state.update(overlay_cleanup_current=current, overlay_ownership="unowned_left_untouched")
+        raise PcSessionError("Overlay changed externally; current value is unowned and recovery left it untouched (see overlay_cleanup_current).")
     args = ["shell", "settings", "delete", "global", "overlay_display_devices"] if state["original_overlay"] == "null" else ["shell", "settings", "put", "global", "overlay_display_devices", "none"]
     _adb(adb, state["serial"], args)
     if _adb(adb, state["serial"], ["shell", "settings", "get", "global", "overlay_display_devices"]) != state["original_overlay"]:
@@ -173,6 +176,20 @@ def _default_snapshot() -> Path:
 
 def _log(path: Path):
     return os.fdopen(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600), "wb")
+
+
+def _pump_log(source, log) -> None:
+    # Reserve room for the marker so the entire file stays within the budget.
+    remaining = MAX_SCRCPY_LOG_BYTES - len(LOG_TRUNCATION_MARKER)
+    truncated = False
+    read = getattr(source, "read1", source.read)
+    while chunk := read(64 * 1024):
+        if truncated: continue  # Keep draining so the child cannot block.
+        kept = chunk[:remaining]
+        log.write(kept); remaining -= len(kept)
+        if len(kept) < len(chunk):
+            log.write(LOG_TRUNCATION_MARKER); truncated = True
+        log.flush()
 
 
 def receiver_plan() -> dict[str, Any]:
@@ -243,10 +260,11 @@ def attach(serial: str, display: int, *, yes: bool = False, view_only: bool = Fa
     if hashlib.sha256(json.dumps(asdict(identity), sort_keys=True).encode("utf-8")).hexdigest() != observed["identity_binding"]:
         raise PcSessionError("The device/build/user changed after Samsung API inspection; no mirror launched.")
     client = resolve_scrcpy(); _check_scrcpy_version(client, _run_process)
-    argv = [str(client), "-s", serial, f"--display-id={display}", "--no-audio", "--window-title", "ADAPT DeX PC"]
+    argv = [str(client), "-s", serial, f"--display-id={display}", "--no-audio", "--verbosity=warn", "--window-title", "ADAPT DeX PC"]
     if view_only: argv.append("--no-control")
     env = os.environ.copy(); env["ADB"] = str(adb)
     receipt = _default_snapshot()
+    # This launcher exits: warning-only output reduces, but does not cap, its log.
     with _log(receipt.with_suffix(".scrcpy.log")) as log:
         process = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
@@ -349,6 +367,7 @@ def worker(path: Path) -> None:
     state = _load(path); adb = dev_options._resolve_adb_path(None)
     identity = _identity(state, adb)
     helper = mirror = None; changed = False; pushed = False; events: queue.Queue[str] = queue.Queue()
+    log = log_thread = None
     def stopping():
         request = path.with_name(path.name + ".stop")
         return request.is_file() and request.read_text(encoding="ascii") == state["token"]
@@ -365,6 +384,8 @@ def worker(path: Path) -> None:
                     raise PcSessionError("Overlay changed since planning; no overwrite performed.")
                 changed = True  # Mark uncertain writes before invoking ADB.
                 _adb(adb, state["serial"], ["shell", "settings", "put", "global", "overlay_display_devices", state["overlay_value"]])
+                if _adb(adb, state["serial"], ["shell", "settings", "get", "global", "overlay_display_devices"]) != state["overlay_value"]:
+                    raise PcSessionError("Overlay setting readback did not match the requested value; no mirror launched.")
             else:
                 helper = subprocess.Popen([str(adb), "-s", state["serial"], *_helper_args(state, "serve")], stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", bufsize=1,
@@ -403,9 +424,11 @@ def worker(path: Path) -> None:
             env = os.environ.copy(); env["ADB"] = str(adb)
             argv = [str(scrcpy), "-s", state["serial"], f"--display-id={display}", "--no-audio", "--window-title", "ADAPT DeX PC"]
             if state["view_only"]: argv.append("--no-control")
-            with _log(path.parent / (path.name + ".scrcpy.log")) as log:
-                mirror = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+            log = _log(path.parent / (path.name + ".scrcpy.log"))
+            mirror = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+            log_thread = threading.Thread(target=_pump_log, args=(mirror.stdout, log), daemon=True)
+            log_thread.start()
             time.sleep(.3)
             if mirror.poll() is not None:
                 raise PcSessionError("Owned scrcpy client exited during startup; see its session log.")
@@ -420,6 +443,12 @@ def worker(path: Path) -> None:
             state.update(status="failed", error=str(exc)[:1200])
         finally:
             if mirror is not None and mirror.poll() is None: _stop_owned_process(mirror)
+            # Bounded wait: a process that inherited scrcpy's pipe (such as a newly started
+            # ADB daemon) can keep it open, and device cleanup below must never wait on that.
+            if log_thread is not None: log_thread.join(timeout=5)
+            if log_thread is None or not log_thread.is_alive():
+                if mirror is not None and mirror.stdout is not None: mirror.stdout.close()
+                if log is not None: log.close()
             if helper is not None and helper.poll() is None:
                 try: helper.stdin.write("STOP\n"); helper.stdin.flush(); helper.wait(timeout=8)
                 except Exception: _stop_owned_process(helper)

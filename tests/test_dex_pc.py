@@ -217,6 +217,7 @@ def test_attach_preserves_external_receiver_and_targets_its_exact_display(sessio
     assert report["display_ownership"]=="external_user_session" and report["status"]=="process_started"
     assert starts[0][0][:3]==["chosen-scrcpy","-s","exact target"] and f"--display-id={display}" in starts[0][0]
     assert starts[0][1]["env"]["ADB"]=="chosen-adb"
+    assert "--verbosity=warn" in starts[0][0]
     assert report["healthy_streaming"]=="not_verified"
 
 
@@ -248,3 +249,93 @@ def test_stop_request_does_not_claim_completion_without_supervisor_ack(session,m
     result=pc.stop(session[1])
     assert result["status"]=="stop_pending"
     assert session[1].with_name("session.json.stop").read_text()==session[0]["token"]
+
+
+@pytest.mark.parametrize("readback", ["1280x720/240", "null"])
+def test_overlay_readback_mismatch_launches_nothing_and_records_cleanup(session,monkeypatch,readback):
+    state,path,_=session
+    value=["null"];calls=[]
+    def adb(binary,serial,args):
+        calls.append(args)
+        if "get" in args:return value[0]
+        if "put" in args:value[0]=readback
+        return ""
+    monkeypatch.setattr(pc,"_adb",adb)
+    monkeypatch.setattr(pc,"resolve_scrcpy",lambda:Path("scrcpy"))
+    monkeypatch.setattr(pc,"_check_scrcpy_version",lambda *a:"5.0.1")
+    monkeypatch.setattr(pc,"_probe",lambda *a:{"displays":[{"id":0,"type":1}],"wifi_state":0,"dex_enabled":2,"dex_display_type":0})
+    monkeypatch.setattr(pc.subprocess,"Popen",forbid)
+    pc.worker(path)
+    final=pc._load(path)
+    assert "readback did not match" in final["error"]
+    assert value[0]==readback and not any("delete" in a for a in calls)
+    if readback=="null":
+        assert final["status"]=="failed" and final["cleanup"]=="already_original"
+    else:
+        assert final["status"]=="cleanup_conflict"
+        assert final["overlay_cleanup_current"]==readback
+        assert final["overlay_ownership"]=="unowned_left_untouched"
+        assert "unowned" in final["cleanup_error"] and "left it untouched" in final["cleanup_error"]
+
+
+def test_log_pump_caps_writes_and_keeps_draining(monkeypatch):
+    monkeypatch.setattr(pc,"MAX_SCRCPY_LOG_BYTES",128)
+    log=io.BytesIO()
+    class Producer(io.BytesIO):
+        def read1(self,size):
+            # The pump must keep reading after it has written the marker.
+            chunk=super().read1(40)
+            if self.tell()>200: assert len(log.getvalue())==128
+            return chunk
+    source=Producer(b"x"*1000)
+    pc._pump_log(source,log)
+    assert source.tell()==1000
+    assert len(log.getvalue())==128
+    assert log.getvalue().count(pc.LOG_TRUNCATION_MARKER)==1
+
+
+def test_log_pump_preserves_small_startup_diagnostic():
+    log=io.BytesIO()
+    pc._pump_log(io.BytesIO(b"scrcpy startup failed\n"),log)
+    assert log.getvalue()==b"scrcpy startup failed\n"
+
+
+@pytest.mark.parametrize("startup_failed", [False, True])
+def test_worker_joins_log_pump_and_closes_log_on_mirror_exit(session,monkeypatch,startup_failed):
+    state,path,_=session
+    value=["null"]
+    def adb(binary,serial,args):
+        if "get" in args:return value[0]
+        if "put" in args:value[0]=state["overlay_value"]
+        if "delete" in args:value[0]="null"
+        return ""
+    monkeypatch.setattr(pc,"_adb",adb)
+    monkeypatch.setattr(pc,"resolve_scrcpy",lambda:Path("scrcpy"))
+    monkeypatch.setattr(pc,"_check_scrcpy_version",lambda *a:"5.0.1")
+    baseline={"displays":[{"id":0,"type":1}],"wifi_state":0,"dex_enabled":2,"dex_display_type":0}
+    active={**baseline,"displays":[*baseline["displays"],{"id":7,"type":4,"unique_id":"overlay:1"}],"dex_enabled":4,"dex_display_type":102}
+    probes=iter([baseline,active])
+    monkeypatch.setattr(pc,"_probe",lambda *a:next(probes))
+    monkeypatch.setattr(pc.time,"sleep",lambda *a:None)
+    polls=iter([1,1] if startup_failed else [None,1,1])
+    process=SimpleNamespace(stdout=io.BytesIO(b"startup diagnostic\n"),poll=lambda:next(polls))
+    def start(argv,**kwargs):
+        assert kwargs["stdout"]==pc.subprocess.PIPE and kwargs["stderr"]==pc.subprocess.STDOUT
+        return process
+    monkeypatch.setattr(pc.subprocess,"Popen",start)
+    logs=[];open_log=pc._log
+    def log_file(log_path):
+        stream=open_log(log_path);logs.append(stream);return stream
+    monkeypatch.setattr(pc,"_log",log_file)
+    threads=[];thread=pc.threading.Thread
+    def new_thread(*args,**kwargs):
+        result=thread(*args,**kwargs);threads.append(result);return result
+    monkeypatch.setattr(pc.threading,"Thread",new_thread)
+    pc.worker(path)
+    final=pc._load(path)
+    assert final["status"]==("failed" if startup_failed else "stopped")
+    if startup_failed: assert "see its session log" in final["error"]
+    assert final["cleanup"]=="restored_verified"
+    assert len(threads)==1 and threads[0].daemon and not threads[0].is_alive()
+    assert logs[0].closed and process.stdout.closed
+    assert path.with_name(path.name+".scrcpy.log").read_bytes()==b"startup diagnostic\n"

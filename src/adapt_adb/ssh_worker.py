@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -20,6 +21,7 @@ ssh_app = typer.Typer(help="Run read-only ADAPT checks on an explicitly selected
 OPERATIONS = ("doctor", "scan", "inspect", "android", "desktop", "dex", "tools")
 DEVICE_OPERATIONS = frozenset({"inspect", "android", "desktop", "dex"})
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_STDERR_BYTES = 64 * 1024
 SSH_OPTIONS = (
     "BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no",
     "CheckHostIP=no", "VerifyHostKeyDNS=no",
@@ -32,6 +34,10 @@ SSH_OPTIONS = (
 
 
 class SshWorkerError(ValueError):
+    pass
+
+
+class _ResponseLimitError(SshWorkerError):
     pass
 
 
@@ -125,9 +131,34 @@ def plan(host: str, *, operation: str = "doctor", device: str | None = None, tra
 
 
 def _execute(argv: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                          encoding="utf-8", errors="strict", check=False, timeout=timeout,
-                          shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+    process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+    stdout = bytearray(); stderr = bytearray(); failures: list[Exception] = []
+    def kill():
+        try: process.kill()
+        except ProcessLookupError: pass
+    def read(stream, output, limit, message):
+        try:
+            while chunk := stream.read1(min(64 * 1024, limit - len(output) + 1)):
+                if len(output) + len(chunk) > limit:
+                    failures.append(_ResponseLimitError(message)); kill(); return
+                output.extend(chunk)
+        except Exception as exc:
+            failures.append(exc); kill()
+    readers = [threading.Thread(target=read, args=(process.stdout, stdout, MAX_RESPONSE_BYTES, "Worker JSON response exceeded the accepted 4 MiB limit.")),
+               threading.Thread(target=read, args=(process.stderr, stderr, MAX_STDERR_BYTES, "SSH stderr exceeded the accepted 64 KiB limit."))]
+    started = []
+    try:
+        for reader in readers:
+            reader.start(); started.append(reader)
+        process.wait(timeout=timeout)
+    finally:
+        if process.poll() is None: kill()
+        process.wait()
+        for reader in started: reader.join()
+        process.stdout.close(); process.stderr.close()
+    if failures: raise failures[0]
+    return subprocess.CompletedProcess(argv, process.returncode, stdout.decode("utf-8", errors="strict"), stderr.decode("utf-8", errors="strict"))
 
 
 @operation("Inspecting SSH worker")
@@ -143,6 +174,8 @@ def run(host: str, *, timeout: int = 180, **kwargs) -> dict[str, Any]:
             "network_access": True, "local_adb_access": False, "automatic_fallback": False}
     try:
         result = _execute(argv, timeout)
+    except _ResponseLimitError as exc:
+        return {**base, "status": "invalid_response", "exit_code": 1, "error": str(exc)}
     except subprocess.TimeoutExpired:
         return {**base, "status": "timeout", "exit_code": 1, "error": "SSH client timed out; no local fallback ran. A remote read-only process may briefly remain on the worker."}
     except (OSError, UnicodeError, subprocess.SubprocessError):

@@ -22,7 +22,7 @@
   "native": {
     "toolchain": "Rust 1.99.1 x86_64-pc-windows-gnu",
     "command": "cargo test --locked --offline",
-    "passed": 19,
+    "passed": 20,
     "failed": 0,
     "runtime_receiver_started": false
   },

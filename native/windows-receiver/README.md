@@ -35,9 +35,9 @@ Code in this tree that is specific to ADAPT includes `src/adapt_trace.rs` (obser
 - **Input:** UIBC with generic mouse and touch plus a USB HID keyboard. Right-click is a long press; the wheel becomes a smooth scrolling gesture.
 - **Quality settings:** 1080p target 60 FPS (default), 1080p 30, 720p 60. Scroll speed 30-120, always-on-top, window size 640-8192 by 480-8192.
 
-### Peer admission defaults to an exact name and peer ID
+### Peer admission is open by default
 
-The receiver admits a Wi-Fi Direct connection request only if the peer's friendly name **exactly equals** `ADAPT_DEX_EXPECTED_NAME` and its Windows peer ID equals the non-empty `ADAPT_DEX_EXPECTED_ID`. With no configured peer ID, requests are refused by default. Set `ADAPT_DEX_ALLOW_NAME_ONLY=1` to explicitly allow name-only admission; an ID configured alongside this opt-in is still enforced. **Friendly-name binding is not cryptographic identity**: names can be chosen by anyone. Treat it as a guard against accidental connection, not as security.
+By default the receiver admits any phone that requests a Wi-Fi Direct connection; whoever runs it is expected to control who is in radio range and what Windows itself allows. Two optional settings narrow that: when `ADAPT_DEX_EXPECTED_NAME` is set, the peer's friendly name must **exactly equal** it, and when `ADAPT_DEX_EXPECTED_ID` is set, the peer's Windows peer ID must equal it. **Neither is cryptographic identity**: names can be chosen by anyone. Treat them as a guard against accidental connection, not as security.
 
 ### Observation stages
 
@@ -75,11 +75,12 @@ There are **15 offline tests**: `adapt_trace.rs` 3, `protocol.rs` 4, `transport_
 
 ## Run
 
-The receiver refuses to start without an exact phone name (it must be non-empty, at most 256 characters, with no control characters).
+No configuration is required: start the receiver and choose this PC on the phone. To accept only one phone, set either or both optional variables first (a name must be at most 256 characters with no control characters).
 
 ```powershell
+# optional: accept only a phone with this exact friendly name
 $env:ADAPT_DEX_EXPECTED_NAME = "PHONE_FRIENDLY_NAME"
-# exact Windows peer ID of the phone (required unless name-only admission is explicitly enabled)
+# optional: accept only the phone with this exact Windows peer ID
 $env:ADAPT_DEX_EXPECTED_ID = "PEER_ID"
 .\target\release\dexdesk.exe
 ```
@@ -88,9 +89,8 @@ Then, on the phone, choose this PC in Samsung DeX's wireless receiver picker.
 
 | Setting | Purpose |
 |---|---|
-| `ADAPT_DEX_EXPECTED_NAME` | **Required.** Exact friendly name the Wi-Fi Direct request must carry |
-| `ADAPT_DEX_EXPECTED_ID` | Exact Windows peer ID; required by default |
-| `ADAPT_DEX_ALLOW_NAME_ONLY` | Set to exactly `1` to allow admission without a peer ID; default refuses it |
+| `ADAPT_DEX_EXPECTED_NAME` | Optional. When set, only a phone with this exact friendly name is admitted |
+| `ADAPT_DEX_EXPECTED_ID` | Optional. When set, only the phone with this exact Windows peer ID is admitted |
 | `ADAPT_DEX_DATA_DIR` | Optional **absolute** directory for state; default `%LOCALAPPDATA%\DeXDesk` |
 | `--preview` | Show the window and settings without starting the receiver |
 | `--preview-settings` | Preview with settings open immediately; no receiver or single-instance check |
@@ -124,7 +124,7 @@ The Python workflow only observes and attaches; it does not start the receiver. 
 
 - Experimental and manual; one physical Android 13 phone formed a group, decoded changing desktop frames and passed one controlled reconnect. That does not generalize to other phones, radios, Windows versions, long sessions or audio.
 - Relies on an undocumented Windows provider; a Windows update can break it.
-- Exact name and Windows peer ID admission by default; name-only admission requires explicit opt-in. Neither is cryptographic authentication beyond what Wi-Fi Direct itself provides.
+- Open admission by default; the optional name and peer ID restrictions are not cryptographic authentication beyond what Wi-Fi Direct itself provides.
 - Not a replacement for Microsoft's supported Wireless Display receiver; `adapt dex pc-receiver-plan` describes that route.
 
 Back to the [project README](../../README.md).

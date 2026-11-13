@@ -58,9 +58,12 @@ pub fn start(state: Arc<AppState>) -> thread::JoinHandle<()> {
 }
 
 fn run(state: &Arc<AppState>) -> Result<()> {
-    let expected = std::env::var("ADAPT_DEX_EXPECTED_NAME").context("Launch through ADAPT with a selected phone")?;
-    if expected.is_empty() || expected.len() > 256 || expected.chars().any(char::is_control) {
-        bail!("An exact selected phone name is required");
+    // Admission is open by default: any phone may connect. A name or peer ID
+    // restricts it only when the operator sets one.
+    if let Ok(expected) = std::env::var("ADAPT_DEX_EXPECTED_NAME") {
+        if expected.len() > 256 || expected.chars().any(char::is_control) {
+            bail!("ADAPT_DEX_EXPECTED_NAME must be at most 256 characters with no control characters");
+        }
     }
     let _apartment = Apartment::new()?;
     let guard=TcpListener::bind(("0.0.0.0",7236))
@@ -152,15 +155,11 @@ fn connect_phone(
     let information = request.DeviceInformation()?;
     let name = information.Name()?.to_string();
     let id = information.Id()?.to_string();
-    let expected = std::env::var("ADAPT_DEX_EXPECTED_NAME").unwrap_or_default();
+    let expected = std::env::var("ADAPT_DEX_EXPECTED_NAME").ok();
     let expected_id = std::env::var("ADAPT_DEX_EXPECTED_ID").ok();
-    let allow_name_only = std::env::var("ADAPT_DEX_ALLOW_NAME_ONLY").is_ok_and(|value| value == "1");
-    if expected_id.as_deref().is_none_or(str::is_empty) && !allow_name_only {
-        state.log("ADAPT refused connection: configure ADAPT_DEX_EXPECTED_ID or explicitly opt in with ADAPT_DEX_ALLOW_NAME_ONLY=1");
-    }
-    if !peer_matches(&expected, expected_id.as_deref(), allow_name_only, &name, &id) {
+    if !peer_matches(expected.as_deref(), expected_id.as_deref(), &name, &id) {
         state.stage(Stage::PeerRejected);
-        state.log("ADAPT rejected a transmitter outside the selected phone admission rule");
+        state.log("ADAPT rejected a transmitter that does not match the configured phone name or peer ID");
         return Ok(());
     }
     state.stage(Stage::PeerAdmitted);
@@ -693,12 +692,12 @@ fn video_worker(
     })
 }
 
-// Exact friendly-name binding is not cryptographic identity proof.
-fn peer_matches(expected: &str, expected_id: Option<&str>, allow_name_only: bool, name: &str, id: &str) -> bool {
-    !expected.is_empty() && expected == name && match expected_id {
-        Some(value) if !value.is_empty() => value == id,
-        _ => allow_name_only,
-    }
+// Open by default. A configured name and a configured peer ID are each an
+// optional restriction; an unset or empty value restricts nothing. Neither is
+// cryptographic identity proof.
+fn peer_matches(expected: Option<&str>, expected_id: Option<&str>, name: &str, id: &str) -> bool {
+    let allows = |wanted: Option<&str>, actual: &str| wanted.is_none_or(|value| value.is_empty() || value == actual);
+    allows(expected, name) && allows(expected_id, id)
 }
 
 // Allow slow group/decoder startup, a bounded partial message, and at least
@@ -762,20 +761,26 @@ mod adapt_admission_tests {
     use super::*;
 
     #[test]
-    fn admission_is_closed_by_default() {
-        assert!(!peer_matches("selected", None, false, "selected", "id"));
-        assert!(!peer_matches("selected", Some(""), false, "selected", "id"));
-        assert!(!peer_matches("", None, true, "phone", "id"));
-        assert!(!peer_matches("selected", None, true, "another", "id"));
-        assert!(peer_matches("selected", None, true, "selected", "id"));
+    fn admission_is_open_by_default() {
+        assert!(peer_matches(None, None, "any phone", "any-id"));
+        assert!(peer_matches(Some(""), Some(""), "any phone", "any-id"));
+        assert!(peer_matches(None, None, "", ""));
     }
 
     #[test]
-    fn selected_windows_peer_id_is_enforced() {
-        for allow in [false, true] {
-            assert!(!peer_matches("selected", Some("expected-id"), allow, "selected", "other-id"));
-            assert!(peer_matches("selected", Some("expected-id"), allow, "selected", "expected-id"));
-        }
+    fn a_configured_name_restricts_admission() {
+        assert!(peer_matches(Some("selected"), None, "selected", "id"));
+        assert!(!peer_matches(Some("selected"), None, "another", "id"));
+        assert!(!peer_matches(Some("selected"), Some(""), "Selected", "id"));
+    }
+
+    #[test]
+    fn a_configured_peer_id_restricts_admission() {
+        assert!(peer_matches(None, Some("expected-id"), "any phone", "expected-id"));
+        assert!(!peer_matches(None, Some("expected-id"), "any phone", "other-id"));
+        assert!(peer_matches(Some("selected"), Some("expected-id"), "selected", "expected-id"));
+        assert!(!peer_matches(Some("selected"), Some("expected-id"), "selected", "other-id"));
+        assert!(!peer_matches(Some("selected"), Some("expected-id"), "another", "expected-id"));
     }
 
     #[test]

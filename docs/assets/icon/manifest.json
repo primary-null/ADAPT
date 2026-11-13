@@ -1,0 +1,64 @@
+{
+  "generator": "scripts/build_icon.py",
+  "ico_sizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "detail_levels": {
+    "16": "tiny",
+    "24": "small",
+    "32": "small",
+    "48": "mid",
+    "64": "mid",
+    "128": "mid",
+    "256": "full",
+    "1024": "full"
+  },
+  "files": {
+    "adapt-128.png": {
+      "bytes": 2594,
+      "sha256": "69231d56aaeea7689469690b8af3d00dcaf6802a565b1515a7d6f9a2da2cda21"
+    },
+    "adapt-16.png": {
+      "bytes": 534,
+      "sha256": "547099ce308fd328d677ae42bdd577fbf2eb4f796384bdeb19f4090421d9f11c"
+    },
+    "adapt-256.png": {
+      "bytes": 6995,
+      "sha256": "d071db819af190da935a55dda2159fbab52cf7bfe1ead5f4eed08248e6826364"
+    },
+    "adapt-32.png": {
+      "bytes": 927,
+      "sha256": "09f15a993b2846df287c6e2ea966b1847c6f39c2b9687a8f068c0921bfe49e83"
+    },
+    "adapt-48.png": {
+      "bytes": 1299,
+      "sha256": "dcf5a86de1b9dbeb5f3d1afe2bad7bb758f9403f169c75fa5f51323dbd2960b1"
+    },
+    "adapt-64.png": {
+      "bytes": 1764,
+      "sha256": "bd4148e9d157627c70b237af5b17a7250ab7c7bfc6e7d6209d27950ee74c0a6d"
+    },
+    "adapt-preview.png": {
+      "bytes": 44103,
+      "sha256": "d0c04ff46e862e24a8d3fbd1fcc7e898236dcb172dc7309a96544fdb3ae623a6"
+    },
+    "adapt.ico": {
+      "bytes": 109145,
+      "sha256": "81374b73f3292d6773c53edf8277eb75b680ccc959b4bb8609d196720c1a24a3"
+    },
+    "adapt.png": {
+      "bytes": 22873,
+      "sha256": "9935432f73c45375935f2604af663c65ff61f065662436a581bddefd03f1a2da"
+    },
+    "adapt.svg": {
+      "bytes": 3880,
+      "sha256": "815bd91cb57fe73bae5d6bf6fe9e2b3583f738c98f8a4fe4f102ef3a3fc38379"
+    }
+  }
+}

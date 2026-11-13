@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="adapt-title adapt-desc">
+  <title id="adapt-title">ADAPT icon</title>
+  <desc id="adapt-desc">A geometric capital letter A. Its left stroke is solid green; toward the right it thins into slanted slices and becomes a wireframe engineering drawing with a centre line, anchor nodes and dimension ticks.</desc>
+  <defs>
+    <clipPath id="letter"><path clip-rule="evenodd" d="M130 862 L424.4 126 L571.6 126 L866 862 L704.08 862 L633.42 685.36 L362.58 685.36 L291.92 862 Z M498 346.8 L589.26 574.96 L406.74 574.96 Z"/></clipPath>
+  </defs>
+  <g id="body-tint">
+    <path fill="#35d373" fill-rule="evenodd" opacity="0.1" d="M130 862 L424.4 126 L571.6 126 L866 862 L704.08 862 L633.42 685.36 L362.58 685.36 L291.92 862 Z M498 346.8 L589.26 574.96 L406.74 574.96 Z"/>
+  </g>
+  <g id="construction">
+    <path fill="none" stroke="#1c8c4e" stroke-width="4.5" d="M801.23 902.48 L784.15 859.77 M779.69 848.63 L776.35 840.27 M771.89 829.13 L754.81 786.42 M750.35 775.28 L747.01 766.92 M742.55 755.78 L725.47 713.07 M721.01 701.93 L717.67 693.57 M713.21 682.43 L696.13 639.72 M691.67 628.58 L688.33 620.22 M683.87 609.08 L666.79 566.37 M662.33 555.23 L658.99 546.87 M654.53 535.73 L637.45 493.02 M632.99 481.88 L629.65 473.52 M597.36 574.96 L615.36 574.96 M627.36 574.96 L645.36 574.96 M657.36 574.96 L675.36 574.96 M687.36 574.96 L705.36 574.96 M717.36 574.96 L735.36 574.96 M747.36 574.96 L751.18 574.96 M641.52 685.36 L659.52 685.36 M671.52 685.36 L689.52 685.36 M701.52 685.36 L719.52 685.36 M731.52 685.36 L749.52 685.36 M761.52 685.36 L779.52 685.36 M791.52 685.36 L795.34 685.36"/>
+  </g>
+  <g id="wireframe">
+    <path fill="#35d373" fill-rule="evenodd" d="M130 862 L424.4 126 L571.6 126 L866 862 L704.08 862 L633.42 685.36 L362.58 685.36 L291.92 862 Z M498 346.8 L589.26 574.96 L406.74 574.96 Z M143.29 853 L430.49 135 L565.51 135 L852.71 853 L710.17 853 L639.52 676.36 L356.48 676.36 L285.83 853 Z M498 322.57 L602.56 583.96 L393.44 583.96 Z"/>
+  </g>
+  <g id="solid">
+    <path fill="#35d373" clip-path="url(#letter)" d="M765.54 -161.04 L793.14 -161.04 L269.1 1149.04 L241.5 1149.04 Z"/>
+    <path fill="#35d373" clip-path="url(#letter)" d="M820.74 -161.04 L839.14 -161.04 L315.1 1149.04 L296.7 1149.04 Z"/>
+    <path fill="#35d373" clip-path="url(#letter)" d="M875.94 -161.04 L886.98 -161.04 L362.94 1149.04 L351.9 1149.04 Z"/>
+    <path fill="#35d373" clip-path="url(#letter)" d="M68.18 -161.04 L745.3 -161.04 L221.26 1149.04 L-455.86 1149.04 Z"/>
+  </g>
+  <g id="dimensions">
+    <path fill="none" stroke="#7f8c85" stroke-width="4.5" d="M765.72 574.96 L917.52 574.96 M809.88 685.36 L917.52 685.36 M902.8 574.96 L902.8 685.36 M890.84 586.92 L914.76 563 M890.84 697.32 L914.76 673.4 M704.08 878.56 L704.08 922.72 M866 878.56 L866 922.72 M704.08 908 L866 908 M692.12 919.96 L716.04 896.04 M854.04 919.96 L877.96 896.04"/>
+  </g>
+  <g id="registration">
+    <circle fill="none" stroke="#7f8c85" stroke-width="4.5" cx="774" cy="219.84" r="27"/>
+    <path fill="none" stroke="#7f8c85" stroke-width="4.5" d="M728 219.84 L820 219.84 M774 173.84 L774 265.84"/>
+  </g>
+  <g id="nodes">
+    <path fill="#35d373" d="M851 847 L881 847 L881 877 L851 877 Z"/>
+    <path fill="#ffffff" d="M857 853 L875 853 L875 871 L857 871 Z"/>
+    <path fill="#35d373" d="M689.08 847 L719.08 847 L719.08 877 L689.08 877 Z"/>
+    <path fill="#ffffff" d="M695.08 853 L713.08 853 L713.08 871 L695.08 871 Z"/>
+    <path fill="#35d373" d="M618.42 670.36 L648.42 670.36 L648.42 700.36 L618.42 700.36 Z"/>
+    <path fill="#ffffff" d="M624.42 676.36 L642.42 676.36 L642.42 694.36 L624.42 694.36 Z"/>
+    <path fill="#35d373" d="M574.26 559.96 L604.26 559.96 L604.26 589.96 L574.26 589.96 Z"/>
+    <path fill="#ffffff" d="M580.26 565.96 L598.26 565.96 L598.26 583.96 L580.26 583.96 Z"/>
+  </g>
+</svg>

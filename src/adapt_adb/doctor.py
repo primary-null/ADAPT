@@ -1089,6 +1089,13 @@ def _probe_server_5037(host_os: str, home: Path, env: DoctorEnv | None = None, *
                         state.probe_error = "Cannot classify local TCP 5037 row."
                         continue
                     remote = parts[2]
+                    if remote.rpartition(":")[2].isdigit() and not remote.endswith(":0"):
+                        # Connected or closing socket, not a listener. Windows reports
+                        # sockets in TIME_WAIT with PID 0, so the PID is not judged here.
+                        continue
+                    if remote not in {"0.0.0.0:0", "[::]:0", "*:*"}:
+                        state.probe_error = "Cannot classify local TCP 5037 row."
+                        continue
                     try:
                         pid = int(parts[-1])
                         if pid <= 0:
@@ -1096,15 +1103,10 @@ def _probe_server_5037(host_os: str, home: Path, env: DoctorEnv | None = None, *
                     except ValueError:
                         state.probe_error = "Cannot classify local TCP 5037 row."
                         continue
-                    if remote in {"0.0.0.0:0", "[::]:0", "*:*"}:
-                        if state.pid is not None and state.pid != pid:
-                            state.probe_error = "Multiple local TCP 5037 listener owners."
-                        state.listening = True
-                        state.pid = pid
-                    elif remote.rpartition(":")[2].isdigit() and not remote.endswith(":0"):
-                        continue  # Connected socket, not a listener.
-                    else:
-                        state.probe_error = "Cannot classify local TCP 5037 row."
+                    if state.pid is not None and state.pid != pid:
+                        state.probe_error = "Multiple local TCP 5037 listener owners."
+                    state.listening = True
+                    state.pid = pid
         except (subprocess.SubprocessError, OSError):
             state.probe_error = "Local TCP listener inspection failed."
 
@@ -1970,14 +1972,17 @@ def _query_adb_devices_l(adb_bin: Path, env: DoctorEnv | None = None) -> str:
     env_map = _get_env_map(env)
     if not _uses_default_local_server(["devices"], env_map):
         raise AdbProbeError("Selected ADB server endpoint is unverified.")
+    # The doctor needs only serial and state. Plain `adb devices` is TAB-delimited,
+    # which is what parse_devices_short requires; `devices -l` pads with spaces and
+    # could never be parsed for a real attached device.
     if env is not None:
         env.devices_l_invoked.append(adb_bin)
-        env.commands_invoked.append([str(adb_bin), "devices", "-l"])
+        env.commands_invoked.append([str(adb_bin), "devices"])
         if env.devices_l_output is not None:
             return env.devices_l_output
     try:
         proc = subprocess.run(
-            [str(adb_bin), "devices", "-l"],
+            [str(adb_bin), "devices"],
             env=env_map,
             capture_output=True,
             text=True,

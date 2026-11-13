@@ -784,7 +784,8 @@ def adb(ctx: typer.Context) -> None:
     explicit_serial = parsed.serial or (env_serial if not parsed.selector else None)
     if not host_only and parsed.selector in (None, "-s"):
         try:
-            devices_list = get_connected_devices(adb_path)
+            # The shared-server preflight ran just above for this same invocation.
+            devices_list = get_connected_devices(adb_path, server_checked=True)
         except AdbProbeError:
             typer.secho(
                 "Error: ADB device enumeration failed; target state is unknown.",

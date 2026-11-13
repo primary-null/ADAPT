@@ -251,15 +251,18 @@ def enrich_devices_long(
     return result
 
 
-def get_connected_devices(adb_path: Path) -> list[dict[str, str]]:
+def get_connected_devices(adb_path: Path, *, server_checked: bool = False) -> list[dict[str, str]]:
     """Return a list of attached devices parsed from `adb devices`.
 
-    Never kills server; refuses unverified server endpoints and owners.
+    Never kills server; refuses unverified server endpoints and owners.  Pass
+    ``server_checked=True`` only when the caller has just run
+    `preflight_adb_server` itself, to avoid repeating that probe.
     """
     from adapt_adb.doctor import preflight_adb_server
 
     env_map = dict(os.environ)
-    preflight_adb_server(adb_path, ["devices"], environ=env_map)
+    if not server_checked:
+        preflight_adb_server(adb_path, ["devices"], environ=env_map)
     try:
         proc = subprocess.run(
             [str(adb_path), "devices"],

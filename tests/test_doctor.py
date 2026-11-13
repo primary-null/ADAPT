@@ -700,7 +700,7 @@ def test_setup_live_env_none_updates_os_environ_path_and_post_doctor_passes(
                 ),
                 stderr="",
             )
-        if cmd == [str(expected_adb), "devices", "-l"]:
+        if cmd == [str(expected_adb), "devices"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="List of devices attached\n\n", stderr="")
         if cmd[0] == "powershell" and "Get-PnpDevice" in cmd[-1]:
             return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
@@ -790,6 +790,51 @@ def test_windows_unclassifiable_listener_fails_closed(tmp_path, monkeypatch, row
     monkeypatch.setattr(doctor_mod.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=row))
     state = doctor_mod._probe_server_5037("windows", tmp_path, DoctorEnv(environ={}))
     assert state.probe_error
+
+
+def test_doctor_device_query_uses_the_tab_delimited_form(tmp_path, monkeypatch):
+    """Observed live: `adb devices -l` is space-padded and was never parseable with a device attached."""
+    adb = tmp_path / "adb.exe"
+    calls = []
+    short_form = (
+        "List of devices attached\n"
+        "EXAMPLESERIAL01\tdevice\n"
+        "192.0.2.10:5555\toffline\n"
+        "adb-EXAMPLESERIAL02-abcdef._adb-tls-connect._tcp\tdevice\n\n"
+    )
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=short_form, stderr="")
+
+    monkeypatch.setattr(doctor_mod.subprocess, "run", fake_run)
+    monkeypatch.delenv("ADB_SERVER_SOCKET", raising=False)
+    monkeypatch.delenv("ANDROID_ADB_SERVER_PORT", raising=False)
+    monkeypatch.delenv("ADB_SERVER_PORT", raising=False)
+    parsed = doctor_mod.parse_adb_devices_output(doctor_mod._query_adb_devices_l(adb))
+    assert calls == [[str(adb), "devices"]]
+    assert parsed["total"] == 3
+    assert parsed["by_state"]["device"] == 2 and parsed["by_state"]["offline"] == 1
+    long_form_line = "EXAMPLESERIAL01            device product:example model:Example device:example transport_id:1"
+    with pytest.raises(ValueError):
+        doctor_mod.parse_adb_devices_output("List of devices attached\n" + long_form_line + "\n")
+
+
+def test_windows_closing_connections_do_not_fail_the_probe(tmp_path, monkeypatch):
+    """Observed live: sockets in TIME_WAIT are listed with PID 0 beside the real listener."""
+    env, adb = _make_win_doctor_env(tmp_path)
+    env.windows_current_account = "HOST\\alice"
+    rows = "\n".join([
+        "  TCP    127.0.0.1:5037         0.0.0.0:0              LISTENING       42",
+        "  TCP    127.0.0.1:5037         127.0.0.1:11350        ESTABLISHED     42",
+        "  TCP    127.0.0.1:5037         127.0.0.1:40261        TIME_WAIT       0",
+        "  TCP    127.0.0.1:11350        127.0.0.1:5037         ESTABLISHED     900",
+    ])
+    monkeypatch.setattr(doctor_mod.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=rows))
+    monkeypatch.setattr(doctor_mod, "_probe_windows_pid_info", lambda *a: (adb, "HOST", "alice", 0, True))
+    state = doctor_mod._probe_server_5037("windows", tmp_path, env, trusted_adb=adb)
+    assert state.probe_error is None
+    assert state.listening and state.pid == 42 and state.owner_matches_current_user
 
 
 def test_linux_deleted_executable_is_unverified(tmp_path, monkeypatch):

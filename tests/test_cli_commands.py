@@ -304,7 +304,7 @@ def test_adb_zero_ready_devices_refusal(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [{"serial": "mock-dev-1", "state": "unauthorized"}],
+        lambda p, **kwargs: [{"serial": "mock-dev-1", "state": "unauthorized"}],
     )
 
     mock_run = MagicMock()
@@ -322,7 +322,7 @@ def test_adb_multiple_devices_refusal(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-2", "state": "device"},
         ],
@@ -345,7 +345,7 @@ def test_adb_multiple_devices_allowed_with_dash_s(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-2", "state": "device"},
         ],
@@ -365,7 +365,7 @@ def test_adb_multiple_devices_allowed_with_long_serial(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-2", "state": "device"},
         ],
@@ -385,7 +385,7 @@ def test_adb_single_device_pass_through(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-offline", "state": "offline"},
         ],
@@ -405,7 +405,7 @@ def test_adb_rejects_forbidden_args_via_safety(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [{"serial": "mock-dev-1", "state": "device"}],
+        lambda p, **kwargs: [{"serial": "mock-dev-1", "state": "device"}],
     )
 
     mock_run = MagicMock()
@@ -431,7 +431,7 @@ def test_adb_version_with_zero_ready_devices_runs_without_serial(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [{"serial": "mock-dev-1", "state": "unauthorized"}],
+        lambda p, **kwargs: [{"serial": "mock-dev-1", "state": "unauthorized"}],
     )
 
     mock_run = MagicMock(return_value=MagicMock(returncode=0))
@@ -450,7 +450,7 @@ def test_adb_version_with_multiple_ready_devices_runs_without_serial(monkeypatch
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-2", "state": "device"},
         ],
@@ -605,7 +605,7 @@ def test_adb_pair_and_connect_host_only_without_serial(monkeypatch):
 
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
-        lambda p: [
+        lambda p, **kwargs: [
             {"serial": "mock-dev-1", "state": "device"},
             {"serial": "mock-dev-2", "state": "device"},
         ],

@@ -17,7 +17,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-import warnings
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -255,11 +254,16 @@ def enrich_devices_long(
 def get_connected_devices(adb_path: Path) -> list[dict[str, str]]:
     """Return a list of attached devices parsed from `adb devices`.
 
-    Never kills server.
+    Never kills server; refuses unverified server endpoints and owners.
     """
+    from adapt_adb.doctor import preflight_adb_server
+
+    env_map = dict(os.environ)
+    preflight_adb_server(adb_path, ["devices"], environ=env_map)
     try:
         proc = subprocess.run(
             [str(adb_path), "devices"],
+            env=env_map,
             capture_output=True,
             text=True,
             check=False,
@@ -904,7 +908,6 @@ def download_and_extract_platform_tools(
     url: str,
     target_dir: Path | None = None,
     expected_sha256: str | None = None,
-    allow_unverified: bool = False,
     manifest_url: str | None = PLATFORM_TOOLS_REPOSITORY_XML_URL,
 ) -> str:
     """Download platform-tools zip, verify digest and zip paths, and unpack atomically.
@@ -913,8 +916,6 @@ def download_and_extract_platform_tools(
         url: Official HTTPS Google platform-tools download URL.
         target_dir: Destination directory (defaults to user-scope default dir).
         expected_sha256: Optional SHA-256 hex digest to verify against.
-        allow_unverified: If True, warn and continue when no digest is available.
-            Note: checksum mismatches ALWAYS fail even when allow_unverified=True.
         manifest_url: Documented Google repository XML URL to query when expected_sha256 is None.
 
     Returns:
@@ -937,17 +938,10 @@ def download_and_extract_platform_tools(
         if fetched is not None:
             digest_algo, digest_to_verify = fetched
         else:
-            if not allow_unverified:
-                raise RuntimeError(
-                    "SHA-256 or SHA-1 digest unavailable for platform-tools download; "
-                    "pass expected_sha256 or allow_unverified=True to proceed."
-                )
-            msg = (
+            raise RuntimeError(
                 "SHA-256 or SHA-1 digest unavailable for platform-tools download; "
-                "proceeding without verification because allow_unverified=True."
+                "pass expected_sha256 to proceed."
             )
-            warnings.warn(msg, RuntimeWarning, stacklevel=2)
-            logger.warning(msg)
 
     dest_parent = resolved_target.parent
     dest_parent.mkdir(parents=True, exist_ok=True)

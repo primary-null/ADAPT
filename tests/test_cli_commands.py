@@ -284,7 +284,7 @@ def test_setup_downloads_when_missing(monkeypatch, tmp_path):
     download_mock = MagicMock()
     monkeypatch.setattr("adapt_adb.cli.download_and_extract_platform_tools", download_mock)
 
-    result = runner.invoke(app, ["setup"])
+    result = runner.invoke(app, ["setup", "--yes"])
     assert result.exit_code == 0
     download_mock.assert_called_once()
     assert "completed successfully" in result.output
@@ -588,18 +588,20 @@ def test_adb_pair_and_connect_host_only_without_serial(monkeypatch):
     monkeypatch.setattr("adapt_adb.cli.resolve_adb", lambda: fake_path)
     monkeypatch.setattr("adapt_adb.cli.get_connected_devices", lambda p: [])
 
-    mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    mock_run = MagicMock(
+        return_value=MagicMock(returncode=0, stdout="Successfully paired to 192.0.2.1:37123\n", stderr="")
+    )
     monkeypatch.setattr("subprocess.run", mock_run)
 
     res_pair = runner.invoke(app, ["adb", "pair", "192.0.2.1:37123", "123456"])
     assert res_pair.exit_code == 0
-    assert mock_run.call_args.args[0] == [
-        str(fake_path),
-        "pair",
-        "192.0.2.1:37123",
-        "123456",
-    ]
+    # The pairing code goes to adb on stdin, never into the spawned argv.
+    assert mock_run.call_args.args[0] == [str(fake_path), "pair", "192.0.2.1:37123"]
+    assert "123456" not in mock_run.call_args.args[0]
+    assert mock_run.call_args.kwargs["input"] == "123456\n"
     assert "-s" not in mock_run.call_args.args[0]
+
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",
@@ -636,3 +638,51 @@ def test_guide_and_guide_testing_commands():
     assert "zadig" not in testing_text
 
 
+
+
+
+@pytest.mark.parametrize("prompt", [False, True])
+def test_adb_pair_secret_stdin_and_preflight(prompt, monkeypatch):
+    import subprocess
+    from adapt_adb import cli
+
+    monkeypatch.setattr(cli, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(cli, "_is_stdin_tty", lambda: prompt)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a: "654321")
+    gates = []
+    monkeypatch.setattr(cli, "preflight_adb_server", lambda *a: gates.append(a))
+    calls = []
+    def run(argv, **kwargs):
+        assert gates == [(Path("adb"), ["pair", "192.0.2.1:37123"])]
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, "Successfully paired to 192.0.2.1:37123", "")
+    monkeypatch.setattr(subprocess, "run", run)
+    args = ["adb", "pair", "192.0.2.1:37123"] + ([] if prompt else ["654321"])
+    assert runner.invoke(app, args).exit_code == 0
+    assert calls[0][0] == ["adb", "pair", "192.0.2.1:37123"]
+    assert calls[0][1]["input"] == "654321\n"
+
+
+def test_adb_pair_preflight_refusal_prevents_spawn(monkeypatch):
+    from adapt_adb import cli
+    from adapt_adb.doctor import UnsafeAdbServerError
+
+    monkeypatch.setattr(cli, "resolve_adb", lambda: Path("adb"))
+    def refuse(*a):
+        raise UnsafeAdbServerError("refused")
+    monkeypatch.setattr(cli, "preflight_adb_server", refuse)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: pytest.fail("Spawned"))
+    assert runner.invoke(app, ["adb", "pair", "192.0.2.1:37123", "654321"]).exit_code == 3
+
+
+@pytest.mark.parametrize("args", [
+    ["pair", "192.0.2.1:37123", "654321", "extra"],
+    ["-s", "A", "pair", "192.0.2.1:37123", "654321"],
+    ["-H", "localhost", "pair", "192.0.2.1:37123", "654321"],
+])
+def test_adb_pair_rejects_extra_operands_and_prefix(args, monkeypatch):
+    from adapt_adb import cli
+
+    monkeypatch.setattr(cli, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: pytest.fail("Spawned"))
+    assert runner.invoke(app, ["adb", *args]).exit_code != 0

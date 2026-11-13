@@ -162,6 +162,7 @@ class DoctorEnv:
     version_outputs: dict[Path, str | None] | None = None
     server_state: Server5037State | None = None
     windows_pnp_devices: list[PnpDeviceRecord] | None = None
+    windows_current_account: str | None = None
     windows_user_path: str | None = None
     debian_usb_state: DebianUsbState | None = None
     debian_profile_texts: dict[Path, str] | None = None
@@ -577,6 +578,27 @@ def _read_linux_proc_uid(pid: int, proc_root: Path) -> int | None:
     return None
 
 
+def _current_windows_account() -> str | None:
+    """Read the process account as DOMAIN\\user; never trust environment variables."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        get_name = ctypes.WinDLL("secur32", use_last_error=True).GetUserNameExW
+        get_name.argtypes = [ctypes.c_int, wintypes.LPWSTR, ctypes.POINTER(wintypes.ULONG)]
+        get_name.restype = wintypes.BOOLEAN
+        size = wintypes.ULONG(0)
+        get_name(2, None, ctypes.byref(size))  # NameSamCompatible
+        if not size.value:
+            return None
+        buf = ctypes.create_unicode_buffer(size.value)
+        if get_name(2, buf, ctypes.byref(size)) and "\\" in buf.value:
+            return buf.value
+    except (AttributeError, OSError, ValueError):
+        pass
+    return None
+
+
 def _apply_windows_owner(
     state: Server5037State,
     domain: str,
@@ -586,30 +608,24 @@ def _apply_windows_owner(
 ) -> None:
     domain_clean = domain.strip()
     user_clean = user.strip()
-    cur_clean = cur_user.strip().lower()
+    state.owner_matches_current_user = False
     if user_clean:
         owner_str = f"{domain_clean}\\{user_clean}" if domain_clean else user_clean
         state.owner = owner_str
-        u_low = user_clean.lower()
-        o_low = owner_str.lower()
-        if u_low in {"system", "local service", "network service"} or o_low in {
-            "nt authority\\system",
-            "nt authority\\local service",
-            "nt authority\\network service",
-        }:
-            if cur_clean != u_low:
-                state.owner_is_root_or_system = True
-                state.owner_matches_current_user = False
-        elif u_low in {"administrator", "administrators"} or o_low == "builtin\\administrators":
-            if cur_clean != u_low and not _is_windows_admin():
-                state.owner_is_root_or_system = True
-                state.owner_matches_current_user = False
-        elif cur_clean and u_low != cur_clean:
-            state.owner_matches_current_user = False
+        state.owner_matches_current_user = (
+            ret_val in (None, 0)
+            and bool(domain_clean)
+            and "\\" in cur_user
+            and owner_str.casefold() == cur_user.strip().casefold()
+        )
+        # A privileged account name is unsafe only when it is someone else's:
+        # a user signed in as the built-in Administrator owns their own server.
+        state.owner_is_root_or_system = not state.owner_matches_current_user and user_clean.casefold() in {
+            "system", "local service", "network service", "administrator", "administrators",
+        }
     elif ret_val not in (None, 0):
         state.owner = "SYSTEM/Elevated (access denied)"
         state.owner_is_root_or_system = True
-        state.owner_matches_current_user = False
 
 
 def _probe_windows_pid_info(pid: int, cur_user: str) -> tuple[Path | None, str, str, Any, bool]:
@@ -1040,7 +1056,7 @@ def _probe_server_5037(host_os: str, home: Path, env: DoctorEnv | None = None, *
                 try:
                     exe_target = os.readlink(str(_PROC_ROOT / str(state.pid) / "exe"))
                     if exe_target.endswith(" (deleted)"):
-                        exe_target = exe_target[: -len(" (deleted)")]
+                        exe_target = ""
                     if exe_target:
                         state.server_exe = Path(exe_target)
                 except OSError:
@@ -1056,9 +1072,10 @@ def _probe_server_5037(host_os: str, home: Path, env: DoctorEnv | None = None, *
         # Windows: read-only check of TCP 5037 listener via netstat -ano
         try:
             proc = subprocess.run(
-                ["netstat", "-ano", "-p", "tcp"],
+                ["netstat", "-ano"],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 check=False,
                 timeout=4,
             )
@@ -1067,21 +1084,32 @@ def _probe_server_5037(host_os: str, home: Path, env: DoctorEnv | None = None, *
                 return state
             for line in proc.stdout.splitlines():
                 parts = line.split()
-                if len(parts) >= 5 and parts[0].upper() == "TCP":
-                    local_addr = parts[1]
-                    state_col = parts[3].upper()
-                    if local_addr.endswith(":5037") and state_col == "LISTENING":
+                if len(parts) >= 2 and parts[0].upper() == "TCP" and parts[1].endswith(":5037"):
+                    if len(parts) != 5:
+                        state.probe_error = "Cannot classify local TCP 5037 row."
+                        continue
+                    remote = parts[2]
+                    try:
+                        pid = int(parts[-1])
+                        if pid <= 0:
+                            raise ValueError("Invalid PID")
+                    except ValueError:
+                        state.probe_error = "Cannot classify local TCP 5037 row."
+                        continue
+                    if remote in {"0.0.0.0:0", "[::]:0", "*:*"}:
+                        if state.pid is not None and state.pid != pid:
+                            state.probe_error = "Multiple local TCP 5037 listener owners."
                         state.listening = True
-                        try:
-                            state.pid = int(parts[4])
-                        except ValueError:
-                            pass
-                        break
+                        state.pid = pid
+                    elif remote.rpartition(":")[2].isdigit() and not remote.endswith(":0"):
+                        continue  # Connected socket, not a listener.
+                    else:
+                        state.probe_error = "Cannot classify local TCP 5037 row."
         except (subprocess.SubprocessError, OSError):
             state.probe_error = "Local TCP listener inspection failed."
 
         if state.listening and state.pid is not None:
-            cur_user = environ.get("USERNAME") or os.environ.get("USERNAME") or ""
+            cur_user = (env.windows_current_account if env is not None else _current_windows_account()) or ""
             exe_path, domain, user, ret_val, ok = _probe_windows_pid_info(state.pid, cur_user)
             if ok:
                 if exe_path is not None:
@@ -1250,7 +1278,13 @@ def run_doctor_checks(
         and server_parsed_ver["version_tuple"] == parsed_ver["version_tuple"]
     )
 
-    if srv.probe_error:
+    default_endpoint = _uses_default_local_server(["devices"], _get_env_map(env))
+    if not default_endpoint:
+        srv_status = "fail"
+        srv_code = EXIT_UNSAFE_SHARED_SERVER
+        srv_summary = "Selected non-default ADB server endpoint is unverified."
+        srv_remediation = "Use the default local ADB server endpoint on port 5037."
+    elif srv.probe_error:
         srv_status = "fail"
         srv_code = EXIT_UNSAFE_SHARED_SERVER
         srv_summary = "ADB listener inspection failed; idle state is unverified."
@@ -1729,7 +1763,8 @@ def run_doctor_checks(
     # Only run if toolchain is valid (>= 34.0.0) AND adb_server_5037 passed!
     # -------------------------------------------------------------------------
     can_probe_devices = (
-        srv_code == EXIT_OK
+        default_endpoint
+        and srv_code == EXIT_OK
         and resolved_adb is not None
         and bool(parsed_ver.get("meets_minimum"))
         and origin != "debian_apt"
@@ -1747,6 +1782,10 @@ def run_doctor_checks(
             },
         }
         skip_reason = (
+            "Skipped `adb devices -l` because ADB_SERVER_SOCKET / ANDROID_ADB_SERVER_PORT / "
+            "ADB_SERVER_PORT select a non-default ADB server."
+            if not default_endpoint
+            else
             "Skipped `adb devices -l` to avoid client auto-killing mismatched/unsafe server on port 5037."
             if srv_code == EXIT_UNSAFE_SHARED_SERVER
             else "Skipped `adb devices -l` because valid adb (>= 34.0.0) is not available."
@@ -1928,6 +1967,9 @@ def _probe_debian_usb_permissions(environ: dict[str, str]) -> DebianUsbState:
 
 
 def _query_adb_devices_l(adb_bin: Path, env: DoctorEnv | None = None) -> str:
+    env_map = _get_env_map(env)
+    if not _uses_default_local_server(["devices"], env_map):
+        raise AdbProbeError("Selected ADB server endpoint is unverified.")
     if env is not None:
         env.devices_l_invoked.append(adb_bin)
         env.commands_invoked.append([str(adb_bin), "devices", "-l"])
@@ -1936,6 +1978,7 @@ def _query_adb_devices_l(adb_bin: Path, env: DoctorEnv | None = None) -> str:
     try:
         proc = subprocess.run(
             [str(adb_bin), "devices", "-l"],
+            env=env_map,
             capture_output=True,
             text=True,
             check=False,
@@ -2310,7 +2353,7 @@ def run_setup_workflow(
         }
         return pre_report
 
-    # Confirm before mutating download when --yes is omitted on an interactive TTY
+    # Confirm before any installation mutation when --yes is omitted.
     stdin_tty = bool(
         sys.stdin is not None
         and callable(getattr(sys.stdin, "isatty", None))
@@ -2321,7 +2364,18 @@ def run_setup_workflow(
         and callable(getattr(sys.stderr, "isatty", None))
         and sys.stderr.isatty()
     )
-    if not yes and stdin_tty and stderr_tty:
+    if not yes and not (stdin_tty and stderr_tty):
+        pre_report["setup"] = {
+            "action": "aborted_needs_yes",
+            "dry_run": dry_run,
+            "no_path": no_path,
+            "target_dir": str(target_dir),
+            "url": url,
+            "downloaded": False,
+            "path_updated": False,
+        }
+        return pre_report
+    if not yes:
         sys.stderr.write(
             f"Download official Google platform-tools zip ({url}) into {target_dir}? [y/N]: "
         )

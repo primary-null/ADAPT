@@ -624,23 +624,29 @@ def test_setup_tty_with_yes_flag_skips_prompt_and_downloads(
     input_mock.assert_not_called()
 
 
-def test_setup_non_tty_without_yes_proceeds_without_prompt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("stdin_tty,stderr_tty", [(False, False), (False, True), (True, False)])
+def test_setup_non_tty_without_yes_aborts_without_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdin_tty: bool, stderr_tty: bool
 ) -> None:
     env = _make_missing_adb_env(tmp_path)
+    original_path = env.environ["PATH"]
+    original_paths = set(env.existing_paths)
     downloader = MagicMock(return_value="a" * 64)
     input_mock = MagicMock(side_effect=AssertionError("input() must not be called"))
 
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: stdin_tty)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: stderr_tty)
     monkeypatch.setattr(builtins, "input", input_mock)
 
     report = run_setup_workflow(env, yes=False, downloader=downloader)
 
-    assert report["setup"]["action"] == "installed"
-    assert report["setup"]["downloaded"] is True
-    downloader.assert_called_once()
+    assert report["setup"]["action"] == "aborted_needs_yes"
+    assert report["setup"]["downloaded"] is False
+    downloader.assert_not_called()
+    assert report["setup"]["path_updated"] is False
     input_mock.assert_not_called()
+    assert env.environ["PATH"] == original_path
+    assert env.existing_paths == original_paths
 
 
 def test_setup_live_env_none_updates_os_environ_path_and_post_doctor_passes(
@@ -717,3 +723,94 @@ def test_setup_live_env_none_updates_os_environ_path_and_post_doctor_passes(
     assert Path(report["toolchain"]["adb_path"]) == expected_adb
 
 
+
+
+@pytest.mark.parametrize("endpoint", [
+    {"ADB_SERVER_SOCKET": "tcp:remote.example:5038"},
+    {"ANDROID_ADB_SERVER_PORT": "5038"},
+    {"ADB_SERVER_PORT": "5038"},
+])
+def test_doctor_nondefault_endpoint_skips_devices(tmp_path, endpoint):
+    env, _ = _make_win_doctor_env(tmp_path)
+    env.environ.update(endpoint)
+    env.server_state = Server5037State(listening=False)
+    env.windows_pnp_devices = []
+    report = run_doctor_checks(env)
+    assert report["exit_code"] == EXIT_UNSAFE_SHARED_SERVER
+    assert report["checks"][0]["status"] == "fail"
+    assert "non-default" in report["checks"][-1]["summary"]
+    assert not env.devices_l_invoked
+
+
+@pytest.mark.parametrize(("domain", "user", "current", "matches", "system"), [
+    ("HOST", "alice", "HOST\\alice", True, False),
+    ("host", "ALICE", "HOST\\alice", True, False),
+    ("OTHERDOMAIN", "alice", "HOST\\alice", False, False),
+    ("", "alice", "HOST\\alice", False, False),
+    ("HOST", "alice", "", False, False),
+    ("HOST", "Administrator", "HOST\\alice", False, True),
+    ("NT AUTHORITY", "SYSTEM", "HOST\\alice", False, True),
+    ("HOST", "Administrator", "HOST\\Administrator", True, False),
+    ("OTHERHOST", "Administrator", "HOST\\Administrator", False, True),
+])
+def test_windows_owner_requires_exact_account(monkeypatch, domain, user, current, matches, system):
+    monkeypatch.setattr(doctor_mod, "_is_windows_admin", lambda: True)
+    state = Server5037State()
+    doctor_mod._apply_windows_owner(state, domain, user, current)
+    assert state.owner_matches_current_user is matches
+    assert state.owner_is_root_or_system is system
+
+
+@pytest.mark.parametrize("local,remote", [
+    ("127.0.0.1:5037", "0.0.0.0:0"),
+    ("[::1]:5037", "[::]:0"),
+    ("[::]:5037", "*:*"),
+])
+def test_windows_localized_listener(tmp_path, monkeypatch, local, remote):
+    env, adb = _make_win_doctor_env(tmp_path)
+    env.windows_current_account = "HOST\\alice"
+    def fake_run(cmd, **kwargs):
+        assert cmd == ["netstat", "-ano"]
+        assert kwargs["errors"] == "replace"
+        return subprocess.CompletedProcess(cmd, 0, stdout=f"TCP {local} {remote} ABH\u00d6REN 42\n")
+    monkeypatch.setattr(doctor_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_mod, "_probe_windows_pid_info", lambda *a: (adb, "HOST", "alice", 0, True))
+    state = doctor_mod._probe_server_5037("windows", tmp_path, env, trusted_adb=adb)
+    assert state.listening and state.pid == 42
+    assert state.owner_matches_current_user
+    assert state.server_version_raw
+
+
+@pytest.mark.parametrize("row", [
+    "TCP 127.0.0.1:5037 malformed",
+    "TCP [::1]:5037 [::]:0 ABH\u00d6REN unknown",
+    "TCP [::1]:5037 unknown ABH\u00d6REN 42",
+])
+def test_windows_unclassifiable_listener_fails_closed(tmp_path, monkeypatch, row):
+    monkeypatch.setattr(doctor_mod.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=row))
+    state = doctor_mod._probe_server_5037("windows", tmp_path, DoctorEnv(environ={}))
+    assert state.probe_error
+
+
+def test_linux_deleted_executable_is_unverified(tmp_path, monkeypatch):
+    proc = tmp_path / "proc"
+    (proc / "net").mkdir(parents=True)
+    (proc / "net" / "tcp").write_text(
+        "header\n0: 0100007F:13AD 00000000:0000 0A 0 0 0 1000 0 123\n", encoding="utf-8",
+    )
+    monkeypatch.setattr(doctor_mod, "_PROC_ROOT", proc)
+    monkeypatch.setattr(doctor_mod, "_TMP_5037_PATH", tmp_path / "absent")
+    monkeypatch.setattr(doctor_mod, "_find_linux_pid_for_inode", lambda *a: 42)
+    monkeypatch.setattr(doctor_mod, "_read_linux_proc_uid", lambda *a: 1000)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
+    adb = tmp_path / "adb"
+    monkeypatch.setattr(os, "readlink", lambda *a: str(adb) + " (deleted)")
+    query = MagicMock(side_effect=AssertionError("Deleted daemon must not certify on-disk binary"))
+    monkeypatch.setattr(doctor_mod, "_query_adb_version_raw", query)
+    state = doctor_mod._probe_server_5037("linux", tmp_path, DoctorEnv(environ={}), trusted_adb=adb)
+    assert state.listening
+    assert state.server_exe is None
+    assert state.server_version_raw is None
+    with pytest.raises(doctor_mod.UnsafeAdbServerError, match="ownership/version is unverified"):
+        doctor_mod.preflight_adb_server(adb, ["devices"], environ={}, state=state)
+    query.assert_not_called()

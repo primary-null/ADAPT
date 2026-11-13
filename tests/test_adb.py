@@ -38,6 +38,7 @@ def test_get_connected_devices_parsing(monkeypatch):
     mock_run = MagicMock(return_value=MagicMock(stdout=sample_stdout, stderr="", returncode=0))
     monkeypatch.setattr("subprocess.run", mock_run)
 
+    monkeypatch.setattr("adapt_adb.doctor.preflight_adb_server", lambda *a, **kw: None)
     devices = get_connected_devices(Path("/mock/adb"))
     assert len(devices) == 3
     assert devices[0] == {"serial": "mock-dev-1", "state": "device"}
@@ -265,3 +266,15 @@ def test_is_host_only_adb_command():
     assert is_host_only_adb_command(["logcat"]) is False
     assert is_host_only_adb_command([]) is False
 
+
+
+def test_get_connected_devices_rejects_nondefault_endpoint(monkeypatch):
+    import pytest
+    from adapt_adb.doctor import UnsafeAdbServerError
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", "tcp:remote.example:5038")
+    run = MagicMock(side_effect=AssertionError("Must not contact unchecked endpoint"))
+    monkeypatch.setattr("subprocess.run", run)
+    with pytest.raises(UnsafeAdbServerError, match="endpoint"):
+        get_connected_devices(Path("/mock/adb"))
+    run.assert_not_called()

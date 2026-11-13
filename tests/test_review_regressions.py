@@ -252,6 +252,7 @@ def test_f7_doctor_unknown_listener_skips_devices() -> None:
 
 
 def test_f8_enumeration_failure_is_not_empty_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("adapt_adb.doctor.preflight_adb_server", lambda *a, **kw: None)
     monkeypatch.setattr(
         subprocess,
         "run",

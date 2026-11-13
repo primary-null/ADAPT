@@ -468,3 +468,25 @@ def test_build_next_actions_includes_wireless_on_windows_and_linux(tmp_path: Pat
     assert linux_wireless[0]["label"].strip()
     assert "zadig" not in linux_wireless[0]["label"].lower()
 
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_setup_noninteractive_requires_yes_cli(tmp_path, monkeypatch, json_output):
+    env = _make_healthy_windows_env(tmp_path)
+    monkeypatch.setattr(cli_mod, "_ACTIVE_DOCTOR_ENV", env)
+    def no_download(*a, **kw):
+        pytest.fail("Unconfirmed setup must not download")
+    monkeypatch.setattr(cli_mod, "download_and_extract_platform_tools", no_download)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: False)
+    args = ["setup", "--force"] + (["--json"] if json_output else [])
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0  # Same pre-report exit code as an unconfirmed abort.
+    if json_output:
+        report = json.loads(result.stdout)
+        assert report["setup"]["action"] == "aborted_needs_yes"
+        assert not report["setup"]["downloaded"]
+        assert result.stderr == ""
+    else:
+        assert "pass --yes" in result.stderr
+        assert "Downloaded official" not in result.stdout

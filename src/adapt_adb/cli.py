@@ -222,6 +222,13 @@ def run_pair_command(
     return 0 if wireless_result_ok("pair", result) else (result.returncode or 1)
 
 
+def _pair_with_code_prompt(adb_path: Path, endpoint: str, code: str | None) -> int:
+    """Shared `adapt pair` / `adapt adb pair` path: prompt for a missing code, then pair via stdin."""
+    if not code and _is_stdin_tty():
+        code = getpass.getpass("Pairing code: ")
+    return run_pair_command(adb_path, endpoint, code)
+
+
 def run_connect_command(adb_path: Path, endpoint: str) -> int:
     """Run official adb connect ENDPOINT without ready-device gate."""
     target = normalize_connect_endpoint(endpoint)
@@ -652,6 +659,12 @@ def setup(
                 fg=typer.colors.RED,
                 err=True,
             )
+        elif action == "aborted_needs_yes":
+            typer.secho(
+                "Aborted setup: Confirmation is unavailable; pass --yes to install.",
+                fg=typer.colors.RED,
+                err=True,
+            )
         elif action == "aborted_unconfirmed":
             typer.secho(
                 "Aborted setup: User declined confirmation prompt.",
@@ -746,6 +759,20 @@ def adb(ctx: typer.Context) -> None:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    if parsed.command[0] == "pair":
+        # Never place a pairing code in adb's argv (visible in process listings):
+        # use the protected `adapt pair` path, which sends the code on stdin.
+        operands = parsed.command[1:]
+        if parsed.prefix or not 1 <= len(operands) <= 2:
+            typer.secho(
+                "Error: use 'adapt adb pair ENDPOINT [CODE]' with no other ADB options or operands.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        rc = _pair_with_code_prompt(adb_path, operands[0], operands[1] if len(operands) == 2 else None)
+        raise typer.Exit(code=rc)
+
     try:
         preflight_adb_server(adb_path, args)
     except UnsafeAdbServerError as exc:
@@ -829,10 +856,7 @@ def pair(
         typer.echo("Run 'adapt setup' to install adb.", err=True)
         raise typer.Exit(code=1)
 
-    if not code and _is_stdin_tty():
-        code = getpass.getpass("Pairing code: ")
-
-    rc = run_pair_command(adb_path, endpoint, code)
+    rc = _pair_with_code_prompt(adb_path, endpoint, code)
     raise typer.Exit(code=rc)
 
 

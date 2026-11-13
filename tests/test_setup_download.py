@@ -1,8 +1,7 @@
-﻿"""Unit tests for hardened platform-tools download and extraction in adapt_adb.adb."""
+"""Unit tests for hardened platform-tools download and extraction in adapt_adb.adb."""
 
 import hashlib
 import io
-import logging
 import stat
 import subprocess
 import urllib.error
@@ -180,7 +179,6 @@ def test_download_rejects_sha256_mismatch(tmp_path: Path) -> None:
                 PLATFORM_TOOLS_URL_LINUX,
                 target_dir=target_dir,
                 expected_sha256=wrong_digest,
-                allow_unverified=True,
             )
 
     assert (target_dir / "existing.txt").read_text(encoding="utf-8") == "keep-me"
@@ -189,7 +187,7 @@ def test_download_rejects_sha256_mismatch(tmp_path: Path) -> None:
 
 
 def test_download_fails_when_digest_unavailable_by_default(tmp_path: Path) -> None:
-    """When repo XML has no checksums and allow_unverified=False, download aborts without downloading zip; when XML has sha1-only, it verifies sha1 and returns sha256."""
+    """When repo XML has no checksums  download aborts without downloading zip; when XML has sha1-only, it verifies sha1 and returns sha256."""
     no_checksum_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
 <sdk-repository>
   <remotePackage path="platform-tools">
@@ -447,45 +445,23 @@ def test_download_rejects_sha1_mismatch(tmp_path: Path) -> None:
             download_and_extract_platform_tools(
                 PLATFORM_TOOLS_URL_LINUX,
                 target_dir=target_dir,
-                allow_unverified=True,
             )
 
     assert not target_dir.exists()
 
 
-def test_download_warns_and_continues_when_allow_unverified_true(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """When digest is unavailable and allow_unverified=True, warn and unpack anyway."""
-    zip_bytes = _build_zip_bytes({"platform-tools/adb": b"unverified-ok"})
+def test_download_missing_digest_aborts_without_download(tmp_path: Path) -> None:
     target_dir = tmp_path / "platform-tools"
-
-    def fake_urlopen(url: str, timeout: int = 30) -> _FakeResponse:
-        if url == PLATFORM_TOOLS_REPOSITORY_XML_URL:
-            raise urllib.error.URLError("offline")
-        if url == PLATFORM_TOOLS_URL_LINUX:
-            return _FakeResponse(zip_bytes)
-        raise AssertionError(f"Unexpected URL: {url}")
-
-    with caplog.at_level(logging.WARNING, logger="adapt_adb.adb"):
-        with patch("adapt_adb.adb._open_google_url", side_effect=fake_urlopen):
-            with patch("subprocess.run", side_effect=_fake_adb_version_run()):
-                with pytest.warns(
-                    RuntimeWarning,
-                    match="SHA-256 or SHA-1 digest unavailable.*allow_unverified=True",
-                ):
-                    actual = download_and_extract_platform_tools(
-                        PLATFORM_TOOLS_URL_LINUX,
-                        target_dir=target_dir,
-                        allow_unverified=True,
+    with patch("adapt_adb.adb.fetch_platform_tools_digest", return_value=None):
+        with patch("adapt_adb.adb._open_google_url") as download:
+            with patch("subprocess.run") as execute:
+                with pytest.raises(RuntimeError, match="digest unavailable"):
+                    download_and_extract_platform_tools(
+                        PLATFORM_TOOLS_URL_LINUX, target_dir=target_dir,
                     )
-
-    assert actual == _sha256_hex(zip_bytes)
-    assert (target_dir / "adb").read_bytes() == b"unverified-ok"
-    assert any(
-        "SHA-256 or SHA-1 digest unavailable" in rec.message and "allow_unverified=True" in rec.message
-        for rec in caplog.records
-    )
+    download.assert_not_called()
+    execute.assert_not_called()
+    assert not target_dir.exists()
 
 
 @pytest.mark.parametrize(

@@ -85,6 +85,7 @@ _SNAPSHOT_STATUSES = {
     "applied",
     "partial_failure",
     "restore_conflict",
+    "restore_partial",
     "restoring",
     "restore_failed",
     "restored",
@@ -96,6 +97,7 @@ _ENTRY_STATUSES = {
     "not_changed",
     "restoring",
     "restored",
+    "restored_uncertain",
     "already_restored",
     "conflict",
     "uncertain",
@@ -748,14 +750,37 @@ def _validate_snapshot(document: Any) -> dict[str, Any]:
     return document
 
 
+def _matches_original(observed: dict[str, Any], original: dict[str, Any]) -> bool:
+    return bool(
+        (
+            original["present"]
+            and observed["status"] == "observed"
+            and _numbers_equal(observed["value"], original["value"])
+        )
+        or (not original["present"] and observed["status"] == "missing")
+    )
+
+
+def _matches_applied(observed: dict[str, Any], entry: dict[str, Any]) -> bool:
+    return observed["status"] == "observed" and _numbers_equal(
+        observed["value"], entry["applied_value"]
+    )
+
+
 @operation("Restoring test profile")
 def restore_snapshot(
     serial: str,
     snapshot: Path | str,
     *,
     adb_path: Path | str | None = None,
+    accept_uncertain: bool = False,
 ) -> dict[str, Any]:
-    """Restore a snapshot only when identity and expected applied values still match."""
+    """Restore a snapshot only when identity and expected applied values still match.
+
+    ``accept_uncertain`` lets an entry whose write was attempted but never
+    acknowledged (for example after a host crash) be restored when the device
+    currently holds exactly the value ADAPT intended to write.
+    """
     serial = _validate_serial(serial)
     path = Path(snapshot)
     document = _load_snapshot(path)
@@ -775,27 +800,38 @@ def restore_snapshot(
             raise DevOptionsError("identity_mismatch", "Snapshot identity changed before restore.")
         user = current_identity.android_user
         document["conflicts"] = []
-        ready: list[tuple[dict[str, Any], SettingSpec]] = []
+        ready: list[tuple[dict[str, Any], SettingSpec, bool]] = []
         for entry in document["settings"]:
             if not entry["changed"] or (not entry["attempted"] and not entry["applied"]):
                 continue
             spec = _SETTING_BY_ID[(entry["table"], entry["key"])]
             observed = _read_setting(adb, serial, spec, user)
-            original = entry["original"]
-            is_original = (
-                original["present"]
-                and observed["status"] == "observed"
-                and _numbers_equal(observed["value"], original["value"])
-            ) or (not original["present"] and observed["status"] == "missing")
-            if is_original:
+            uncertain = entry["attempted"] and not entry["applied"]
+            holds_applied = _matches_applied(observed, entry)
+            if _matches_original(observed, entry["original"]):
                 entry.update(applied=False, attempted=False, state="already_restored")
-            elif entry["applied"] and observed["status"] == "observed" and _numbers_equal(
-                observed["value"], entry["applied_value"]
-            ):
-                ready.append((entry, spec))
+            elif holds_applied and (entry["applied"] or accept_uncertain):
+                ready.append((entry, spec, uncertain))
             else:
-                if entry["attempted"] and not entry["applied"]:
-                    reason = f"{spec.key}: outcome is uncertain; refusing to overwrite current state"
+                if uncertain:
+                    if holds_applied:
+                        reason = (
+                            f"{spec.key}: outcome is uncertain; refusing to overwrite current state. "
+                            "The current value equals the value ADAPT intended to write; rerun "
+                            "restore with --accept-uncertain to restore the original value."
+                        )
+                    elif accept_uncertain:
+                        reason = (
+                            f"{spec.key}: outcome is uncertain and the current value matches neither "
+                            "the original nor the value ADAPT intended to write; refusing to "
+                            "overwrite current state even with --accept-uncertain"
+                        )
+                    else:
+                        reason = (
+                            f"{spec.key}: outcome is uncertain; refusing to overwrite current state. "
+                            "--accept-uncertain applies only when the current value equals the "
+                            "value ADAPT intended to write, which it does not."
+                        )
                     entry["state"] = "uncertain"
                 else:
                     reason = f"{spec.key}: current value differs from the applied value"
@@ -809,23 +845,55 @@ def restore_snapshot(
                 "ok": False,
                 "command": "dev-options restore",
                 "snapshot": str(path),
+                "status": document["status"],
                 "conflicts": list(document["conflicts"]),
                 "note": "No settings were changed because restore preflight found conflicts.",
             }
 
         restored: list[tuple[dict[str, Any], SettingSpec]] = []
+        left: list[dict[str, Any]] = []
         try:
-            for entry, spec in ready:
+            for entry, spec, uncertain in ready:
+                # Ownership is re-checked immediately before each write, so a
+                # change another actor made after preflight is not overwritten.
+                # Android offers no conditional (compare-and-set) settings
+                # write, so a small window between this read and the write
+                # below remains.
+                observed = _read_setting(adb, serial, spec, user)
+                if _matches_original(observed, entry["original"]):
+                    entry.update(applied=False, attempted=False, state="already_restored")
+                    _save_snapshot(path, document)
+                    continue
+                if not _matches_applied(observed, entry):
+                    if observed["status"] == "observed":
+                        reason = f"{spec.key}: changed during restore; left untouched"
+                    else:
+                        reason = (
+                            f"{spec.key}: could not be re-read during restore "
+                            f"({observed['status']}); left untouched"
+                        )
+                    entry["state"] = "conflict"
+                    document["conflicts"].append(reason)
+                    left.append(entry)
+                    _save_snapshot(path, document)
+                    continue
                 document["status"] = "restoring"
                 entry["state"] = "restoring"
                 _save_snapshot(path, document)
                 _restore_original_value(adb, serial, spec, user, entry["original"])
-                entry.update(applied=False, attempted=False, state="restored")
+                entry.update(
+                    applied=False,
+                    attempted=False,
+                    state="restored_uncertain" if uncertain else "restored",
+                )
                 restored.append((entry, spec))
                 _save_snapshot(path, document)
         except DevOptionsError as exc:
             document["errors"].append(str(exc))
             # Return successfully restored entries to the applied profile when safe.
+            # Entries skipped because they changed during restore were never
+            # written, so the rollback leaves them alone and they keep their
+            # conflict record in the snapshot.
             for prior, prior_spec in reversed(restored):
                 observed = _read_setting(adb, serial, prior_spec, user)
                 original = prior["original"]
@@ -866,13 +934,38 @@ def restore_snapshot(
                 document,
             ) from exc
 
+        restored_names = [entry["name"] for entry, _ in restored]
+        accepted_names = [
+            entry["name"] for entry, _ in restored if entry["state"] == "restored_uncertain"
+        ]
+        if left:
+            document["status"] = "restore_partial"
+            _save_snapshot(path, document)
+            return {
+                "ok": False,
+                "command": "dev-options restore",
+                "snapshot": str(path),
+                "status": document["status"],
+                "restored": restored_names,
+                "accepted_uncertain": accepted_names,
+                "left_untouched": [entry["name"] for entry in left],
+                "conflicts": list(document["conflicts"]),
+                "note": (
+                    "Partial restore: settings that changed during restore were left untouched; "
+                    "restored settings matched readback. The snapshot was retained; resolve the "
+                    "conflicts and run restore again to finish."
+                ),
+            }
+
         document["status"] = "restored"
         _save_snapshot(path, document)
         return {
             "ok": True,
             "command": "dev-options restore",
             "snapshot": str(path),
-            "restored": [entry["name"] for entry, _ in ready],
+            "status": document["status"],
+            "restored": restored_names,
+            "accepted_uncertain": accepted_names,
             "note": "Readback matched the snapshot; the snapshot was retained as recovery evidence.",
         }
 
@@ -942,10 +1035,18 @@ def apply_command(
 def restore_command(
     serial: str = typer.Option(..., "--serial", "-s", help="Explicit ADB target serial."),
     snapshot: Path = typer.Option(..., "--snapshot", help="Recovery snapshot path."),
+    accept_uncertain: bool = typer.Option(
+        False,
+        "--accept-uncertain",
+        help=(
+            "Also restore a setting whose write was interrupted before it was recorded, "
+            "but only when the device currently holds exactly the value ADAPT intended to write."
+        ),
+    ),
 ) -> None:
     """Restore a matching snapshot without overwriting external changes."""
     try:
-        report = restore_snapshot(serial, snapshot)
+        report = restore_snapshot(serial, snapshot, accept_uncertain=accept_uncertain)
     except DevOptionsError as exc:
         _emit_error(exc)
         raise typer.Exit(1) from exc

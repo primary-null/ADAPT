@@ -89,6 +89,8 @@ read back. If a restore fails partway through, ADAPT attempts to return settings
 already restored in that invocation to the applied profile, where the current
 value still makes that safe.
 
+Restore re-reads each setting immediately before writing it. A setting that changed after the first check is left untouched, the result reports a partial restore (`restore_partial`), and running restore again finishes the job once the conflict is resolved. If ADAPT was interrupted after writing a setting but before recording it, restore refuses that setting as uncertain by default; pass `--accept-uncertain` to restore it, which works only when the device still holds exactly the value ADAPT intended to write.
+
 ## Recovery limits
 
 Snapshots make recovery possible; they do not guarantee it. The device can

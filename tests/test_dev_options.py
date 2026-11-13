@@ -40,6 +40,7 @@ class FakeAdb:
         self.fail_put_key: str | None = None
         self.exit_zero_denied_key: str | None = None
         self.before_first_put = None
+        self.before_put = None
         self._put_count = 0
 
     def __call__(self, args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
@@ -70,6 +71,8 @@ class FakeAdb:
             self._put_count += 1
             if self._put_count == 1 and self.before_first_put:
                 self.before_first_put()
+            if self.before_put:
+                self.before_put(key)
             if key == self.fail_put_key:
                 return subprocess.CompletedProcess(args, 1, "", "write failed\n")
             self.settings[identity] = shell[pos + 3]
@@ -364,3 +367,192 @@ def test_unsafe_daemon_stops_profile_before_device_calls_or_snapshot(monkeypatch
         dev_options.apply_profile("touches", "phone", snapshot, adb_path=Path("adb"))
     assert caught.value.kind == "unsafe_adb_server"
     assert not snapshot.exists()
+
+
+def _fast_ui_key(name: str) -> tuple[str, None, str]:
+    return ("global", None, name)
+
+
+def _change_transition_during_first_restore_write(fake_adb: FakeAdb, value: str = "0.25"):
+    def external_change(key: str) -> None:
+        # Another actor changes a later setting after preflight, while the
+        # first setting is being restored.
+        if key == "window_animation_scale":
+            fake_adb.settings[_fast_ui_key("transition_animation_scale")] = value
+
+    return external_change
+
+
+def _writes_since(fake_adb: FakeAdb, start: int) -> list[list[str]]:
+    return [call for call in fake_adb.calls[start:] if "put" in call or "delete" in call]
+
+
+def test_restore_rechecks_each_setting_before_its_write(fake_adb: FakeAdb, tmp_path):
+    snapshot = tmp_path / "fast-ui-race.json"
+    dev_options.apply_profile("fast-ui", "endpoint-5555", snapshot, adb_path=Path("adb"))
+    fake_adb.before_put = _change_transition_during_first_restore_write(fake_adb)
+
+    report = dev_options.restore_snapshot("endpoint-5555", snapshot, adb_path=Path("adb"))
+
+    assert report["ok"] is False
+    assert report["status"] == "restore_partial"
+    assert report["restored"] == ["window_animation_scale", "animator_duration_scale"]
+    assert report["left_untouched"] == ["transition_animation_scale"]
+    assert report["conflicts"] == [
+        "transition_animation_scale: changed during restore; left untouched"
+    ]
+    assert fake_adb.settings[_fast_ui_key("window_animation_scale")] == "1.0"
+    assert fake_adb.settings[_fast_ui_key("transition_animation_scale")] == "0.25"
+    assert fake_adb.settings[_fast_ui_key("animator_duration_scale")] == "2"
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["status"] == "restore_partial"
+    assert saved["conflicts"] == report["conflicts"]
+    states = {item["name"]: item["state"] for item in saved["settings"]}
+    assert states == {
+        "window_animation_scale": "restored",
+        "transition_animation_scale": "conflict",
+        "animator_duration_scale": "restored",
+    }
+
+
+@pytest.mark.parametrize("resolved_value,expected_state", [("0", "restored"), ("0.5", "already_restored")])
+def test_second_restore_finishes_after_mid_restore_conflict_is_resolved(
+    fake_adb: FakeAdb, tmp_path, resolved_value, expected_state
+):
+    snapshot = tmp_path / "fast-ui-race.json"
+    dev_options.apply_profile("fast-ui", "endpoint-5555", snapshot, adb_path=Path("adb"))
+    transition = _fast_ui_key("transition_animation_scale")
+    fake_adb.before_put = _change_transition_during_first_restore_write(fake_adb)
+    assert dev_options.restore_snapshot("endpoint-5555", snapshot, adb_path=Path("adb"))["ok"] is False
+    fake_adb.before_put = None
+
+    # The user resolves the conflict, back to the applied value or to the original.
+    fake_adb.settings[transition] = resolved_value
+    start = len(fake_adb.calls)
+    report = dev_options.restore_snapshot("endpoint-5555", snapshot, adb_path=Path("adb"))
+
+    assert report["ok"] is True
+    assert report["status"] == "restored"
+    assert report["restored"] == (["transition_animation_scale"] if resolved_value == "0" else [])
+    assert fake_adb.settings[transition] == "0.5"
+    assert all("transition_animation_scale" in call for call in _writes_since(fake_adb, start))
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["status"] == "restored"
+    assert saved["conflicts"] == []
+    states = {item["name"]: item["state"] for item in saved["settings"]}
+    assert states["transition_animation_scale"] == expected_state
+    assert states["window_animation_scale"] == "restored"
+
+
+def test_restore_write_failure_leaves_entries_skipped_as_changed(fake_adb: FakeAdb, tmp_path):
+    snapshot = tmp_path / "fast-ui-race-fail.json"
+    dev_options.apply_profile("fast-ui", "endpoint-5555", snapshot, adb_path=Path("adb"))
+    fake_adb.before_put = _change_transition_during_first_restore_write(fake_adb)
+    fake_adb.fail_put_key = "animator_duration_scale"
+
+    with pytest.raises(DevOptionsError) as caught:
+        dev_options.restore_snapshot("endpoint-5555", snapshot, adb_path=Path("adb"))
+
+    assert caught.value.kind == "restore_failed"
+    # The restored entry returns to the applied profile; the skipped one is left alone.
+    assert fake_adb.settings[_fast_ui_key("window_animation_scale")] == "0"
+    assert fake_adb.settings[_fast_ui_key("transition_animation_scale")] == "0.25"
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["status"] == "restore_failed"
+    assert "transition_animation_scale: changed during restore; left untouched" in saved["conflicts"]
+    states = {item["name"]: item["state"] for item in saved["settings"]}
+    assert states["window_animation_scale"] == "applied"
+    assert states["transition_animation_scale"] == "conflict"
+
+
+def _uncertain_touches_snapshot(tmp_path) -> Path:
+    """Simulate a host crash after the settings write but before its acknowledgement."""
+    snapshot = tmp_path / "touches-uncertain.json"
+    dev_options.apply_profile("touches", "endpoint-5555", snapshot, adb_path=Path("adb"))
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    saved["status"] = "applying"
+    saved["settings"][0].update(attempted=True, applied=False, state="pending")
+    snapshot.write_text(json.dumps(saved), encoding="utf-8")
+    return snapshot
+
+
+def test_uncertain_entry_holding_applied_value_is_refused_by_default(fake_adb: FakeAdb, tmp_path):
+    snapshot = _uncertain_touches_snapshot(tmp_path)
+    key = ("system", 10, "show_touches")
+    assert fake_adb.settings[key] == "1"
+    start = len(fake_adb.calls)
+
+    report = dev_options.restore_snapshot("endpoint-5555", snapshot, adb_path=Path("adb"))
+
+    assert report["ok"] is False and report["status"] == "restore_conflict"
+    assert len(report["conflicts"]) == 1
+    message = report["conflicts"][0]
+    assert "outcome is uncertain" in message and "--accept-uncertain" in message
+    assert "equals the value ADAPT intended to write" in message
+    assert fake_adb.settings[key] == "1"
+    assert _writes_since(fake_adb, start) == []
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["settings"][0]["state"] == "uncertain"
+
+
+def test_uncertain_entry_holding_applied_value_restores_when_accepted(fake_adb: FakeAdb, tmp_path):
+    snapshot = _uncertain_touches_snapshot(tmp_path)
+    key = ("system", 10, "show_touches")
+
+    report = dev_options.restore_snapshot(
+        "endpoint-5555", snapshot, adb_path=Path("adb"), accept_uncertain=True
+    )
+
+    assert report["ok"] is True and report["status"] == "restored"
+    assert report["restored"] == ["show_touches"]
+    assert report["accepted_uncertain"] == ["show_touches"]
+    assert fake_adb.settings[key] == "0"
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["status"] == "restored"
+    entry = saved["settings"][0]
+    assert entry["state"] == "restored_uncertain"
+    assert entry["attempted"] is False and entry["applied"] is False
+
+
+@pytest.mark.parametrize("accept_uncertain", [False, True])
+def test_uncertain_entry_holding_third_value_is_always_refused(
+    fake_adb: FakeAdb, tmp_path, accept_uncertain
+):
+    snapshot = _uncertain_touches_snapshot(tmp_path)
+    key = ("system", 10, "show_touches")
+    fake_adb.settings[key] = "2"
+    start = len(fake_adb.calls)
+
+    report = dev_options.restore_snapshot(
+        "endpoint-5555", snapshot, adb_path=Path("adb"), accept_uncertain=accept_uncertain
+    )
+
+    assert report["ok"] is False and report["status"] == "restore_conflict"
+    assert "outcome is uncertain" in report["conflicts"][0]
+    if accept_uncertain:
+        assert "even with --accept-uncertain" in report["conflicts"][0]
+    assert fake_adb.settings[key] == "2"
+    assert _writes_since(fake_adb, start) == []
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["settings"][0]["state"] == "uncertain"
+
+
+@pytest.mark.parametrize("accept_uncertain", [False, True])
+def test_uncertain_entry_holding_original_value_is_already_restored(
+    fake_adb: FakeAdb, tmp_path, accept_uncertain
+):
+    snapshot = _uncertain_touches_snapshot(tmp_path)
+    key = ("system", 10, "show_touches")
+    fake_adb.settings[key] = "0"
+    start = len(fake_adb.calls)
+
+    report = dev_options.restore_snapshot(
+        "endpoint-5555", snapshot, adb_path=Path("adb"), accept_uncertain=accept_uncertain
+    )
+
+    assert report["ok"] is True and report["status"] == "restored"
+    assert report["restored"] == [] and report["accepted_uncertain"] == []
+    assert fake_adb.settings[key] == "0"
+    assert _writes_since(fake_adb, start) == []
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert saved["settings"][0]["state"] == "already_restored"

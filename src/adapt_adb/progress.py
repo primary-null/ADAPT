@@ -91,8 +91,10 @@ class adapting:
         if self.thread is not None:
             self.stop.set()
             self.thread.join(timeout=1)
-            _NESTED.reset(self.token)
-            _DISPLAY_LOCK.release()
+            try:
+                _NESTED.reset(self.token)
+            finally:
+                _DISPLAY_LOCK.release()
         return False
 
 

@@ -147,3 +147,10 @@ def test_should_show_skips_json(monkeypatch):
     ctx = type("Ctx", (), {"invoked_subcommand": "doctor"})()
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
     assert should_show_banner(ctx, no_banner=False) is False
+
+
+def test_meta_adapt_machine_output_hides_banner(monkeypatch):
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    ctx = type("Ctx", (), {"invoked_subcommand": "doctor", "meta": {"adapt_machine_output": True}})()
+    assert should_show_banner(ctx, no_banner=False) is False
+

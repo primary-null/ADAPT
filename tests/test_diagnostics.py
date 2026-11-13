@@ -109,6 +109,12 @@ def test_capture_timeout_and_denial_do_not_return_private_contents(monkeypatch):
         diag._read_logs(["adb"])
 
 
+def test_invalid_utf8_in_logs_uses_replacement_character(monkeypatch):
+    fake_process(monkeypatch, data=b"good line\n\xff bad byte\n", code=0)
+    output = diag._read_logs(["adb"])
+    assert output == "good line\n\ufffd bad byte\n"
+
+
 def test_guidance_and_rapid_plan_are_offline_and_keep_heavy_modes_separate(monkeypatch, tmp_path):
     monkeypatch.setattr(diag.subprocess, "Popen", forbid)
     monkeypatch.setattr(diag.dev_options, "_resolve_adb_path", forbid)

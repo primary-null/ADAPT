@@ -130,3 +130,22 @@ def test_complete_reuse_is_distinct_from_new_install(environment, monkeypatch):
     assert result["status"] == "completed" and result["exit_code"] == 0
     assert result["summary"]["installed"] == []
     assert result["summary"]["reused"] == ["platform-tools", "scrcpy"]
+
+
+def test_render_result_shows_multiple_device_identifiers():
+    report = {
+        "status": "completed",
+        "exit_code": 0,
+        "steps": [],
+        "device_inspections": [
+            {"device": "emulator-5554", "status": "observed", "reason": "active", "results": {"dex": {"status": "observed"}}},
+            {"device": "device-serial-99", "status": "skipped", "results": {}},
+        ],
+        "transport_detection": {"transports": {"fastboot": {"status": "observed", "devices": []}}},
+        "summary": {"manual_missing": []},
+        "claim_boundary": "BOUNDARY",
+        "note": "NOTE",
+    }
+    rendered = batch.render_result(report)
+    assert "  emulator-5554: observed (active)" in rendered
+    assert "  device-serial-99: skipped" in rendered

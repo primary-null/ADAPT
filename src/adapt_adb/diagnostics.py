@@ -119,7 +119,7 @@ def _read_logs(argv: list[str]) -> str:
                 raise DevelopmentError("Diagnostic log capture exceeded its byte budget; shorten --minutes.")
             if process.returncode or re.search(rb"permission deni|securityexception|not permitted|access denied|(?:^|\n)\s*(?:error:|adb:)", errors, re.I):
                 raise DevelopmentError("Focused logcat capture failed or was denied; no broader fallback was attempted.")
-            return data.decode("utf-8", errors="strict")
+            return data.decode("utf-8", errors="replace")
         finally:
             _stop(process)
 

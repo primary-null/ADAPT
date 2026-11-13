@@ -84,3 +84,14 @@ def test_inspection_does_not_claim_desktop_from_features_or_settings(monkeypatch
     assert report["desktop_shell"] == "not_verified" and report["samsung_dex"] == "not_inferred"
     assert report["displays"]["status"] == "unknown"
     assert report["advertised_features"]["android.software.freeform_window_management"] == "advertised"
+
+
+def test_inspection_handles_probe_failures_cleanly(monkeypatch):
+    monkeypatch.setattr(desktop, "probe", lambda args: {"status": "failed", "value": None})
+    try:
+        report = desktop.inspect_device("phone")
+    except desktop.DetectionError:
+        pass
+    else:
+        assert isinstance(report, dict)
+

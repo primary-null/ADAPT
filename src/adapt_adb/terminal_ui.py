@@ -206,14 +206,23 @@ def run_console(root: Any, *, no_banner: bool = False, no_redraw: bool = False,
                         prefix.append("--no-progress")
                     screen.draw("RUN / " + selected, ["The selected command is running. Its normal prompts follow.",
                         "Return to the menu after it completes."])
+                    if screen.redraw:
+                        # Leave the alternate screen so the command's output stays in the terminal scrollback.
+                        stdout.write("\x1b[?1049l")
+                        stdout.flush()
                     try:
-                        result = subprocess.run([*prefix, *selected.split()[1:], *args], check=False)
-                        status = f"Command finished with exit code {result.returncode}."
-                    except KeyboardInterrupt:
-                        status = "Command interrupted."
-                    except OSError:
-                        status = "Could not start the selected ADAPT command."
-                    answer = screen.read(status + " Enter: Back | H: Home | Q: Exit > ")
+                        try:
+                            result = subprocess.run([*prefix, *selected.split()[1:], *args], check=False)
+                            status = f"Command finished with exit code {result.returncode}."
+                        except KeyboardInterrupt:
+                            status = "Command interrupted."
+                        except OSError:
+                            status = "Could not start the selected ADAPT command."
+                        answer = screen.read(status + " Enter: Back | H: Home | Q: Exit > ")
+                    finally:
+                        if screen.redraw:
+                            stdout.write("\x1b[?1049h")
+                            stdout.flush()
                     if answer is None or answer.strip().lower() in {"q", "exit", "quit"}:
                         return
                     if answer.strip().lower() in {"h", "home"}:

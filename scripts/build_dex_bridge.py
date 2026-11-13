@@ -24,10 +24,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="adapt-dex-build-") as temporary:
         classes = Path(temporary) / "classes"
         classes.mkdir()
-        subprocess.run([javac, "--release", "8", "-d", str(classes), str(source)], check=True)
+        subprocess.run([javac, "--release", "8", "-d", str(classes), str(source)], check=True, timeout=120)
         output = Path(temporary) / "adapt-dex-bridge.jar"
         subprocess.run([java, "-cp", str(d8jar), "com.android.tools.r8.D8", "--min-api", "29", "--lib", str(android),
-                        "--output", str(output), *map(str, classes.rglob("*.class"))], check=True)
+                        "--output", str(output), *map(str, sorted(classes.rglob("*.class")))], check=True, timeout=120)
         data = output.read_bytes()
         (resource / output.name).write_bytes(data)
     receipt = {"schema_version": 1, "min_api": 29, "build_tools": args.build_tools,

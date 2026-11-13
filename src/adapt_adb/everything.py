@@ -201,7 +201,8 @@ def render_result(report: dict[str, Any]) -> str:
         if step.get("reason"):
             lines.append("    " + step["reason"])
     for target in report["device_inspections"]:
-        lines.append(f"  Selected device: {target['status']}")
+        reason = f" ({target['reason']})" if target.get("reason") else ""
+        lines.append(f"  {target.get('device', 'Selected device')}: {target['status']}{reason}")
         for name, result in target["results"].items():
             lines.append(f"    {name}: {result['status']}")
     fastboot = report["transport_detection"]["transports"]["fastboot"]

@@ -51,6 +51,9 @@ def _env_disabled() -> bool:
 def _machine_facing(ctx: typer.Context) -> bool:
     if ctx.invoked_subcommand == "mcp":
         return True
+    meta = getattr(ctx, "meta", None)
+    if isinstance(meta, dict) and meta.get("adapt_machine_output"):
+        return True
     return any(arg == "--json" or arg.startswith("--json=") for arg in sys.argv[1:])
 
 

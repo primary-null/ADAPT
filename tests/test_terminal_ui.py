@@ -101,6 +101,24 @@ def test_running_explicit_command_keeps_argv_prompts_and_root_options(terminal,m
     assert out.count("ADAPT / MAIN MENU")==2
 
 
+def test_command_execution_toggles_alternate_screen_when_redraw_enabled(terminal, monkeypatch):
+    recorded = {}
+    out, err, _ = terminal
+    def fake_run(argv, **kwargs):
+        recorded["at_run"] = out.getvalue()
+        return subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(ui.subprocess, "run", fake_run)
+    root = get_command(app)
+    records = ui.command_inventory(root)
+    area = [r for r in records if r["command"].count(" ") == 1 and r["command"].split()[1] in ui.AREAS[7][1]]
+    index = next(i for i, r in enumerate(area, 1) if r["command"] == "adapt tips")
+    out_val, _, _ = run_keys(f"8\n{index}\nr\nstatus\n\nq\n", terminal, no_tips=True, no_progress=True)
+    assert "\x1b[?1049l" in recorded["at_run"]
+    assert recorded["at_run"].endswith("\x1b[?1049l")
+    after_run = out_val[len(recorded["at_run"]):]
+    assert "\x1b[?1049h" in after_run
+
+
 def test_platform_argument_parser_preserves_quoted_paths_and_never_executes_shell():
     assert ui.split_arguments('--snapshot "C:\\some folder\\awake.json"') == ["--snapshot", "C:\\some folder\\awake.json"]
     assert ui.split_arguments('hello ; echo no') == ["hello",";","echo","no"]

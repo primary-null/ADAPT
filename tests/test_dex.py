@@ -421,7 +421,7 @@ def test_successful_launch_uses_adapt_adb_view_only_and_reports_unverified_healt
     assert result["healthy_streaming"] == "not_verified"
     assert result["process_ids"] == [201, 202]
     assert all("--no-control" in argv for argv, _ in calls)
-    assert all(kwargs["env"]["ADB"] == "C:\\adapt\\adb.exe" for _, kwargs in calls)
+    assert all(kwargs["env"]["ADB"] == str(Path("C:/adapt/adb.exe")) for _, kwargs in calls)
     assert all(kwargs["shell"] is False for _, kwargs in calls)
     assert all(kwargs["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0) for _, kwargs in calls)
 

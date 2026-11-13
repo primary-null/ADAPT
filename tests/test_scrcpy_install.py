@@ -180,7 +180,7 @@ def test_plan_is_offline_and_reports_exact_target(tmp_path: Path) -> None:
     assert plan["status"] == "ready"
     assert plan["confirmation_required"] is True
     assert plan["asset"]["sha256"] == _artifact().sha256
-    assert plan["target_dir"].endswith(r"5.0.1\scrcpy-win64-v5.0.1")
+    assert Path(plan["target_dir"]).parts[-2:] == ("5.0.1", "scrcpy-win64-v5.0.1")
     assert not (tmp_path / "managed").exists()
 
 

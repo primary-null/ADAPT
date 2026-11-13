@@ -45,13 +45,13 @@ ADAPT wraps Google's official Platform-Tools (`adb`) in a command-line toolkit a
 
 ## Download and install
 
-**[Download ADAPT 0.1.0 (alpha)](https://github.com/primary-null/ADAPT/releases/tag/v0.1.0)**
+**[Download ADAPT 0.1.1 (alpha)](https://github.com/primary-null/ADAPT/releases/tag/v0.1.1)**
 
 ADAPT is a terminal application for Windows and Linux. Install **Python 3.11 or newer** and
 [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html), then run:
 
 ```text
-pipx install "https://github.com/primary-null/ADAPT/releases/download/v0.1.0/adapt_adb-0.1.0-py3-none-any.whl"
+pipx install "https://github.com/primary-null/ADAPT/releases/download/v0.1.1/adapt_adb-0.1.1-py3-none-any.whl"
 pipx ensurepath
 adapt --help
 ```
@@ -64,11 +64,11 @@ resource; the experimental native Windows receiver remains a separate manual-bui
 For the optional MCP server, use this instead of the first install command:
 
 ```text
-pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.0/adapt_adb-0.1.0-py3-none-any.whl"
+pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.1/adapt_adb-0.1.1-py3-none-any.whl"
 ```
 
 You can also download the `.whl` from the release and install the local file with
-`pipx install ./adapt_adb-0.1.0-py3-none-any.whl`. Verify it against the release's `SHA256SUMS.txt`
+`pipx install ./adapt_adb-0.1.1-py3-none-any.whl`. Verify it against the release's `SHA256SUMS.txt`
 (`Get-FileHash` on Windows or `sha256sum` on Linux). GitHub build provenance attestations are provided.
 The `.tar.gz` is a source distribution for developers, not a desktop installer.
 

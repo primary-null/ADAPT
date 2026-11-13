@@ -43,9 +43,43 @@ ADAPT wraps Google's official Platform-Tools (`adb`) in a command-line toolkit a
 | Android matrix | 9 baselines, API 29-37 (Android 10-17 including 12L) |
 | Physical evidence | **2** Samsung phones (API 33 and API 37). Everything else is offline-tested or planning |
 
-## Install (from a checkout)
+## Download and install
 
-ADAPT needs **Python 3.11 or newer**. It is installed from source; no PyPI package or build certification is assumed.
+**[Download ADAPT 0.1.0 (alpha)](https://github.com/primary-null/ADAPT/releases/tag/v0.1.0)**
+
+ADAPT is a terminal application for Windows and Linux. Install **Python 3.11 or newer** and
+[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html), then run:
+
+```text
+pipx install "https://github.com/primary-null/ADAPT/releases/download/v0.1.0/adapt_adb-0.1.0-py3-none-any.whl"
+pipx ensurepath
+adapt --help
+```
+
+Open a new terminal after `pipx ensurepath` if `adapt` is not found. No Git checkout or administrator
+permission is required. There is no assumed PyPI publication; use the GitHub URL above rather than
+`pipx install adapt-adb`. The same wheel supports Windows and Linux. It includes the Android DeX bridge
+resource; the experimental native Windows receiver remains a separate manual-build project.
+
+For the optional MCP server, use this instead of the first install command:
+
+```text
+pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.0/adapt_adb-0.1.0-py3-none-any.whl"
+```
+
+You can also download the `.whl` from the release and install the local file with
+`pipx install ./adapt_adb-0.1.0-py3-none-any.whl`. Verify it against the release's `SHA256SUMS.txt`
+(`Get-FileHash` on Windows or `sha256sum` on Linux). GitHub build provenance attestations are provided.
+The `.tar.gz` is a source distribution for developers, not a desktop installer.
+
+**Updates:** use the new release's wheel URL with `pipx install --force URL`, retaining `[mcp]` if used.
+These URLs pin an exact version; `pipx upgrade` does not discover a different GitHub release automatically.
+Uninstall with `pipx uninstall adapt-adb`. The package does not certify devices or bundle an Android SDK.
+See [Release process](docs/releasing.md) for checks, compatibility and verification.
+
+### Install from a checkout (contributors)
+
+ADAPT needs **Python 3.11 or newer**. Editable installation is for developing ADAPT itself.
 
 ```text
 git clone https://github.com/primary-null/ADAPT.git

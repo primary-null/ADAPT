@@ -1,0 +1,2 @@
+include scripts/check_distribution.py
+include docs/releasing.md

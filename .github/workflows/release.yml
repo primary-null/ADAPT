@@ -1,0 +1,114 @@
+name: Release Python CLI
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - name: Test and build wheel and source archive
+        run: |
+          python -m pip install build twine pytest '.[mcp]'
+          python -m pytest -q
+          python -m build
+          python -m twine check dist/*
+      - name: Validate packages and write checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            python scripts/check_distribution.py dist --tag "$RELEASE_TAG"
+          else
+            python scripts/check_distribution.py dist
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  install:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: python-distributions
+          path: dist
+      - name: Install the wheel into an isolated CLI environment
+        shell: bash
+        run: |
+          python -m pip install pipx
+          wheel=$(python -c "from pathlib import Path; print(next(Path('dist').glob('*.whl')).resolve())")
+          python -m pipx install "$wheel"
+          python -m pipx runpip adapt-adb check
+          python -m pipx run --spec "$wheel" adapt --help
+          python -m pipx run --spec "$wheel" adapt android versions
+      - name: Validate the MCP optional installation
+        shell: bash
+        run: |
+          spec=$(python -c "from pathlib import Path; print('adapt-adb[mcp] @ '+next(Path('dist').glob('*.whl')).resolve().as_uri())")
+          python -m pipx install --force "$spec"
+          python -m pipx runpip adapt-adb check
+          python -m pipx runpip adapt-adb show mcp Pillow
+          python -m pipx run --spec "$spec" adapt mcp --help
+      - name: Source archive installation smoke check
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
+        shell: bash
+        run: |
+          source=$(python -c "from pathlib import Path; print(next(Path('dist').glob('*.tar.gz')).resolve())")
+          python -m pipx run --spec "$source" adapt --help
+
+  publish:
+    needs: [build, install]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: python-distributions
+          path: dist
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+      - name: Publish complete alpha release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* --repo "$REPOSITORY" --verify-tag --prerelease \
+            --title "ADAPT ${RELEASE_TAG#v} (alpha)" \
+            --notes "Install the wheel with pipx. Python 3.11+ is required; see the README for Windows/Linux and MCP instructions. The source archive is for developers. SHA256SUMS.txt and GitHub build attestations are included. This is an alpha CLI release; the experimental native Windows receiver is not part of this package."

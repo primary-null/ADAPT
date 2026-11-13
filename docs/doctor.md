@@ -268,7 +268,7 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 ### 5.1 Pre-Flight Gate
 1. Run `adb_server_5037` check **first**. If port `5037` is owned by `root`/another user or has a running server mismatch, `adapt setup` MUST abort immediately with exit code `3` and MUST NOT kill the server.
 2. Check if a valid Google `adb >= 34.0.0` is already installed and first on `PATH` (unless `--force` is passed to repair/re-install into user scope). If already healthy, `adapt setup` exits `0` without downloading.
-3. Before a mutating download/unpack, `adapt setup` prompts on `stderr` for confirmation unless `--yes`/`-y` is passed; non-TTY sessions proceed without a prompt.
+3. Before a mutating download/unpack, `adapt setup` prompts on `stderr` for confirmation unless `--yes`/`-y` is passed. When ADAPT cannot show a prompt (input or error output is not a terminal), `adapt setup` stops before changing anything unless `--yes` is given.
 
 ### 5.2 Allowed Actions
 1. **Download Official Google Platform-Tools Zip (HTTPS Only):**

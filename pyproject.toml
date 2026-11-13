@@ -34,6 +34,10 @@ dependencies = [
 mcp = [
     "mcp>=1.0.0",
     "Pillow>=10.0.0",
+    "anyio>=4.0",
+]
+docs = [
+    "reportlab>=4.0",
 ]
 
 [project.scripts]
@@ -43,8 +47,17 @@ adapt = "adapt_adb.cli:app"
 Repository = "https://github.com/primary-null/ADAPT"
 Issues = "https://github.com/primary-null/ADAPT/issues"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 adapt_adb = ["resources/dex_bridge/*.java", "resources/dex_bridge/*.jar", "resources/dex_bridge/*.json", "resources/dex_bridge/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

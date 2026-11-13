@@ -17,9 +17,9 @@
     "authored_help_topics": 59,
     "configured_api_baselines": 9,
     "physical_phones_with_saved_evidence": 2,
-    "python_tests": 579,
+    "python_tests": 907,
     "python_test_files": 32,
-    "native_tests": 15
+    "native_tests": 19
   },
   "functional_areas": [
     {

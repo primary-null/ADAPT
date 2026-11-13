@@ -15,7 +15,7 @@
 
 ---
 
-ADAPT wraps Google's official Platform-Tools (`adb`) in a command-line toolkit and a local stdio [MCP](https://modelcontextprotocol.io) server. It sets up `adb` in user scope, checks your host and the shared ADB daemon, drives USB, wireless and routed transports, inspects capabilities, and gives developers recoverable test profiles, bounded logs, app validation and Samsung DeX display tooling. Every device command takes an exact target, every mutation is explicit and reversible where Android allows, and every report says what it did **not** prove.
+ADAPT wraps Google's official Platform-Tools (`adb`) in a command-line toolkit and a local stdio [MCP](https://modelcontextprotocol.io) server. It sets up `adb` in user scope, checks your host and the shared ADB daemon, drives USB, wireless and routed transports, inspects capabilities, and gives developers recoverable test profiles, bounded logs, app validation and Samsung DeX display tooling. Every device command takes an exact target, every mutation made by ADAPT's own workflows is explicit and reversible where Android allows, and every report says what it did **not** prove. The raw `adapt adb` passthrough is guarded but runs what you type, with no recovery snapshot.
 
 ![ADAPT overview: command groups, transports, MCP policy and safety guards](docs/assets/showcase-overview.png)
 

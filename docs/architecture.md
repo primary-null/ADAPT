@@ -5,7 +5,7 @@ ADAPT is a single Python package (`adapt_adb`, command `adapt`) that wraps Googl
 ## Design rules
 
 1. **Explicit target.** Device commands take an exact transport identifier. Nothing picks "the" phone for you, except the single-ready-device convenience in `adapt adb` and the unrestricted MCP session.
-2. **Observe, then plan, then act.** Inspection commands change nothing; `plan` commands are offline; mutating commands need `--yes` (or an interactive confirmation) and say what they touch.
+2. **Observe, then plan, then act.** Inspection commands change nothing; `plan` commands are offline; mutating commands need `--yes` (or an interactive confirmation) and say what they touch. The raw `adapt adb` and `adapt tailscale adb` passthroughs are the exception: they apply the argv safety guard and the port-5037 preflight, then run the command you typed without a confirmation prompt or a recovery snapshot.
 3. **Recoverable writes.** Anything that edits device settings first writes an identity-bound recovery snapshot, reads values back, and restores only what it still owns.
 4. **Shared-daemon safety.** Port 5037 is shared with IDEs and other agents. ADAPT never runs `adb kill-server`, never uses `sudo adb`, and refuses to talk to a server that is root-owned, owned by someone else, on a non-default endpoint, or version-mismatched.
 5. **Claims stay at the evidence.** Reports carry `status`, `claim_boundary` and `note` fields. A port that answers, a property that exists or a process that started is never reported as a working workflow.
@@ -41,7 +41,8 @@ ADAPT/
 |   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy)
 |   `-- resources/dex_bridge/       AdaptDexBridge.java, locally built JAR, build.json
 |-- tests/                          32 offline test modules (mocked adb/ssh/tailscale)
-|-- scripts/                        build_dex_bridge.py, install_windows_wireless_display.ps1
+|-- scripts/                        build_dex_bridge.py, build_icon.py, build_public_overview.py,
+|                                   build_showcase.py, install_windows_wireless_display.ps1
 |-- packaging/                      Linux udev rules + notes, Windows driver notes
 |-- examples/                       MCP client config samples
 |-- native/windows-receiver/        Rust wireless-DeX receiver SOURCE (not in the wheel)

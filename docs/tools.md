@@ -13,7 +13,7 @@ adapt tools plan GOAL [--json] [--branch BRANCH] [--device CODENAME]
 adapt tools install scrcpy [--dry-run] [--yes] [--json]
 ```
 
-Supported goals are `testing`, `mirroring`, `aosp-build`, `lineage-build`, and `image-inspection`.
+Supported goals are `testing`, `mirroring`, `remote-worker`, `aosp-build`, `lineage-build`, and `image-inspection`.
 
 - `list` shows the curated records for all goals or one goal and performs a read-only lookup of executable candidates on the current process environment's `PATH`.
 - `info` shows purpose, executable candidates, dependency hints, supported host classifications, official/upstream and license links, research date, and actionable acquisition guidance. `adb` and `fastboot` are accepted aliases for `platform-tools`.

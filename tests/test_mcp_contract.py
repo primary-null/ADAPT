@@ -387,3 +387,194 @@ def test_mcp_stdout_has_no_banner_text(monkeypatch: pytest.MonkeyPatch) -> None:
     for line in stdout_lines:
         parsed = json.loads(line)
         assert parsed.get("jsonrpc") == "2.0"
+
+
+
+def _bound_cases():
+    from adapt_adb.mcp.tools import TOOL_SCHEMAS
+
+    for tool in TOOL_SCHEMAS:
+        schema = tool["inputSchema"]
+        base = {}
+        for key in schema.get("required", []):
+            prop = schema["properties"][key]
+            base[key] = prop.get("enum", [None])[0] if "enum" in prop else (
+                "com.example.app" if key == "package" else "A" if prop["type"] == "string" else prop.get("minimum", 0)
+            )
+        for key, prop in schema["properties"].items():
+            if prop["type"] == "integer":
+                assert "minimum" in prop and "maximum" in prop
+                for bound, delta in (("minimum", -1), ("maximum", 1)):
+                    yield tool["name"], base, key, prop[bound], prop[bound] + delta
+            elif prop["type"] == "string":
+                assert "maxLength" in prop
+                if "enum" in prop:
+                    continue
+                yield tool["name"], base, key, "a" * prop["maxLength"], "a" * (prop["maxLength"] + 1)
+                if prop.get("minLength", 0):
+                    yield tool["name"], base, key, "a" * prop["minLength"], ""
+
+
+@pytest.mark.parametrize("name,base,key,valid,invalid", list(_bound_cases()))
+def test_all_advertised_bounds_enforced(name, base, key, valid, invalid, monkeypatch):
+    from adapt_adb.mcp import server, tools
+
+    # Keep semantic/device validation out of this schema boundary test.
+    for attr in dir(tools):
+        if attr.startswith("tool_"):
+            monkeypatch.setattr(tools, attr, lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(tools, "tool_screenshot", lambda **k: ("AA==", {}))
+    args = {**base, key: invalid}
+    result = dispatch_tool_call(name, args)
+    assert result.is_error
+    assert json.loads(result.content[0].text)["error"] == "invalid_params"
+    args[key] = valid
+    assert server._arguments_match_schema(name, args)
+    assert not dispatch_tool_call(name, args).is_error
+
+
+def test_default_string_limit_enforced_and_advertised(monkeypatch):
+    from adapt_adb.mcp import server
+
+    monkeypatch.setitem(server._TOOL_SCHEMAS, "type", {
+        "properties": {"text": {"type": "string"}}, "required": ["text"]})
+    assert server._arguments_match_schema("type", {"text": "a" * 4096})
+    result = dispatch_tool_call("type", {"text": "a" * 4097})
+    assert json.loads(result.content[0].text)["error"] == "invalid_params"
+
+
+@pytest.mark.parametrize("name", [
+    "ui_summary", "logcat_tail", "app_logs", "diagnostic_logs", "device_info",
+    "dex_inspect", "dex_displays", "app_validate", "debug_app_inspect",
+    "developer_options_inspect", "android_capabilities", "list_devices",
+    "android_versions", "tool_catalog", "logging_guide", "build_modes", "setup_status", "doctor",
+    "screenshot",
+])
+@pytest.mark.parametrize("failed", [False, True])
+def test_content_trust_on_device_success_only(name, failed, monkeypatch):
+    from adapt_adb.mcp import tools
+    from adapt_adb.mcp.access import DEVICE_TEXT_TOOLS
+
+    data = {"error": "mock_failure"} if failed else {"device": "A", "devices": [{"device": "A"}]}
+    for attr in dir(tools):
+        if attr.startswith("tool_"):
+            monkeypatch.setattr(tools, attr, lambda *a, **k: data)
+    monkeypatch.setattr(tools, "tool_screenshot", lambda **k: (None if failed else "AA==", data))
+    args = {"device": "A", "package": "com.example.app", "topic": "window"}
+    from adapt_adb.mcp.server import _TOOL_SCHEMAS
+    args = {k: v for k, v in args.items() if k in _TOOL_SCHEMAS[name]["properties"]}
+    result = dispatch_tool_call(name, args)
+    payload = json.loads(result.content[-1].text)
+    expected = not failed and (name in DEVICE_TEXT_TOOLS or name == "screenshot")
+    assert ("content_trust" in payload) == expected
+    assert ("content_notice" in payload) == expected
+    if expected:
+        assert payload["content_trust"] == "untrusted_device_data"
+        assert payload["content_notice"]
+    assert result.is_error == failed
+
+
+def test_worker_dispatch_serializes_and_survives_new_loops(monkeypatch):
+    import threading
+    from adapt_adb.mcp import server
+    from adapt_adb.mcp.access import AccessPolicy
+
+    real_dispatch = server.dispatch_tool_call
+    monkeypatch.setattr(server.mcp_tools, "tool_android_versions", lambda: {"versions": []})
+    expected = real_dispatch("android_versions", {}).model_dump()
+    main_thread = threading.get_ident()
+    active = 0
+    peak = 0
+    entered = threading.Event()
+    release = threading.Event()
+    count = 0
+
+    def dispatch(*a, **k):
+        nonlocal active, peak, count
+        assert threading.get_ident() != main_thread
+        active += 1
+        peak = max(peak, active)
+        count += 1
+        entered.set()
+        assert release.wait(5)
+        try:
+            return real_dispatch(*a, **k)
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(server, "dispatch_tool_call", dispatch)
+
+    async def exercise():
+        entered.clear()
+        release.clear()
+        results = []
+        async def call():
+            results.append(await server._dispatch_in_worker("android_versions", {}, AccessPolicy()))
+        async with anyio.create_task_group() as group:
+            group.start_soon(call)
+            group.start_soon(call)
+            with anyio.fail_after(5):
+                while not entered.is_set():
+                    await anyio.sleep(0.001)
+            # The loop remains responsive while the first worker is blocked.
+            await anyio.sleep(0.02)
+            assert active == 1
+            release.set()
+        assert [r.model_dump() for r in results] == [expected, expected]
+
+    anyio.run(exercise)
+    anyio.run(exercise)
+    assert count == 4 and peak == 1
+
+
+@pytest.mark.parametrize("spelling", ["is_error", "isError"])
+def test_legacy_handler_raises_with_error_payload(spelling, monkeypatch):
+    from types import SimpleNamespace
+    from adapt_adb.mcp import server
+
+    class LegacyServer:
+        def __init__(self, name):
+            pass
+        def list_tools(self):
+            return lambda fn: fn
+        def call_tool(self):
+            def register(fn):
+                self.handler = fn
+                return fn
+            return register
+
+    _, types, _ = server._require_mcp_sdk()
+    monkeypatch.setattr(server, "_require_mcp_sdk", lambda: (anyio, types, SimpleNamespace(Server=LegacyServer)))
+    error = SimpleNamespace(content=[SimpleNamespace(text='{"error":"invalid_params"}')], **{spelling: True})
+    monkeypatch.setattr(server, "dispatch_tool_call", lambda *a, **k: error)
+    instance = server.create_server()
+    async def exercise():
+        with pytest.raises(server.LegacyToolCallError, match="invalid_params"):
+            await instance.handler("tap", {})
+        setattr(error, spelling, False)
+        assert await instance.handler("tap", {}) == error.content
+    anyio.run(exercise)
+
+
+def test_modern_handler_uses_worker_and_preserves_errors(monkeypatch):
+    from types import SimpleNamespace
+    from adapt_adb.mcp import server
+    import threading
+
+    class ModernServer:
+        def __init__(self, name, **kwargs):
+            self.handler = kwargs["on_call_tool"]
+    _, types, _ = server._require_mcp_sdk()
+    monkeypatch.setattr(server, "_require_mcp_sdk", lambda: (anyio, types, SimpleNamespace(Server=ModernServer)))
+    main_thread = threading.get_ident()
+    original = server.dispatch_tool_call
+    def checked(*a, **k):
+        assert threading.get_ident() != main_thread
+        return original(*a, **k)
+    monkeypatch.setattr(server, "dispatch_tool_call", checked)
+    instance = server.create_server()
+    async def exercise():
+        result = await instance.handler(None, SimpleNamespace(name="tap", arguments={}))
+        assert result.is_error
+        assert result.model_dump(by_alias=True)["isError"] is True
+    anyio.run(exercise)

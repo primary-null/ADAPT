@@ -55,7 +55,7 @@ ADAPT never rewrites a client's settings. Clients that only speak remote HTTPS c
 
 1. **The AI host** decides whether to start the server, which tools the model sees, and whether each call needs your approval.
 2. **ADAPT's session policy** (`--read-only`, `--device`) is enforced inside the server regardless of the client's UI.
-3. **Schema validation** rejects unknown arguments (`additionalProperties: false`), wrong types, enum values outside the list and numbers outside their `minimum`/`maximum` with `invalid_params`.
+3. **Schema validation** rejects unknown arguments (`additionalProperties: false`), wrong types, enum values outside the list, strings outside their `minLength`/`maxLength` and numbers outside their `minimum`/`maximum` with `invalid_params`.
 4. **The ADB guard** refuses `kill-server`, `sudo`, `uninstall`, `pm clear`, interactive `shell` and unbounded `logcat`, and a shared-server preflight refuses to talk to an unsafe port-5037 server (non-current-user or root owner, or a client/server version mismatch).
 5. **Android** still requires an authorized transport, an unlocked screen where the OS demands it, and the user's own device permissions.
 
@@ -72,7 +72,7 @@ With `--device`, the 17 device-bound tools advertise a **required** `device` par
 
 Without `--device`, `device` is optional on tools that accept it: if exactly one device is in state `device` it is used; with several, the call fails with `need_device` and lists the candidates; an unlisted or non-ready target returns `unknown_device` or `no_device`.
 
-`--device` values must be nonblank, free of control characters and surrounding whitespace, and must not begin with `-`; otherwise the command exits 2 without starting.
+`--device` values must be 1-128 characters, nonblank, free of control characters and surrounding whitespace, and must not begin with `-`; otherwise the command exits 2 without starting.
 
 ## Tool catalog
 
@@ -87,7 +87,7 @@ Without `--device`, `device` is optional on tools that accept it: if exactly one
 | `list_devices` | filtered | none | Transports from `adb devices -l`: device, state, model, product, transport. |
 | `device_info` | yes | `device` (optional) | Model, SDK, release, screen size/density, lock state (`locked`, `unlocked`, `unknown`). |
 | `screenshot` | yes | `device`, `max_dimension` (default 1024, max 1280), `quality` (default 80, 40-90) | `screencap -p` scaled to a JPEG image content item plus JSON metadata. May capture sensitive on-screen data. |
-| `ui_summary` | yes | `device` | Compact interactive/labeled UI nodes (cap 80) with bounds and centers; no raw XML. If direct dump fails it writes then removes a temporary `/sdcard/adapt-ui-*.xml` on the device. |
+| `ui_summary` | yes | `device` | Compact interactive/labeled UI nodes (cap 80) with bounds and centers; no raw XML. If direct dump fails, unrestricted sessions write then remove a temporary `/sdcard/adapt-ui-*.xml`; read-only sessions return `ui_summary_unavailable_read_only` without a file fallback. |
 | `logcat_tail` | yes | `device`, `lines` (default 100, 1-500), `tag`, `level` (`V D I W E F`) | `logcat -d -t N`, never streaming. |
 | `android_versions` | no | none | Offline Android 10-17 / API 29-37 matrix (9 rows, including 12L). |
 | `android_capabilities` | yes | `device` (required) | Version-dependent capability eligibility for one transport. |
@@ -114,13 +114,17 @@ Without `--device`, `device` is optional on tools that accept it: if exactly one
 
 Input tools have **no display targeting**: they act on the phone's default display, never on a DeX or virtual display. Gaps like this are listed in [known limitations](known-limitations.md).
 
+Successful device-text results carry `content_trust: "untrusted_device_data"` and a `content_notice` instructing clients to treat device/app text as data, never as instructions or authorization. Screenshot JSON metadata carries the same fields. Errors and offline/host guidance results do not carry them.
+
+Argument bounds are enforced before execution: coordinates 0-20000, swipe duration 1-10000 ms, typed text at most 2000 characters, APK paths 1-1024 characters, tags at most 64 characters, device identifiers 1-128 characters, and screenshot dimensions 256-1280. Other bounds are advertised in each tool's schema; strings without an explicit maximum default to 4096 characters. Out-of-range arguments return `invalid_params`.
+
 ## Errors
 
-A failed call returns `is_error` with `{"error": "...", "message": "...", "devices": []}`. Codes you may see: `unknown_tool`, `invalid_params`, `access_denied`, `no_adb`, `adb_probe_failed`, `unknown_device`, `no_device`, `need_device`, `adb_error`, `adb_timeout`, `adb_launch_failed`, `install_failed`, `logcat_failed`, `invalid_key`, `invalid_level`, `screenshot_failed`, `ui_summary_failed`, `development_inspection_failed`, `checks_failed`, `incomplete_evidence`, `internal_error`. Most messages are generic, but `adb_error`, `install_failed` and `logcat_failed` pass through adb's own error text.
+A failed call returns `is_error` with `{"error": "...", "message": "...", "devices": []}`. Codes you may see: `unknown_tool`, `invalid_params`, `access_denied`, `no_adb`, `adb_probe_failed`, `unknown_device`, `no_device`, `need_device`, `adb_error`, `adb_timeout`, `adb_launch_failed`, `install_failed`, `logcat_failed`, `invalid_key`, `invalid_level`, `screenshot_failed`, `ui_summary_failed`, `ui_summary_unavailable_read_only`, `development_inspection_failed`, `checks_failed`, `incomplete_evidence`, `internal_error`. Most messages are generic, but `adb_error`, `install_failed` and `logcat_failed` pass through bounded adb error text (2000 characters plus a truncation notice).
 
 ## What read-only does and does not mean
 
-`--read-only` removes the five input/install tools. It does **not** make observation private: `screenshot`, `ui_summary`, `logcat_tail`, `app_logs` and `diagnostic_logs` can expose personal data to the model and to the AI provider. The server runs with your user's permissions, so any file path you give `install_apk` is read as you. Use `--device` for every session that touches a phone, prefer a dedicated test device, and review client approval settings.
+`--read-only` removes the five input/install tools and never writes files to the device. If the direct `ui_summary` dump fails, it returns `ui_summary_unavailable_read_only`; the device-file fallback is disabled. Host temporary files used by `diagnostic_logs` are still allowed. It does **not** make observation private: `screenshot`, `ui_summary`, `logcat_tail`, `app_logs` and `diagnostic_logs` can expose personal data to the model and to the AI provider. The server runs with your user's permissions, so any file path you give `install_apk` is read as you. Use `--device` for every session that touches a phone, prefer a dedicated test device, and review client approval settings.
 
 ## Remote workers over SSH
 

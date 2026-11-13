@@ -23,6 +23,13 @@ _CONTAINER_CLASSES = {
     "android.view.View",
 }
 
+# Device output is UTF-8; decode it as such on every host (not the Windows locale codec).
+_TEXT_DECODE: dict[str, Any] = {"text": True, "encoding": "utf-8", "errors": "replace"}
+
+
+class UiDumpUnavailableError(RuntimeError):
+    """The direct UI dump failed and the on-device file fallback was not permitted."""
+
 
 def _parse_bounds(bounds_str: str) -> tuple[int, int, int, int] | None:
     match = _BOUNDS_RE.search(bounds_str or "")
@@ -42,7 +49,9 @@ def parse_ui_summary(xml_text: str, max_nodes: int = 80) -> dict[str, list[dict[
     """
     start_idx = xml_text.find("<hierarchy")
     end_idx = xml_text.rfind("</hierarchy>")
-    if start_idx != -1 and end_idx != -1:
+    if start_idx != -1 or end_idx != -1:
+        if start_idx == -1 or end_idx <= start_idx:
+            raise ValueError("uiautomator XML has an unterminated or out-of-order <hierarchy> element")
         xml_slice = xml_text[start_idx : end_idx + len("</hierarchy>")]
     else:
         xml_slice = xml_text.strip()
@@ -110,26 +119,37 @@ def capture_ui_summary(
     serial: str,
     max_nodes: int = 80,
     runner: Any = subprocess.run,
+    *,
+    allow_device_file: bool = True,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Dump UI hierarchy from device via `adb -s <serial>` and return compact JSON summary."""
+    """Dump UI hierarchy from device via `adb -s <serial>` and return compact JSON summary.
+
+    The direct `/dev/tty` dump writes nothing on the device. If it fails, the fallback
+    dumps to a temporary `/sdcard` file, reads it and removes it; with
+    `allow_device_file=False` that fallback is refused with `UiDumpUnavailableError`.
+    """
     if not serial:
         raise ValueError("Target device serial is required for ui_summary.")
 
     proc = runner(
         [str(adb_path), "-s", serial, "exec-out", "uiautomator", "dump", "/dev/tty"],
         capture_output=True,
-        text=True,
+        **_TEXT_DECODE,
         check=False,
         timeout=25,
     )
     xml_out = proc.stdout or ""
     if proc.returncode != 0 or "<hierarchy" not in xml_out:
+        if not allow_device_file:
+            raise UiDumpUnavailableError(
+                "Direct UI dump failed and the on-device file fallback is not permitted."
+            )
         remote_path = f"/sdcard/adapt-ui-{uuid.uuid4().hex}.xml"
         try:
             dump_proc = runner(
                 [str(adb_path), "-s", serial, "shell", "uiautomator", "dump", remote_path],
                 capture_output=True,
-                text=True,
+                **_TEXT_DECODE,
                 check=False,
                 timeout=25,
             )
@@ -138,7 +158,7 @@ def capture_ui_summary(
             cat_proc = runner(
                 [str(adb_path), "-s", serial, "exec-out", "cat", remote_path],
                 capture_output=True,
-                text=True,
+                **_TEXT_DECODE,
                 check=False,
                 timeout=15,
             )
@@ -150,7 +170,7 @@ def capture_ui_summary(
                 runner(
                     [str(adb_path), "-s", serial, "shell", "rm", "-f", remote_path],
                     capture_output=True,
-                    text=True,
+                    **_TEXT_DECODE,
                     check=False,
                     timeout=10,
                 )

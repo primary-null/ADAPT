@@ -27,8 +27,10 @@ def test_target_restriction_requires_explicit_exact_transport(monkeypatch):
     policy = AccessPolicy(allowed_devices=(allowed,))
     calls = []
     monkeypatch.setattr("adapt_adb.mcp.tools.tool_android_capabilities", lambda **k: calls.append(k) or {"ok": True})
-    for target in ("other", "", allowed + " "):
+    for target in ("other", allowed + " "):
         assert payload(dispatch_tool_call("android_capabilities", {"device": target}, policy=policy))["error"] == "access_denied"
+    # An empty target is now refused by the schema (minLength 1) before the policy check.
+    assert payload(dispatch_tool_call("android_capabilities", {"device": ""}, policy=policy))["error"] == "invalid_params"
     assert not calls
     assert payload(dispatch_tool_call("android_capabilities", {"device": allowed}, policy=policy))["ok"]
     assert calls == [{"device": allowed}]

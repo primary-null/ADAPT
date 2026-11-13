@@ -11,10 +11,19 @@ from functools import partial
 from typing import Any
 
 from adapt_adb.mcp import tools as mcp_tools
-from adapt_adb.mcp.access import AccessPolicy, DEVICE_TOOLS
+from adapt_adb.mcp.access import (
+    AccessPolicy,
+    CONTENT_NOTICE,
+    CONTENT_TRUST,
+    DEVICE_TEXT_TOOLS,
+    DEVICE_TOOLS,
+    mark_untrusted_device_text,
+)
 
 
 _TOOL_SCHEMAS = {item["name"]: item["inputSchema"] for item in mcp_tools.TOOL_SCHEMAS}
+# Per-event-loop limiter (an anyio RunVar), created on first tool call inside the loop.
+_DEVICE_CALL_LIMITER: Any = None
 
 
 def _matches_json_type(value: Any, expected: str) -> bool:
@@ -52,6 +61,11 @@ def _arguments_match_schema(name: str, arguments: Any) -> bool:
             return False
         if "enum" in prop and value not in prop["enum"]:
             return False
+        if isinstance(value, str):
+            if len(value) < prop.get("minLength", 0):
+                return False
+            if len(value) > prop.get("maxLength", mcp_tools.DEFAULT_MAX_STRING_LENGTH):
+                return False
         if "minimum" in prop and value < prop["minimum"]:
             return False
         if "maximum" in prop and value > prop["maximum"]:
@@ -64,7 +78,7 @@ def _arguments_match_schema(name: str, arguments: Any) -> bool:
 def _error_result(types: Any, error: str, message: str) -> Any:
     payload = {"error": error, "message": message, "devices": []}
     return types.CallToolResult(
-        content=[types.TextContent(type="text", text=json.dumps(payload))], is_error=True
+        content=[types.TextContent(type="text", text=json.dumps(payload))], isError=True
     )
 
 
@@ -165,8 +179,9 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
             if b64_jpeg is None:
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text=json.dumps(meta_or_err))],
-                    is_error=True,
+                    isError=True,
                 )
+            meta_or_err = {**meta_or_err, "content_trust": CONTENT_TRUST, "content_notice": CONTENT_NOTICE}
             return types.CallToolResult(
                 content=[
                     types.ImageContent(
@@ -179,10 +194,13 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
                         text=json.dumps(meta_or_err),
                     ),
                 ],
-                is_error=False,
+                isError=False,
             )
         elif name == "ui_summary":
-            payload = mcp_tools.tool_ui_summary(device=args.get("device"))
+            payload = mcp_tools.tool_ui_summary(
+                device=args.get("device"),
+                allow_device_file=not policy.read_only,
+            )
         elif name == "tap":
             if "x" not in args or "y" not in args:
                 payload = {
@@ -285,10 +303,54 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
 
     payload = policy.filter_result(payload)
     is_err = "error" in payload
+    if not is_err and name in DEVICE_TEXT_TOOLS:
+        payload = mark_untrusted_device_text(payload)
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload))],
-        is_error=is_err,
+        isError=is_err,
     )
+
+
+def _device_call_limiter() -> Any:
+    """Return this event loop's single-slot limiter that serializes device operations."""
+    global _DEVICE_CALL_LIMITER
+    import anyio
+    from anyio.lowlevel import RunVar
+
+    if _DEVICE_CALL_LIMITER is None:
+        _DEVICE_CALL_LIMITER = RunVar("adapt_mcp_device_call_limiter")
+    limiter = _DEVICE_CALL_LIMITER.get(None)
+    if limiter is None:
+        limiter = anyio.CapacityLimiter(1)
+        _DEVICE_CALL_LIMITER.set(limiter)
+    return limiter
+
+
+async def _dispatch_in_worker(name: str, arguments: Any, policy: AccessPolicy) -> Any:
+    """Run the synchronous dispatch in a worker thread so the event loop stays responsive.
+
+    One call runs at a time. A cancelled call still waits for its adb process to finish,
+    so the single slot is never released while a device operation is in flight.
+    """
+    from anyio import to_thread
+
+    return await to_thread.run_sync(
+        partial(dispatch_tool_call, name, arguments, policy=policy),
+        limiter=_device_call_limiter(),
+    )
+
+
+class LegacyToolCallError(Exception):
+    """Raised from the mcp 1.x decorator handler to make it return an error result."""
+
+
+def _result_is_error(result: Any) -> bool:
+    return bool(getattr(result, "is_error", False) or getattr(result, "isError", False))
+
+
+def _result_text(result: Any) -> str:
+    texts = [getattr(item, "text", "") for item in getattr(result, "content", []) or []]
+    return "\n".join(text for text in texts if text)
 
 
 def create_server(policy: AccessPolicy | None = None) -> Any:
@@ -303,7 +365,7 @@ def create_server(policy: AccessPolicy | None = None) -> Any:
     async def _on_call_tool(ctx: Any, params: Any) -> Any:
         tool_name = getattr(params, "name", "")
         tool_args = getattr(params, "arguments", None) or {}
-        return dispatch_tool_call(tool_name, tool_args, policy=policy)
+        return await _dispatch_in_worker(tool_name, tool_args, policy)
 
     try:
         server = mcp_server_mod.Server(
@@ -325,7 +387,11 @@ def create_server(policy: AccessPolicy | None = None) -> Any:
 
             @server.call_tool()
             async def _legacy_call_tool(name: str, arguments: dict[str, Any] | None) -> list[Any]:
-                res = dispatch_tool_call(name, arguments, policy=policy)
+                res = await _dispatch_in_worker(name, arguments, policy)
+                if _result_is_error(res):
+                    # The 1.x decorator turns a handler exception into a result with
+                    # isError=True whose text is str(exc); returning content would not.
+                    raise LegacyToolCallError(_result_text(res))
                 return list(res.content)
 
     return server

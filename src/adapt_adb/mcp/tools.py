@@ -12,13 +12,29 @@ from typing import Any
 
 import adapt_adb.adb as _adb_mod
 from adapt_adb.adb import AdbProbeError
+from adapt_adb.mcp.access import MAX_DEVICE_LENGTH
 from adapt_adb.render.screenshot import capture_screenshot_jpeg
-from adapt_adb.render.ui_summary import capture_ui_summary
+from adapt_adb.render.ui_summary import UiDumpUnavailableError, capture_ui_summary
 
 _ORIG_GET_CONNECTED_DEVICES = _adb_mod.get_connected_devices
 
 ALLOWED_KEYS = ("BACK", "HOME", "ENTER", "APP_SWITCH", "POWER", "DEL")
 ALLOWED_LOG_LEVELS = ("V", "D", "I", "W", "E", "F")
+
+# Argument bounds advertised in TOOL_SCHEMAS and enforced by the server's validator.
+MAX_COORDINATE = 20000
+DEFAULT_MAX_STRING_LENGTH = 4096
+# Cap for any error message or log line built from adb/device output.
+MAX_OUTPUT_TEXT_CHARS = 2000
+
+
+def _device_prop() -> dict[str, Any]:
+    return {"type": "string", "minLength": 1, "maxLength": MAX_DEVICE_LENGTH}
+
+
+def _coordinate_prop() -> dict[str, Any]:
+    return {"type": "integer", "minimum": 0, "maximum": MAX_COORDINATE}
+
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -51,7 +67,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
+                "device": _device_prop(),
             },
         },
     },
@@ -61,8 +77,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
-                "max_dimension": {"type": "integer", "default": 1024, "maximum": 1280},
+                "device": _device_prop(),
+                "max_dimension": {"type": "integer", "default": 1024, "minimum": 256, "maximum": 1280},
                 "quality": {"type": "integer", "default": 80, "minimum": 40, "maximum": 90},
             },
         },
@@ -73,7 +89,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
+                "device": _device_prop(),
             },
         },
     },
@@ -83,9 +99,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
-                "x": {"type": "integer"},
-                "y": {"type": "integer"},
+                "device": _device_prop(),
+                "x": _coordinate_prop(),
+                "y": _coordinate_prop(),
             },
             "required": ["x", "y"],
         },
@@ -96,12 +112,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
-                "x1": {"type": "integer"},
-                "y1": {"type": "integer"},
-                "x2": {"type": "integer"},
-                "y2": {"type": "integer"},
-                "duration_ms": {"type": "integer", "default": 300},
+                "device": _device_prop(),
+                "x1": _coordinate_prop(),
+                "y1": _coordinate_prop(),
+                "x2": _coordinate_prop(),
+                "y2": _coordinate_prop(),
+                "duration_ms": {"type": "integer", "default": 300, "minimum": 1, "maximum": 10000},
             },
             "required": ["x1", "y1", "x2", "y2"],
         },
@@ -112,7 +128,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
+                "device": _device_prop(),
                 "key": {
                     "type": "string",
                     "enum": list(ALLOWED_KEYS),
@@ -127,8 +143,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
-                "text": {"type": "string"},
+                "device": _device_prop(),
+                "text": {"type": "string", "maxLength": 2000},
             },
             "required": ["text"],
         },
@@ -139,8 +155,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
-                "apk": {"type": "string"},
+                "device": _device_prop(),
+                "apk": {"type": "string", "minLength": 1, "maxLength": 1024},
                 "reinstall": {"type": "boolean", "default": True},
                 "grant": {"type": "boolean", "default": False},
             },
@@ -153,9 +169,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": {"type": "string"},
+                "device": _device_prop(),
                 "lines": {"type": "integer", "default": 100, "minimum": 1, "maximum": 500},
-                "tag": {"type": "string"},
+                "tag": {"type": "string", "maxLength": 64},
                 "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)},
             },
         },
@@ -164,25 +180,25 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 
 TOOL_SCHEMAS.extend([
     {"name": "dex_inspect", "description": "Inspect Samsung DeX state and logical displays on one explicit target; never starts DeX or mirrors.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "dex_displays", "description": "Read existing logical display IDs without creating a virtual display or launching mirrors.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "android_versions", "description": "Read the offline Android 10-17 planning matrix; not a device certification.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "android_capabilities", "description": "Inspect version-dependent capabilities for one explicit transport without changing settings.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "developer_options_inspect", "description": "Read allowlisted Developer Options settings for one explicit target; no profile changes.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "tool_catalog", "description": "Read official tool acquisition guidance and PATH observations; never installs or executes discovered tools.",
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string", "enum": ["testing", "mirroring", "aosp-build", "lineage-build", "image-inspection", "remote-worker"]}}}},
     {"name": "app_validate", "description": "Check exact current-user package installation and optional version/debuggable expectations. Does not infer R8/signing or launch the app.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "package": {"type": "string"}, "expected_version_code": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807}, "expected_debuggable": {"type": "boolean"}}, "required": ["device", "package"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": {"type": "string", "minLength": 1, "maxLength": 255}, "expected_version_code": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807}, "expected_debuggable": {"type": "boolean"}}, "required": ["device", "package"]}},
     {"name": "app_logs", "description": "Read a finite app-UID logcat main/crash snapshot; no buffer clearing or file export. Empty logs do not prove no crash.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "package": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "buffer": {"type": "string", "enum": ["main", "crash", "main,crash"]}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "package"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": {"type": "string", "minLength": 1, "maxLength": 255}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "buffer": {"type": "string", "enum": ["main", "crash", "main,crash"]}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "package"]}},
     {"name": "debug_app_inspect", "description": "Read persisted debug-app/wait settings on an exact device; transient runtime selection and debugger attachment remain unverified.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}}, "required": ["device"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "diagnostic_logs", "description": "Read recent fixed-tag window/DeX/print system logs. May contain multiple apps/users or sensitive details. No verbose toggles, clearing, export or wider fallback; empty output is not a test pass.",
-     "inputSchema": {"type": "object", "properties": {"device": {"type": "string"}, "topic": {"type": "string", "enum": ["window", "dex", "print"]}, "minutes": {"type": "integer", "minimum": 1, "maximum": 10}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "topic"]}},
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "topic": {"type": "string", "enum": ["window", "dex", "print"]}, "minutes": {"type": "integer", "minimum": 1, "maximum": 10}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "topic"]}},
     {"name": "logging_guide", "description": "Offline Samsung/vendor/window/print logging guidance; distinguishes producer verbosity, logcat filters and app debugging. Changes nothing.",
      "inputSchema": {"type": "object", "properties": {"topic": {"type": "string", "enum": ["all", "samsung", "vendor", "window", "dex", "print", "wifi", "app"]}}}},
     {"name": "build_modes", "description": "Offline developer/AI guidance distinguishing debuggable, variants, R8, profiling, signing and production evidence.",
@@ -191,6 +207,11 @@ TOOL_SCHEMAS.extend([
 
 for _tool_schema in TOOL_SCHEMAS:
     _tool_schema["inputSchema"]["additionalProperties"] = False
+    for _prop in _tool_schema["inputSchema"]["properties"].values():
+        # Every string is length-bounded in the advertised schema, so what clients see
+        # is exactly what the server enforces.
+        if _prop.get("type") == "string":
+            _prop.setdefault("maxLength", DEFAULT_MAX_STRING_LENGTH)
 
 
 from adapt_adb.safety import ForbiddenArgv, validate_adb_args as _safety_validate_adb_args
@@ -213,7 +234,7 @@ def tool_android_capabilities(device: str) -> dict[str, Any]:
     try:
         return inspect_capabilities(device)
     except AndroidSupportError as exc:
-        return {"error": exc.kind, "message": str(exc), "devices": []}
+        return {"error": exc.kind, "message": truncate_text(exc), "devices": []}
 
 
 def tool_android_versions() -> dict[str, Any]:
@@ -245,7 +266,7 @@ def tool_development(name: str, **arguments: Any) -> dict[str, Any]:
     try:
         report = operations[name](**arguments)
     except (ValueError, dev_options.DevOptionsError) as exc:
-        return {"error": "development_inspection_failed", "message": str(exc), "devices": []}
+        return {"error": "development_inspection_failed", "message": truncate_text(exc), "devices": []}
     if report.get("status") in {"failed", "inconclusive", "partial"}:
         report = {**report, "error": "checks_failed" if report["status"] == "failed" else "incomplete_evidence"}
     return report
@@ -283,6 +304,46 @@ def resolve_adb() -> Path | None:
     return _adb_mod.resolve_adb()
 
 
+def truncate_text(text: Any, limit: int = MAX_OUTPUT_TEXT_CHARS, *, strip: bool = True) -> str:
+    """Return text capped at `limit` characters, marking any cut with an explicit suffix."""
+    value = str(text or "")
+    if strip:
+        value = value.strip()
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]} [truncated {len(value) - limit} chars]"
+
+
+def _adb_error_message(proc: subprocess.CompletedProcess[Any], fallback: str) -> str:
+    """Bounded error text from a failed adb process (stderr, else stdout, else fallback)."""
+    return truncate_text(proc.stderr or proc.stdout or fallback) or fallback
+
+
+def _guard_adb_command(adb_path: Path, command_args: list[str]) -> None:
+    """Apply the ADAPT argv guard and the port-5037 preflight before any adb spawn."""
+    validate_adb_args(command_args)
+    from adapt_adb.doctor import preflight_adb_server
+
+    preflight_adb_server(adb_path, command_args)
+
+
+def guarded_runner(adb_path: Path) -> Any:
+    """Return a `subprocess.run`-compatible runner that guards every adb argv it is given.
+
+    Used for render helpers that build their own adb argv, so they pass the same
+    safety check and shared-server preflight as `run_adb`.
+    """
+
+    def _run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        argv = [str(item) for item in argv]
+        if not argv or argv[0] != str(adb_path):
+            raise ForbiddenCommandError("Forbidden: runner only executes the resolved adb binary.")
+        _guard_adb_command(adb_path, argv[1:])
+        return subprocess.run(argv, **kwargs)
+
+    return _run
+
+
 def run_adb(
     adb_path: Path,
     args: list[str],
@@ -291,24 +352,22 @@ def run_adb(
     binary: bool = False,
     timeout: int = 20,
 ) -> subprocess.CompletedProcess[Any]:
-    """Run adb safely with optional `-s <serial>`, capturing output so stdout stays clean."""
-    prefix: list[str] = [str(adb_path)]
-    if serial is not None:
-        if not serial:
-            raise ValueError("Device serial must not be empty when targeting a device.")
-        prefix.extend(["-s", serial])
+    """Run adb safely with optional `-s <serial>`, capturing output so stdout stays clean.
+
+    Text output is decoded as UTF-8 (device text is UTF-8) with undecodable bytes replaced.
+    """
+    if serial is not None and not serial:
+        raise ValueError("Device serial must not be empty when targeting a device.")
     command_args = (["-s", serial] if serial is not None else []) + list(args)
     full_argv = [str(adb_path)] + command_args
-    validate_adb_args(command_args)
-    from adapt_adb.doctor import preflight_adb_server
-
-    preflight_adb_server(adb_path, command_args)
+    _guard_adb_command(adb_path, command_args)
+    decode: dict[str, Any] = {"text": False} if binary else {"text": True, "encoding": "utf-8", "errors": "replace"}
     return subprocess.run(
         full_argv,
         capture_output=True,
-        text=not binary,
         check=False,
         timeout=timeout,
+        **decode,
     )
 
 
@@ -702,16 +761,30 @@ def tool_device_info(device: str | None = None) -> dict[str, Any]:
         sdk = 0
     release = rel_prop.strip() or ""
 
-    width, height = 0, 0
-    size_match = re.search(r"(\d+)x(\d+)", wm_size)
-    if size_match:
-        width = int(size_match.group(1))
-        height = int(size_match.group(2))
+    # `wm` prints "Physical ..." and, when an override is active, "Override ...". The
+    # override is what input coordinates are mapped against, so it wins.
+    physical_size = _labelled_wm_value(wm_size, "Physical", "size", r"(\d+)x(\d+)")
+    override_size = _labelled_wm_value(wm_size, "Override", "size", r"(\d+)x(\d+)")
+    size_match = override_size or physical_size or re.search(r"(\d+)x(\d+)", wm_size)
+    width, height = (int(size_match.group(1)), int(size_match.group(2))) if size_match else (0, 0)
 
-    density = 0
-    dens_match = re.search(r"(\d+)", wm_density)
-    if dens_match:
-        density = int(dens_match.group(1))
+    physical_density = _labelled_wm_value(wm_density, "Physical", "density", r"(\d+)")
+    override_density = _labelled_wm_value(wm_density, "Override", "density", r"(\d+)")
+    dens_match = override_density or physical_density or re.search(r"(\d+)", wm_density)
+    density = int(dens_match.group(1)) if dens_match else 0
+
+    screen: dict[str, Any] = {
+        "width": width,
+        "height": height,
+        "density": density,
+    }
+    if override_size or override_density:
+        screen["override_active"] = True
+        screen["physical"] = {
+            "width": int(physical_size.group(1)) if physical_size else 0,
+            "height": int(physical_size.group(2)) if physical_size else 0,
+            "density": int(physical_density.group(1)) if physical_density else 0,
+        }
 
     lock = "unknown"
     if any(
@@ -738,13 +811,14 @@ def tool_device_info(device: str | None = None) -> dict[str, Any]:
         "model": model,
         "sdk": sdk,
         "release": release,
-        "screen": {
-            "width": width,
-            "height": height,
-            "density": density,
-        },
+        "screen": screen,
         "lock": lock,
     }
+
+
+def _labelled_wm_value(output: str, label: str, noun: str, value_pattern: str) -> re.Match[str] | None:
+    """Match one labelled `wm size`/`wm density` line such as `Override size: 720x1600`."""
+    return re.search(rf"^\s*{label}\s+{noun}\s*:\s*{value_pattern}", output, re.IGNORECASE | re.MULTILINE)
 
 
 def tool_screenshot(
@@ -774,7 +848,7 @@ def tool_screenshot(
             serial,
             max_dimension=max_dimension,
             quality=quality,
-            runner=subprocess.run,
+            runner=guarded_runner(adb_path),
         )
         return b64_jpeg, meta
     except Exception:
@@ -785,8 +859,12 @@ def tool_screenshot(
         }
 
 
-def tool_ui_summary(device: str | None = None) -> dict[str, Any]:
-    """Execute the `ui_summary` MCP tool."""
+def tool_ui_summary(device: str | None = None, *, allow_device_file: bool = True) -> dict[str, Any]:
+    """Execute the `ui_summary` MCP tool.
+
+    With `allow_device_file=False` (read-only sessions) the temporary-file fallback,
+    which writes and removes a file on the device, is never used.
+    """
     adb_path = resolve_adb()
     if adb_path is None:
         return {
@@ -800,7 +878,21 @@ def tool_ui_summary(device: str | None = None) -> dict[str, Any]:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
     try:
-        return capture_ui_summary(adb_path, serial, runner=subprocess.run)
+        return capture_ui_summary(
+            adb_path,
+            serial,
+            runner=guarded_runner(adb_path),
+            allow_device_file=allow_device_file,
+        )
+    except UiDumpUnavailableError:
+        return {
+            "error": "ui_summary_unavailable_read_only",
+            "message": (
+                "The direct UI dump failed, and the file-based fallback (which writes a "
+                "temporary file on the device) is disabled in read-only sessions."
+            ),
+            "devices": [],
+        }
     except Exception:
         return {
             "error": "ui_summary_failed",
@@ -828,7 +920,7 @@ def tool_tap(x: int, y: int, device: str | None = None) -> dict[str, Any]:
     if proc.returncode != 0:
         return {
             "error": "adb_error",
-            "message": (proc.stderr or proc.stdout or "tap failed").strip(),
+            "message": _adb_error_message(proc, "tap failed"),
             "devices": [],
         }
     return {"ok": True, "tapped": [ix, iy]}
@@ -869,7 +961,7 @@ def tool_swipe(
     if proc.returncode != 0:
         return {
             "error": "adb_error",
-            "message": (proc.stderr or proc.stdout or "swipe failed").strip(),
+            "message": _adb_error_message(proc, "swipe failed"),
             "devices": [],
         }
     return {"ok": True}
@@ -901,7 +993,7 @@ def tool_key(key: str, device: str | None = None) -> dict[str, Any]:
     if proc.returncode != 0:
         return {
             "error": "adb_error",
-            "message": (proc.stderr or proc.stdout or "keyevent failed").strip(),
+            "message": _adb_error_message(proc, "keyevent failed"),
             "devices": [],
         }
     return {"ok": True, "key": key_norm}
@@ -976,7 +1068,7 @@ def tool_install_apk(
     if proc.returncode != 0:
         return {
             "error": "install_failed",
-            "message": (proc.stderr or proc.stdout or "install failed").strip(),
+            "message": _adb_error_message(proc, "install failed"),
             "devices": [],
         }
     return {
@@ -1026,12 +1118,12 @@ def tool_logcat_tail(
     if proc.returncode != 0:
         return {
             "error": "logcat_failed",
-            "message": (proc.stderr or proc.stdout or "logcat failed").strip(),
+            "message": _adb_error_message(proc, "logcat failed"),
             "devices": [],
         }
 
     raw_lines = [
-        ln.rstrip("\r")
+        truncate_text(ln.rstrip("\r"), MAX_OUTPUT_TEXT_CHARS, strip=False)
         for ln in (proc.stdout or "").splitlines()
         if ln.strip() and not ln.startswith("--------- beginning of ")
     ]

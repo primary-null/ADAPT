@@ -557,3 +557,133 @@ def test_forbidden_commands_rejected():
             pass
         else:
             raise AssertionError(f"Expected ForbiddenCommandError for {bad_argv}")
+
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_ui_dispatch_read_only_fallback_commands(read_only, monkeypatch):
+    from adapt_adb.mcp.access import AccessPolicy
+    from adapt_adb.mcp import tools
+
+    monkeypatch.setattr(tools, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(tools, "resolve_target_device", lambda *a: ("A", None, []))
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
+        return subprocess.CompletedProcess(argv, 1 if argv[-1] == "/dev/tty" else 0,
+                                           SAMPLE_UI_XML if "cat" in argv else "", "")
+    monkeypatch.setattr(subprocess, "run", run)
+    result = dispatch_tool_call("ui_summary", {"device": "A"}, policy=AccessPolicy(read_only=read_only))
+    data = json.loads(result.content[0].text)
+    if read_only:
+        assert result.is_error
+        assert data["error"] == "ui_summary_unavailable_read_only"
+        assert len(calls) == 1
+        assert "content_trust" not in data
+    else:
+        assert not result.is_error and data["nodes"]
+        assert len(calls) == 4
+        assert calls[1][3:6] == ["shell", "uiautomator", "dump"]
+        assert calls[2][3:5] == ["exec-out", "cat"]
+        assert calls[3][3:6] == ["shell", "rm", "-f"]
+        assert calls[1][-1] == calls[2][-1] == calls[3][-1]
+
+
+@pytest.mark.parametrize("tool", ["ui_summary", "screenshot"])
+@pytest.mark.parametrize("gate", ["guard", "preflight"])
+def test_render_tools_refuse_before_spawn(tool, gate, monkeypatch):
+    from adapt_adb.mcp import tools
+    from adapt_adb.doctor import UnsafeAdbServerError
+
+    monkeypatch.setattr(tools, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(tools, "resolve_target_device", lambda *a: ("A", None, []))
+    seen = []
+    def refuse(*a):
+        seen.append(a)
+        if gate == "guard":
+            raise ForbiddenCommandError("refused")
+        raise UnsafeAdbServerError("refused")
+    if gate == "guard":
+        monkeypatch.setattr(tools, "validate_adb_args", refuse)
+        monkeypatch.setattr("adapt_adb.doctor.preflight_adb_server", lambda *a: pytest.fail("Preflight after guard refusal"))
+    else:
+        monkeypatch.setattr("adapt_adb.doctor.preflight_adb_server", refuse)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("Spawned despite refusal"))
+    result = dispatch_tool_call(tool, {"device": "A"})
+    assert result.is_error and len(seen) == 1
+    args = seen[0][-1]
+    assert args[:2] == ["-s", "A"]
+    assert args[2:] == (["exec-out", "uiautomator", "dump", "/dev/tty"] if tool == "ui_summary" else ["exec-out", "screencap", "-p"])
+
+
+def test_run_adb_utf8_and_binary_modes(monkeypatch):
+    from adapt_adb.mcp.tools import run_adb
+
+    def run(argv, **kwargs):
+        if kwargs["text"]:
+            assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
+            value = b"caf\xc3\xa9\xff".decode(kwargs["encoding"], kwargs["errors"])
+        else:
+            assert "encoding" not in kwargs and "errors" not in kwargs
+            value = b"\xff"
+        return subprocess.CompletedProcess(argv, 0, value, "")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert run_adb(Path("adb"), ["devices"]).stdout == "caf\u00e9\ufffd"
+    assert run_adb(Path("adb"), ["exec-out", "screencap", "-p"], binary=True).stdout == b"\xff"
+
+
+def test_screenshot_error_utf8_binary_capture():
+    from adapt_adb.render.screenshot import capture_screenshot_jpeg
+
+    def run(argv, **kwargs):
+        assert kwargs["text"] is False
+        return subprocess.CompletedProcess(argv, 1, b"", b"caf\xc3\xa9\xff")
+    with pytest.raises(RuntimeError, match="caf\u00e9\ufffd"):
+        capture_screenshot_jpeg(Path("adb"), "A", runner=run)
+
+
+@pytest.mark.parametrize("name,kwargs", [
+    ("tap", {"x": 1, "y": 2}), ("swipe", {"x1": 1, "y1": 2, "x2": 3, "y2": 4}),
+    ("key", {"key": "BACK"}), ("install_apk", {"apk": "app.apk"}), ("logcat_tail", {}),
+])
+@pytest.mark.parametrize("stream", ["stderr", "stdout"])
+def test_subprocess_errors_bounded(name, kwargs, stream, monkeypatch):
+    from adapt_adb.mcp import tools
+
+    monkeypatch.setattr(tools, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(tools, "resolve_target_device", lambda *a: ("A", None, []))
+    def run(*a, **k):
+        return subprocess.CompletedProcess([], 1, **{stream: " x" + "z" * 3000 + " ",
+                                                     "stdout" if stream == "stderr" else "stderr": ""})
+    monkeypatch.setattr(tools, "run_adb", run)
+    data = getattr(tools, "tool_" + name)(**kwargs)
+    assert data["message"] == "x" + "z" * 1999 + " [truncated 1001 chars]"
+
+
+def test_long_logcat_line_bounded(monkeypatch):
+    from adapt_adb.mcp import tools
+
+    monkeypatch.setattr(tools, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(tools, "resolve_target_device", lambda *a: ("A", None, []))
+    monkeypatch.setattr(tools, "run_adb", lambda *a, **k: subprocess.CompletedProcess([], 0, "z" * 3000 + "\nshort", ""))
+    assert tools.tool_logcat_tail()["lines"] == ["z" * 2000 + " [truncated 1000 chars]", "short"]
+
+
+@pytest.mark.parametrize("size,density,expected", [
+    ("Physical size: 1080x2400\nOverride size: 720x1600", "Physical density: 420\nOverride density: 300", (720, 1600, 300)),
+    ("Override size: 720x1600\nPhysical size: 1080x2400", "Override density: 300\nPhysical density: 420", (720, 1600, 300)),
+    ("Physical size: 1080x2400", "Physical density: 420", (1080, 2400, 420)),
+    ("720x1600", "300", (720, 1600, 300)),
+])
+def test_device_info_effective_override(size, density, expected, monkeypatch):
+    from adapt_adb.mcp import tools
+
+    monkeypatch.setattr(tools, "resolve_adb", lambda: Path("adb"))
+    monkeypatch.setattr(tools, "resolve_target_device", lambda *a: ("A", None, []))
+    def run(path, args, **kwargs):
+        value = size if args[-1] == "size" else density if args[-1] == "density" else "34"
+        return subprocess.CompletedProcess([], 0, value, "")
+    monkeypatch.setattr(tools, "run_adb", run)
+    screen = tools.tool_device_info()["screen"]
+    assert (screen["width"], screen["height"], screen["density"]) == expected

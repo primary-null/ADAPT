@@ -9,16 +9,21 @@ What it is not:
 - **Tools only.** MCP resources and prompts are not implemented.
 - **Not an Android permission grant.** It automates `adb` for the authorized transports your host already has.
 
-> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`). **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
+> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`, `tests/test_mcp_fixes.py`, `tests/test_mcp_failure.py`, `tests/test_mcp_status_hardening.py`). The only device sessions recorded are `--read-only --device` sessions of the released 0.1.1 code on 2026-11-14, from one Windows 11 PC, driven by a scripted client (no AI client was involved) against three Samsung devices: an Android 13 phone, an Android 17 phone and an Android 16 tablet. Each listed 18 tools; `list_devices`, `device_info` and `screenshot` returned results; `tap` was refused with `access_denied`. With 0.1.1, `list_devices` labelled the two wireless-debugging transports `usb`. This page describes the repository's unreleased development tree, which differs from 0.1.1: the explicit-device rule for the tools that act on the phone, the transport label read from the serial, the `failure` object and the error codes `unsafe_shared_server` and `adb_command_refused` have offline tests only. No tool that acts on the phone has been run against a device. **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
 
 ## Install and start
 
-From a checkout (Python 3.11+; there is no assumed PyPI package):
+Users install the published wheel with [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html) (Python 3.11+), adding the `mcp` extra. This is the form from the root [README](../README.md#download-and-install); ADAPT is not published to PyPI, so do not run `pipx install adapt-adb`:
 
 ```text
-python -m pip install -e ".[mcp]"
-adapt mcp --read-only
+pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.1/adapt_adb-0.1.1-py3-none-any.whl"
+pipx ensurepath
+adapt mcp --read-only --device SERIAL
 ```
+
+Contributors install from a checkout instead ([README](../README.md#install-from-a-checkout-contributors)): `python -m pip install -e ".[mcp]"`.
+
+The server announces itself to the client as `adapt` with the installed package version (`adapt_adb.__version__`), not a fixed number.
 
 The `mcp` extra installs `mcp>=1.0.0` and `Pillow>=10.0.0` (Pillow scales screenshots). Without it, `adapt mcp` prints an install hint on stderr and exits 2. The process waits for protocol messages on stdin; it prints no menu, banner, tips or progress to stdout, and its own logging goes to stderr.
 
@@ -39,7 +44,7 @@ Most clients accept a command and arguments. This is the shape, with the recomme
 
 - Replace `SERIAL` with the exact identifier from `adapt devices` (a USB serial, or a wireless `host:port`). Repeat `"--device", "..."` to allow several.
 - If the client cannot find `adapt` on its `PATH`, set `command` to the absolute path of the `adapt` executable in your environment (for example `<venv>/bin/adapt`, or `<venv>\\Scripts\\adapt.exe` on Windows).
-- Codex-style registration, matching its documented stdio form: `codex mcp add adapt -- adapt mcp --read-only`, or in its config file:
+- Codex-style registration, matching its documented stdio form: `codex mcp add adapt -- adapt mcp --read-only --device SERIAL`, or in its config file:
 
 ```toml
 [mcp_servers.adapt]
@@ -47,14 +52,14 @@ command = "adapt"
 args = ["mcp", "--read-only", "--device", "SERIAL"]
 ```
 
-The shipped examples start in `--read-only` mode. Add `--device SERIAL` with your exact transport before connecting a client to a phone.
+The shipped examples start in `--read-only` mode and already contain `--device SERIAL`; `SERIAL` is a placeholder to replace with your exact transport before connecting a client to a phone. Omitting `--device` is allowed ([below](#session-policy)): read-only tools then use the only ready device, and tools that act on the phone refuse to run without a named `device`.
 
 ADAPT never rewrites a client's settings. Clients that only speak remote HTTPS connectors cannot launch a stdio server; ADAPT provides no HTTP bridge.
 
 ## Layers of control
 
 1. **The AI host** decides whether to start the server, which tools the model sees, and whether each call needs your approval.
-2. **ADAPT's session policy** (`--read-only`, `--device`) is enforced inside the server regardless of the client's UI.
+2. **ADAPT's session policy** (`--read-only`, `--device`) is enforced inside the server regardless of the client's UI. Tools that act on the phone also never choose a device for you ([explicit device](#explicit-device-for-tools-that-act-on-the-phone)).
 3. **Schema validation** rejects unknown arguments (`additionalProperties: false`), wrong types, enum values outside the list, strings outside their `minLength`/`maxLength` and numbers outside their `minimum`/`maximum` with `invalid_params`.
 4. **The ADB guard** refuses `kill-server`, `sudo`, `uninstall`, `pm clear`, interactive `shell` and unbounded `logcat`, and a shared-server preflight refuses to talk to an unsafe port-5037 server (non-current-user or root owner, or a client/server version mismatch).
 5. **Android** still requires an authorized transport, an unlocked screen where the OS demands it, and the user's own device permissions.
@@ -68,9 +73,23 @@ ADAPT never rewrites a client's settings. Clients that only speak remote HTTPS c
 | `adapt mcp --device A` | 23: `doctor` is removed because it describes the whole host, not one transport |
 | `adapt mcp --read-only --device A` | **18** read-only tools |
 
-With `--device`, the 17 device-bound tools advertise a **required** `device` parameter restricted by an `enum` of your allowed targets, and a call naming any other target returns `access_denied`. `list_devices` results are filtered to the allowed targets. Host-level tools without a device parameter (`setup_status`, `android_versions`, `tool_catalog`, `logging_guide`, `build_modes`) stay available because they observe no device.
+With `--device`, the 17 device-bound tools advertise a **required** `device` parameter restricted by an `enum` of your allowed targets, and a call naming any other target returns `access_denied`. The one exception is a session started with exactly one `--device` target: there the five tools that act on the phone advertise `device` as optional (still restricted to that one target) and use it when a call omits it, because the operator chose it explicitly when starting the server. `list_devices` results are filtered to the allowed targets. Host-level tools without a device parameter (`setup_status`, `android_versions`, `tool_catalog`, `logging_guide`, `build_modes`) stay available because they observe no device.
 
-Without `--device`, `device` is optional on tools that accept it: if exactly one device is in state `device` it is used; with several, the call fails with `need_device` and lists the candidates; an unlisted or non-ready target returns `unknown_device` or `no_device`.
+Without `--device`, `device` is optional on the tools that only read (`device_info`, `screenshot`, `ui_summary`, `logcat_tail`): if exactly one device is in state `device` it is used; with several, the call fails with `need_device` and lists the candidates; an unlisted or non-ready target returns `unknown_device` or `no_device`. The tools that act on the phone do not have this convenience.
+
+### Explicit device for tools that act on the phone
+
+`tap`, `swipe`, `key`, `type` and `install_apk` change or act on the phone, so their target is always explicit. These five are exactly the tools that `--read-only` hides.
+
+| How the call arrives | Result |
+|---|---|
+| `device` given | Runs against that device, as before (in a `--device` session it must be an allowed target, otherwise `access_denied`). |
+| `device` omitted, session started with exactly one `--device` target | Runs against that target. |
+| `device` omitted in any other session (no `--device`, or several `--device` targets) | `need_device`. Nothing runs, even if only one phone is connected. |
+
+The `need_device` error uses the usual payload, including the `devices` candidate list (filtered to the allowed targets in a `--device` session), and its message says that the tool requires an explicit `device` and that it is supplied with the `device` argument or by starting the server with `--device SERIAL`. Only the read-only device listing runs. A blank `device` counts as omitted. Its `failure` object has `retry: "with_changed_arguments"` and an `argument_hint` that names the `devices[].device` values.
+
+Clients see the rule in the advertised schema: for these five tools `device` is listed under `required` (not in a one-device `--device` session) and the tool description says that ADAPT never picks a device for it.
 
 `--device` values must be 1-128 characters, nonblank, free of control characters and surrounding whitespace, and must not begin with `-`; otherwise the command exits 2 without starting.
 
@@ -82,9 +101,9 @@ Without `--device`, `device` is optional on tools that accept it: if exactly one
 
 | Tool | Device | Arguments | Returns / behavior |
 |---|---|---|---|
-| `doctor` | no | none | Adb path/version, whether it is ADAPT-managed, daemon state (`ok`, `version_mismatch`, `root_owned`, `missing_adb`), OS driver/udev hint, compact device list. Hidden when `--device` is used. |
-| `setup_status` | no | none | Whether a usable Platform-Tools is installed, whether setup would download or edit PATH. Changes nothing. |
-| `list_devices` | filtered | none | Transports from `adb devices -l`: device, state, model, product, transport. |
+| `doctor` | no | none | Adb path/version, whether it is ADAPT-managed, `daemon` (`ok`, `version_mismatch`, `root_owned`, `foreign_owner`, `unverified`, `missing_adb`), `daemon_reason`, OS driver/udev hint, compact device list. `daemon_reason` is a short ADAPT-written explanation when the shared server on port 5037 is unsafe or its version differs from adb's (`version_mismatch`, `root_owned`, `foreign_owner`, `unverified`) and `null` for `ok` and `missing_adb`. In an unsafe state no device listing is attempted and `devices` is empty. Hidden when `--device` is used. |
+| `setup_status` | no | none | Keys: `installed` (a usable adb that meets the minimum version 34.0.0; an unparseable or older version is not usable), `adb_path`, `distribution_package`, `would_download`, `would_path`, `os_hints`. `distribution_package` is `true` when the adb is the Linux distribution's package (`/usr/bin/adb`, `/bin/adb` or under `/usr/lib/android-sdk`): such an adb that meets the minimum is `installed: true`, but its origin is the distribution package and not verified Google Platform-Tools. `would_download` is `false` only for a usable adb whose directory is on `PATH`. Changes nothing. |
+| `list_devices` | filtered | none | Transports from `adb devices -l`: device, state, model, product, transport. `transport` is read from the serial's form: `tcp` for a host:port endpoint or a wireless-debugging service name, `local` for an emulator, otherwise `usb`. |
 | `device_info` | yes | `device` (optional) | Model, SDK, release, screen size/density, lock state (`locked`, `unlocked`, `unknown`). |
 | `screenshot` | yes | `device`, `max_dimension` (default 1024, max 1280), `quality` (default 80, 40-90) | `screencap -p` scaled to a JPEG image content item plus JSON metadata. May capture sensitive on-screen data. |
 | `ui_summary` | yes | `device` | Compact interactive/labeled UI nodes (cap 80) with bounds and centers; no raw XML. If direct dump fails, unrestricted sessions write then remove a temporary `/sdcard/adapt-ui-*.xml`; read-only sessions return `ui_summary_unavailable_read_only` without a file fallback. |
@@ -104,13 +123,15 @@ Without `--device`, `device` is optional on tools that accept it: if exactly one
 
 ### Mutating tools
 
+Every mutating tool also takes `device`, which must be named (omitted only in a one-device `--device` session; see [explicit device](#explicit-device-for-tools-that-act-on-the-phone)).
+
 | Tool | Arguments | Effect |
 |---|---|---|
-| `tap` | `x`, `y` (integers; required) | `input tap` on the **default display**. |
-| `swipe` | `x1`, `y1`, `x2`, `y2` (required); `duration_ms` (default 300) | `input swipe` on the default display. |
-| `key` | `key`: `BACK`, `HOME`, `ENTER`, `APP_SWITCH`, `POWER`, `DEL` | `input keyevent KEYCODE_<KEY>`. |
-| `type` | `text` (single line, no control characters) | `input text` with space escaping. |
-| `install_apk` | `apk` (required, a path on the host); `reinstall` (default true, `-r`); `grant` (default false, `-g`) | `adb install`, 120 s timeout. `grant` grants all runtime permissions. |
+| `tap` | `device`; `x`, `y` (integers; required) | `input tap` on the **default display**. |
+| `swipe` | `device`; `x1`, `y1`, `x2`, `y2` (required); `duration_ms` (default 300) | `input swipe` on the default display. |
+| `key` | `device`; `key`: `BACK`, `HOME`, `ENTER`, `APP_SWITCH`, `POWER`, `DEL` | `input keyevent KEYCODE_<KEY>`. |
+| `type` | `device`; `text` (single line, no control characters) | `input text` with space escaping. |
+| `install_apk` | `device`; `apk` (required, a path on the host); `reinstall` (default true, `-r`); `grant` (default false, `-g`) | `adb install`, 120 s timeout. `grant` grants all runtime permissions. |
 
 Input tools have **no display targeting**: they act on the phone's default display, never on a DeX or virtual display. Gaps like this are listed in [known limitations](known-limitations.md).
 
@@ -120,7 +141,31 @@ Argument bounds are enforced before execution: coordinates 0-20000, swipe durati
 
 ## Errors
 
-A failed call returns `is_error` with `{"error": "...", "message": "...", "devices": []}`. Codes you may see: `unknown_tool`, `invalid_params`, `access_denied`, `no_adb`, `adb_probe_failed`, `unknown_device`, `no_device`, `need_device`, `adb_error`, `adb_timeout`, `adb_launch_failed`, `install_failed`, `logcat_failed`, `invalid_key`, `invalid_level`, `screenshot_failed`, `ui_summary_failed`, `ui_summary_unavailable_read_only`, `development_inspection_failed`, `checks_failed`, `incomplete_evidence`, `internal_error`. Most messages are generic, but `adb_error`, `install_failed` and `logcat_failed` pass through bounded adb error text (2000 characters plus a truncation notice).
+A failed call returns `is_error` with `{"error": "...", "message": "...", "devices": []}`. Codes you may see: `unknown_tool`, `invalid_params`, `access_denied`, `no_adb`, `adb_probe_failed`, `unknown_device`, `no_device`, `need_device`, `unsafe_shared_server`, `adb_command_refused`, `adb_error`, `adb_timeout`, `adb_launch_failed`, `install_failed`, `logcat_failed`, `invalid_key`, `invalid_level`, `screenshot_failed`, `ui_summary_failed`, `ui_summary_unavailable_read_only`, `development_inspection_failed`, `checks_failed`, `incomplete_evidence`, `internal_error`. Most messages are generic, but `adb_error`, `install_failed` and `logcat_failed` pass through bounded adb error text (2000 characters plus a truncation notice).
+
+`unsafe_shared_server` means the shared ADB server on port 5037 could not be verified as safe (another account owns it, another program or adb build started it, its version differs, the listener could not be inspected, or a non-default server endpoint is selected). The server fails closed and does not contact that server; the message is `Shared ADB server on port 5037 is unverified or unsafe; ADAPT did not contact it.` Earlier versions reported this case as `internal_error`.
+
+`adb_command_refused` means ADAPT's safety guard refused an adb command that a tool was about to run (for example `kill-server`, `sudo`, `uninstall`, `pm clear`, an interactive `shell`, an unbounded `logcat` or a shell command line it cannot inspect). The command was refused before it ran, so it was not sent to the device. The message is fixed text (`ADAPT's safety rules refused an adb command before it ran; it was not sent to the device.`): it never contains the refused arguments or any device text. Retrying the same call cannot succeed. Earlier versions reported this case as `internal_error` (or, for `screenshot` and `ui_summary`, as `screenshot_failed` and `ui_summary_failed`). Other cases that used to end as `internal_error` and now have their own codes: a failed `adb devices` inside `doctor` is `adb_probe_failed`, and an unsafe shared server inside `screenshot` or `ui_summary` is `unsafe_shared_server`. `internal_error` remains the last resort for an unexpected failure; its message is fixed and carries no exception text.
+
+`need_device` has two meanings: several ready devices and no target chosen (read-only tools), or a tool that acts on the phone called without `device` ([explicit device](#explicit-device-for-tools-that-act-on-the-phone)), which is refused even with one ready device.
+
+Every error result also carries an additive `failure` object that an agent can act on. Success results are unchanged.
+
+```json
+{"error": "no_device", "message": "...", "devices": [{"device": "...", "model": "...", "state": "unauthorized"}],
+ "failure": {"schema": 1, "id": "device.unauthorized", "summary": "...", "certainty": "observed",
+             "causes": ["..."], "recommendations": [{"text": "...", "command": null, "effect": "on_phone", "mcp_tool": null}],
+             "user_action_required": true, "ask_user": "Please unlock the phone and accept the \"Allow USB debugging?\" prompt.",
+             "next_tool": {"name": "list_devices", "arguments": {}}, "retry": "after_user_action", "argument_hint": null}}
+```
+
+- `id` is a stable failure ID; `adapt explain ID` shows the same guide to a person. For `no_device`, the states already in `devices` refine it to `device.unauthorized`, `device.offline`, `device.no_permissions` or `device.not_ready`.
+- `next_tool` is only ever a tool this session exposes (for example `doctor` is replaced by `setup_status` under `--device`), or `null`. `mcp_tool` in a recommendation follows the same rule.
+- `retry` is `safe_now`, `with_changed_arguments` (see `argument_hint`), `after_user_action` (relay `ask_user` to the person first) or `not_useful` (policy refusals such as `access_denied`).
+- `ask_user` and all other guidance text are static; they never contain device-originated text, serials or paths.
+- `dex_inspect`, `dex_displays`, `android_capabilities` and `developer_options_inspect` report the error kind of the underlying command as `error` (for example `device_unreachable`, `timeout`, `denied`); their `failure.id` names the specific situation (for example `device.unreachable`, `adb.timeout`, `device.command_denied`, or the `adb.server.*` guide behind `unsafe_adb_server`).
+- `app_validate`, `app_logs`, `debug_app_inspect` and `diagnostic_logs` keep `development_inspection_failed`, `checks_failed` and `incomplete_evidence`; their `failure.id` names the situation, for example `device.unanswered` when the phone did not answer (not a user-detection problem), `logs.app_not_installed`, `app.validation_failed` or `debug.inspect_partial`.
+- Codes without a specific guide yet carry `internal.unclassified`.
 
 ## What read-only does and does not mean
 

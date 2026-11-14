@@ -1,8 +1,8 @@
 {
   "counts": {
     "functional_areas": 19,
-    "visible_cli_entries": 77,
-    "visible_leaf_commands": 64,
+    "visible_cli_entries": 82,
+    "visible_leaf_commands": 69,
     "visible_groups_including_root": 13,
     "hidden_aliases": 2,
     "mcp_tools": 24,
@@ -14,12 +14,21 @@
     "manual_catalog_entries": 14,
     "developer_profiles": 4,
     "inspected_settings": 13,
-    "authored_help_topics": 59,
+    "authored_help_topics": 64,
     "configured_api_baselines": 9,
     "physical_phones_with_saved_evidence": 2,
-    "python_tests": 909,
-    "python_test_files": 32,
-    "native_tests": 20
+    "python_tests": 917,
+    "python_test_files": 33,
+    "native_tests": 119,
+    "failure_guides": 278
+  },
+  "counts_basis": "Counts describe this repository's development tree (unreleased changes, uncommitted on the distribution/public-release branch when counted) on 2026-11-14, except python_tests and python_test_files, which are the 0.1.1 pytest collection counts (commit 45b2a0a) because the development-tree count was still changing; on 2026-11-14 the development tree collected 2034 tests in 59 modules (a collection count, not a run). native_tests counts #[test] functions in native/windows-receiver/src. failure_guides counts the guides adapt explain --list shows (GUIDES in failure_guide.py, including 33 native receiver reason codes); 0.1.1 has none. physical_phones_with_saved_evidence counts the two phones of the pre-release record; the 2026-11-14 record (0.1.1 smoke passes and native receiver sessions, one Windows 11 PC) adds an Android 16 tablet and does not say whether its Android 13 and Android 17 phones are the same units. No count is a pass rate. counts_0_1_1 holds the 0.1.1 values of the counts that differ.",
+  "counts_0_1_1": {
+    "visible_cli_entries": 77,
+    "visible_leaf_commands": 64,
+    "authored_help_topics": 59,
+    "native_tests": 20,
+    "failure_guides": 0
   },
   "functional_areas": [
     {
@@ -29,7 +38,7 @@
       "capability": "Official Google Platform-Tools acquisition, digest verification, safe extraction, version gate, and user-scope setup.",
       "maturity": "Offline-tested",
       "evidence": "Tested offline across mock/fixture scenarios in tests/test_setup_download.py.",
-      "boundary": "Fresh installer acceptance is not established on both host OSes; repository checksum fallback is documented.",
+      "boundary": "Fresh installer acceptance is not established on both host OSes; repository checksum fallback is documented. On Linux, setup needs an x86-64 host. Without --yes outside a terminal, setup stops before changing anything. Development tree: setup refuses on macOS, registers its own earlier install on PATH without downloading again, and exits non-zero when aborted or failed.",
       "mapped_cli_commands": [
         "adapt setup"
       ],
@@ -47,8 +56,8 @@
       "entry": "adapt doctor",
       "capability": "Toolchain detection, port 5037 shared-daemon safety check, USB driver/udev permission checks, and interactive Next action menu.",
       "maturity": "Live / partial",
-      "evidence": "Windows host observations and offline diagnostics in tests/test_doctor.py.",
-      "boundary": "Device Manager opens for manual driver work on Windows; does not install OEM drivers automatically. On Linux provides udev commands.",
+      "evidence": "Windows 11 host observations on pre-release builds, and doctor --json with 0.1.1 on a Windows 11 host on 2026-11-14; offline diagnostics in tests/test_doctor.py. The Linux path is offline-tested only, and the development tree's doctor changes are offline-tested only.",
+      "boundary": "Device Manager opens for manual driver work on Windows; does not install OEM drivers automatically. On Linux provides udev commands. 0.1.1 treats every Linux host as Debian and reads the udev rules file from a source checkout only. Development tree: Debian-family, other Linux and macOS (unsupported) are told apart, the rules file ships in the wheel, a distribution-packaged adb at or above 34.0.0 is a warning, and running as root or Administrator prints a warning.",
       "mapped_cli_commands": [
         "adapt doctor"
       ],
@@ -67,8 +76,8 @@
       "entry": "adapt adb; adapt pair; adapt connect; adapt devices",
       "capability": "Exact transport targeting (-s), daemon preflight, bounded wireless pairing/connection with port separation, and guarded shell execution.",
       "maturity": "Live / partial",
-      "evidence": "Bounded USB/Wi-Fi and routed ADB observations; see docs/validation.md. Raw device receipts are not published.",
-      "boundary": "Pairing alone is not a connected transport. Android 11+ requires separate pairing and connection ports. Android 10 requires legacy USB-first workflow.",
+      "evidence": "Bounded USB/Wi-Fi and routed ADB observations on pre-release builds; with 0.1.1 on 2026-11-14, one USB and two wireless-debugging transports; see docs/validation.md. Raw device receipts are not published.",
+      "boundary": "Pairing alone is not a connected transport. Android 11+ requires separate pairing and connection ports. Android 10 requires legacy USB-first workflow. Without a named target, adapt adb uses the only ready device.",
       "mapped_cli_commands": [
         "adapt adb",
         "adapt pair",
@@ -107,13 +116,14 @@
     {
       "id": "05",
       "area": "Help and contextual tips",
-      "entry": "adapt help-me; adapt tips; adapt guide",
-      "capability": "Full command inventory, 59 authored help topics with generic examples, contextual guidance tips, and saved user tip preferences.",
+      "entry": "adapt help-me; adapt explain; adapt tips; adapt guide",
+      "capability": "Full command inventory, 64 authored help topics with generic examples, contextual guidance tips, saved user tip preferences, and (development tree) failure guidance: a Why/Try/More block after errors, a failure object in JSON and MCP errors, and offline lookup with adapt explain.",
       "maturity": "Offline-tested",
-      "evidence": "100% offline verification across tests/test_help_system.py, tests/test_hints.py, and tests/test_cli_help.py.",
-      "boundary": "Tips are automatically silenced when stdout is not a TTY or when --json is passed to keep machine output clean.",
+      "evidence": "Offline-tested in tests/test_help_system.py, tests/test_hints.py, tests/test_cli_help.py, tests/test_failure_guide.py, tests/test_failure_report.py and tests/test_failure_cli.py.",
+      "boundary": "Tips are automatically silenced when stdout is not a TTY or when --json is passed to keep machine output clean. Failure guidance runs nothing. Errors and refused or failed results get a specific guide where ADAPT tagged them and the generic internal.unclassified guide otherwise; the dex receiver-* commands are the exception (their refusals carry no guidance, and receiver-status explains a receiver reason code in its own last_failure block). Failure guidance has offline tests only and has not been seen on a real failure.",
       "mapped_cli_commands": [
         "adapt help-me",
+        "adapt explain",
         "adapt tips",
         "adapt guide"
       ],
@@ -153,7 +163,7 @@
       "capability": "Pinned acquisition of scrcpy v5.0.1, SHA-256 archive validation, zip-slip / tar-bomb protections, and install receipt tracking.",
       "maturity": "Offline-tested",
       "evidence": "Unit and integration testing of archive extraction and hash verification in tests/test_scrcpy_install.py.",
-      "boundary": "Fresh real upstream archive download is tested offline; native Debian packaging is handled via OS package manager.",
+      "boundary": "Archive extraction and hash verification are tested offline against fixtures; no download of the real upstream archive is recorded, and native Debian validation is outstanding (docs/scrcpy.md).",
       "mapped_cli_commands": [
         "adapt tools install"
       ],
@@ -187,7 +197,7 @@
       "entry": "adapt android versions/capabilities",
       "capability": "Mapping 9 API baselines (API 29-37, Android 10-17 including 12L) to supported features (USB, wireless pairing, Wi-Fi 2.0, legacy TCP, DeX).",
       "maturity": "Live / partial",
-      "evidence": "Physical phone verification on Fold3 (API 33) and S25 (API 37); remaining API levels covered by offline matrix fixtures.",
+      "evidence": "Physical phone verification on the Android 13 (API 33) and Android 17 (API 37) phones on pre-release builds; android capabilities with 0.1.1 on an API 33 phone, an API 37 phone and an API 36 tablet on 2026-11-14; remaining API levels covered by offline matrix fixtures.",
       "boundary": "API level reports OS eligibility, not hardware/OEM certification. Presence of an API does not guarantee OEM feature support.",
       "mapped_cli_commands": [
         "adapt android versions",
@@ -208,7 +218,7 @@
       "entry": "adapt detect scan/inspect",
       "capability": "Passive observation of ADB and fastboot endpoints, SU candidates, custom ROM properties (Lineage, crDroid), and bootloader lock state.",
       "maturity": "Offline-tested",
-      "evidence": "Tested across various property dumps and mock outputs in tests/test_device_state.py.",
+      "evidence": "Tested across various property dumps and mock outputs in tests/test_device_state.py. detect inspect read values with 0.1.1 on three Samsung devices on 2026-11-14.",
       "boundary": "Zero transitions: no reboot, flashing, or unlocking. Absence of SU binary does not prove a device is stock unrooted. Samsung Download mode is not fastboot.",
       "mapped_cli_commands": [
         "adapt detect scan",
@@ -226,8 +236,8 @@
       "entry": "adapt dev-options apply/inspect/restore",
       "capability": "13 inspected settings across Global, System, and Secure tables; 4 profiles (fast-ui, touches, desktop-testing, stay-awake) with conflict-aware snapshots.",
       "maturity": "Live / partial",
-      "evidence": "Live stay-awake inspection on Fold3/S25; snapshot creation, atomic write, and rollback tested in tests/test_dev_options.py.",
-      "boundary": "Mutates only allowlisted keys. Restores only if current device value matches snapshot target or original; flags external conflicts.",
+      "evidence": "Live stay-awake inspection on the API 33 and API 37 phones on pre-release builds; with 0.1.1 on 2026-11-14, one touches apply and restore on an API 33 phone read back as expected; snapshot creation, atomic write, and rollback tested in tests/test_dev_options.py.",
+      "boundary": "Mutates only allowlisted keys. Restores only if current device value matches snapshot target or original; flags external conflicts. Only one apply and restore cycle that changed a value is recorded (touches, API 33); other profiles, rollback and conflicts are offline-tested only.",
       "mapped_cli_commands": [
         "adapt dev-options apply",
         "adapt dev-options inspect",
@@ -273,7 +283,7 @@
       "entry": "adapt logs capture/diagnostic/guide",
       "capability": "Bounded app-UID logcat extraction (main/crash buffers), fixed-tag system diagnostics (window, dex, print), and vendor logging documentation.",
       "maturity": "Live / partial",
-      "evidence": "Live DeX system-log capture on Fold3; log capture and tag filtering tested in tests/test_diagnostics.py.",
+      "evidence": "Live DeX system-log capture on the API 33 phone on pre-release builds; log capture and tag filtering tested in tests/test_diagnostics.py.",
       "boundary": "Read-only bounded extraction (max 500 lines). Never runs logcat -c. Logs may contain private data. Empty logcat is not proof of no crash.",
       "mapped_cli_commands": [
         "adapt logs capture",
@@ -298,7 +308,7 @@
       "entry": "adapt desktop enable/inspect/plan/start",
       "capability": "Inspect secondary display eligibility, apply recoverable desktop/freeform options, and launch apps in isolated virtual displays via scrcpy.",
       "maturity": "Offline-tested",
-      "evidence": "Virtual display planning, parameter validation, and scrcpy command construction tested in tests/test_desktop.py.",
+      "evidence": "Virtual display planning, parameter validation, and scrcpy command construction tested in tests/test_desktop.py. desktop inspect read values with 0.1.1 on three Samsung devices on 2026-11-14.",
       "boundary": "Virtual displays test Android multi-window app behavior; they do not prove Samsung DeX or desktop window manager decorations.",
       "mapped_cli_commands": [
         "adapt desktop enable",
@@ -317,10 +327,10 @@
       "id": "15",
       "area": "Samsung DeX and PC bridge",
       "entry": "adapt dex",
-      "capability": "Logical display discovery, dual-mirroring with scrcpy, temporary Java bridge probe, and experimental PC receiver session lifecycle supervision.",
+      "capability": "Logical display discovery, dual-mirroring with scrcpy, temporary Java bridge probe, experimental PC receiver session lifecycle supervision, and (development tree) start, status and stop of a user-built native receiver.",
       "maturity": "Live prototype",
-      "evidence": "Live dual-mirroring, display inspection, and native Windows receiver prototype verified on physical Fold3; 1 controlled reconnect passed.",
-      "boundary": "Native receiver is experimental source, manually built and outside the Python package. Display targeting requires fresh runtime evidence; no display ID is fixed.",
+      "evidence": "Live dual-mirroring, display inspection, and native Windows receiver prototype (an earlier source revision) verified on the Android 13 (API 33) phone on pre-release builds; 1 controlled reconnect passed. On 2026-11-14, all on one Windows 11 PC with one Wi-Fi adapter and admission restricted by device name: the 0.1.1 receiver source held one session of about four minutes with an Android 13 phone; the development-tree receiver with audio on held a session of about 90 seconds with an Android 13 phone, one of about 48 minutes with an Android 17 phone (One UI 9) and a short one with an Android 16 tablet (One UI 8); on the Android 17 phone the owner confirmed real mouse and keyboard input and audible sound and judged the audio quality great (one listener, one session). The receiver-* commands were run against the real receiver without a phone, and receiver-status and receiver-stop with the Android 17 phone and the Android 16 tablet streaming. Development-tree dex inspect confirmed DeX from display flags on the Android 17 phone and the Android 16 tablet, one wireless session each; dex plan-dual-mirror produced a plan on the phone but nothing was launched.",
+      "boundary": "Native receiver is experimental source, manually built and outside the Python package. Display targeting requires fresh runtime evidence; no display ID is fixed. ADAPT activation was denied by firmware on the one phone tried and has not been observed succeeding. The receiver admits any phone by default; the optional name and peer ID restrictions are not authentication. With 0.1.1, dex inspect recognises DeX state only from the desktopmode service and reports unknown on One UI 8 and 9, which have no such service. The development tree also parses one Android 13 firmware's form (offline-tested only) and, only when the service is absent, confirms DeX from display flags; wired and standalone DeX, and scrcpy capturing a flag-confirmed display, are not observed. dex pc-probe was refused on One UI 9 during a wireless DeX session. Real input and audible sound on the receiver were confirmed on one phone only; reconnects on the current source, open admission with a device connecting, failure reason codes, a release build and sessions over about 48 minutes are not observed.",
       "mapped_cli_commands": [
         "adapt dex inspect",
         "adapt dex list-displays",
@@ -333,7 +343,11 @@
         "adapt dex pc-start",
         "adapt dex pc-status",
         "adapt dex pc-stop",
-        "adapt dex plan-dual-mirror"
+        "adapt dex plan-dual-mirror",
+        "adapt dex receiver-plan",
+        "adapt dex receiver-start",
+        "adapt dex receiver-status",
+        "adapt dex receiver-stop"
       ],
       "mapped_mcp_tools": [
         "dex_inspect",
@@ -354,7 +368,7 @@
       "capability": "Explicit remote worker inspection, strict OpenSSH option enforcement (BatchMode, strict host checking), and MCP-over-SSH configuration output.",
       "maturity": "Offline-tested",
       "evidence": "Command line generation, PowerShell encoding, and strict option validation tested in tests/test_ssh_worker.py.",
-      "boundary": "Architecture guidance for hypervisors (Proxmox, VMware, Hyper-V, VirtualBox, XCP-ng); no hypervisor API adapters or live SSH acceptance.",
+      "boundary": "Architecture guidance for hypervisors (Proxmox, VMware, Hyper-V, VirtualBox, XCP-ng); no hypervisor API adapters or live SSH acceptance. Development tree: failure reports carry a fixed reason code and hint.",
       "mapped_cli_commands": [
         "adapt ssh mcp-config",
         "adapt ssh plan",
@@ -375,8 +389,8 @@
       "entry": "adapt tailscale",
       "capability": "13 leaf operations for peer discovery, TCP port probing, pairing/connecting over tailnet, guarded remote ADB commands, and worker integration.",
       "maturity": "Live / partial",
-      "evidence": "Local peer status parsing, pairing verification on S25, and mock suite in tests/test_tailscale_mode.py.",
-      "boundary": "An online peer does not prove an active ADB listener. On the tested Samsung firmware service.adb.tls.port was empty, creating a verification gap for the strict TLS check.",
+      "evidence": "Local peer status parsing, pairing verification on the API 37 phone, and mock suite in tests/test_tailscale_mode.py.",
+      "boundary": "An online peer does not prove an active ADB listener. On the tested Samsung firmware service.adb.tls.port was empty, creating a verification gap for the strict TLS check. No complete direct Tailscale run exists; a private routed VPN path that carried ADB commands is not Tailscale evidence.",
       "mapped_cli_commands": [
         "adapt tailscale adb",
         "adapt tailscale check",
@@ -427,8 +441,8 @@
       "entry": "adapt mcp",
       "capability": "Local stdio Model Context Protocol (MCP) server offering 24 tools (19 read-only, 5 mutating) with exact transport filtering and bounded outputs.",
       "maturity": "Offline-tested",
-      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py.",
-      "boundary": "No live external AI client registration or live MCP-over-SSH exercised. DeX MCP input currently lacks explicit display targeting (assumes phone display).",
+      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py. With 0.1.1 on 2026-11-14, read-only --device sessions driven by a scripted client against three Samsung devices listed 18 tools, returned list_devices, device_info and screenshot, and refused tap; list_devices labelled the two wireless-debugging transports usb. No AI client was involved.",
+      "boundary": "No live external AI client registration or live MCP-over-SSH exercised, and no tool that acts on the phone recorded against a real device. DeX MCP input currently lacks explicit display targeting (assumes phone display). Development tree: the five tools that act on the phone require an explicit device unless the server was started with exactly one --device; read-only tools use the only ready device when none is named; list_devices reads the transport label from the serial (tcp, local or usb); error results carry a failure object, with new error codes adb_command_refused and unsafe_shared_server. These development-tree changes have offline tests only. In 0.1.1 the five tools that act on the phone also use the only ready device.",
       "mapped_cli_commands": [
         "adapt mcp"
       ],

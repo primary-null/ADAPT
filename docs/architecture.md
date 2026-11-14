@@ -4,7 +4,7 @@ ADAPT is a single Python package (`adapt_adb`, command `adapt`) that wraps Googl
 
 ## Design rules
 
-1. **Explicit target.** Device commands take an exact transport identifier. Nothing picks "the" phone for you, except the single-ready-device convenience in `adapt adb` and the unrestricted MCP session.
+1. **Explicit target.** Device commands take an exact transport identifier. Nothing picks "the" phone for you, except the single-ready-device convenience in `adapt adb` and in the read-only MCP tools of a session started without `--device`. In the development tree (unreleased) the MCP tools that act on the phone never pick one: a call names `device`, or the session was started with exactly one `--device`. In 0.1.1 those tools also use the only ready device.
 2. **Observe, then plan, then act.** Inspection commands change nothing; `plan` commands are offline; mutating commands need `--yes` (or an interactive confirmation) and say what they touch. The raw `adapt adb` and `adapt tailscale adb` passthroughs are the exception: they apply the argv safety guard and the port-5037 preflight, then run the command you typed without a confirmation prompt or a recovery snapshot.
 3. **Recoverable writes.** Anything that edits device settings first writes an identity-bound recovery snapshot, reads values back, and restores only what it still owns.
 4. **Shared-daemon safety.** Port 5037 is shared with IDEs and other agents. ADAPT never runs `adb kill-server`, never uses `sudo adb`, and refuses to talk to a server that is root-owned, owned by someone else, on a non-default endpoint, or version-mismatched.
@@ -16,7 +16,7 @@ ADAPT is a single Python package (`adapt_adb`, command `adapt`) that wraps Googl
 ADAPT/
 |-- src/adapt_adb/                  Python package (wheel)
 |   |-- cli.py                      Typer root: setup, doctor, devices, adb, pair, connect,
-|   |                               everything, mcp, tips, help-me, guide, console
+|   |                               everything, mcp, tips, help-me, explain, guide, console
 |   |-- adb.py                      adb discovery, Platform-Tools download/verify/extract
 |   |-- doctor.py                   host checks, 5037 preflight, setup workflow, PATH edits
 |   |-- safety.py                   adb argv guard (kill-server, sudo, uninstall, shell, logcat)
@@ -27,29 +27,35 @@ ADAPT/
 |   |-- device_state.py             detect scan/inspect (adb + fastboot, no transitions)
 |   |-- desktop.py                  generic virtual-display app testing (scrcpy --new-display)
 |   |-- dex.py, dex_pc.py           Samsung DeX inspection, dual mirror, experimental pc-*
+|   |-- dex_receiver.py             dex receiver-*: start/read/stop a user-built native receiver
 |   |-- ssh_worker.py               strict OpenSSH worker plans, runs, MCP config
 |   |-- tailscale_mode.py           tailnet peer selection, pair/connect/check, workers
 |   |-- tool_catalog.py             16-tool catalog, 6 goals, host assessment, plans
 |   |-- scrcpy_install.py           pinned, verified user-scope scrcpy installer
 |   |-- everything.py               batch of the implemented setup/check steps
 |   |-- rapid.py                    Rapid ADAPT plan generator
-|   |-- help_system.py, hints.py,   59 help topics, tips, udev/driver hints, guide topics
+|   |-- help_system.py, hints.py,   64 help topics, tips, udev/driver hints, guide topics
 |   |   insights.py
+|   |-- failure_guide.py,           failure guide registry (data only; 278 guides, including the
+|   |   failure_report.py           receiver's reason codes) and its runtime: classify, context,
+|   |                               Why/Try/More, JSON/MCP `failure`
 |   |-- banner.py, console.py,      stderr banner, home screen (9 screens), progress dots
 |   |   terminal_ui.py, progress.py
 |   |-- render/                     screenshot scaling, UI-hierarchy summary
 |   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy)
+|   |-- data/51-android.rules       Linux udev rules shipped in the wheel (copy of packaging/linux)
 |   `-- resources/dex_bridge/       AdaptDexBridge.java, locally built JAR, build.json
-|-- tests/                          32 offline test modules (mocked adb/ssh/tailscale)
+|-- tests/                          offline test modules (mocked adb/ssh/tailscale)
 |-- scripts/                        build_dex_bridge.py, build_icon.py, build_public_overview.py,
-|                                   build_showcase.py, install_windows_wireless_display.ps1
+|                                   build_receiver.ps1, build_showcase.py, check_distribution.py,
+|                                   install_windows_wireless_display.ps1
 |-- packaging/                      Linux udev rules + notes, Windows driver notes
 |-- examples/                       MCP client config samples
 |-- native/windows-receiver/        Rust wireless-DeX receiver SOURCE (not in the wheel)
 `-- docs/                           this documentation
 ```
 
-The Python wheel contains `src/adapt_adb` and the `dex_bridge` resources only. `native/`, `scripts/`, `packaging/` and `examples/` live in the repository, so features that read them (the Linux udev rules for `doctor`'s menu) need a **checkout**.
+The Python wheel contains `src/adapt_adb`, the `dex_bridge` resources and, in the development tree, `data/51-android.rules`. `native/`, `scripts/`, `packaging/` and `examples/` live in the repository only. With 0.1.1, whose wheel lacks the rules file, `doctor`'s udev menu choice needs a **checkout**; the native receiver always has to be built from a checkout.
 
 ## 1. Local CLI, MCP and device
 
@@ -60,7 +66,7 @@ The Python wheel contains `src/adapt_adb` and the `dex_bridge` resources only. `
         v                                        v
  +--------------+                      +-----------------------+
  |  adapt  CLI  |                      |      adapt mcp        |
- | 64 commands  |                      | 24 tools, policy:     |
+ | 69 commands  |                      | 24 tools, policy:     |
  +------+-------+                      | --read-only, --device |
         |                              +-----------+-----------+
         |   typed workflow modules                 |
@@ -106,7 +112,7 @@ Human-only decoration (banner, `HOW TO` tips, the `adapting...` indicator) goes 
      v  PATH: Windows HKCU user Path / Linux ~/.profile block   (skip with --no-path)
 ```
 
-`adapt everything` composes exactly these two paths plus read-only checks; the other 14 catalog tools are guidance only.
+`adapt everything` composes exactly these two paths plus read-only checks; the other 14 catalog tools are guidance only. In the development tree, `adapt setup` refuses before the preflight on an unsupported host (macOS), and when its own install folder already holds a healthy `adb` that is not on `PATH` it registers that folder on `PATH` instead of downloading again.
 
 ## 3. Wireless and routed ADB
 
@@ -212,9 +218,9 @@ SSH carries the command, not USB. The worker needs ADAPT, its own safe ADB serve
 | A. `desktop` | A second, app-scoped display and control window | Samsung DeX, desktop shell proof |
 | B. `dex mirror` | Phone and DeX windows via scrcpy | Activation of DeX; works only when DeX is already active |
 | C. `dex pc-*` | Trial activation with owned cleanup | A guarantee: loopback may be denied; overlay is not DeX |
-| D2. native receiver | PC-side wireless-display sink for DeX (manual) | Cryptographic phone identity, Wi-Fi Direct on every radio, a Python integration |
+| D2. native receiver | PC-side wireless-display sink for DeX (manual build); in the development tree, start, status and stop through `adapt dex receiver-*` | Cryptographic phone identity, Wi-Fi Direct on every radio, a build, download or bundle by ADAPT |
 
-The native receiver is **not** launched by `adapt dex pc-start` and is not in the wheel. See [native/windows-receiver](../native/windows-receiver/README.md) and [DeX for PC](dex-pc.md).
+The native receiver is **not** launched by `adapt dex pc-start` and is not in the wheel. In the development tree, `adapt dex receiver-start --exe PATH --yes` starts a copy you built, `receiver-status` reads the `status.json` it writes, and `receiver-stop --yes` asks it to stop through a `stop.request` file; none of these contacts the phone. See [native/windows-receiver](../native/windows-receiver/README.md) and [DeX for PC](dex-pc.md).
 
 ## State, files and recovery
 

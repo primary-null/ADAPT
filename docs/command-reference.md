@@ -1,6 +1,8 @@
 # Command reference
 
-Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **64 visible leaf commands in 13 groups** (the root plus 12 subcommand groups: 77 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
+Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **69 visible leaf commands in 13 groups** (the root plus 12 subcommand groups: 82 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
+
+This reference describes this repository's development tree, which contains unreleased changes. The 0.1.1 download has 64 visible leaf commands: it lacks `adapt explain` and the four `adapt dex receiver-*` commands, and it differs in the behaviour noted *(development tree)* below.
 
 Conventions: `SERIAL` is an exact ADB transport identifier; placeholders in capitals are yours to supply; example addresses use the RFC 5737 documentation range. Examples are syntax-checked against the source command tree and are **not** a claim that the workflow succeeded on any device. `--json` output is one JSON document on stdout; ADAPT writes banners, tips and progress to stderr and silences them for `--json`, MCP and non-interactive output.
 
@@ -30,10 +32,14 @@ Placed before the command: `adapt --no-banner doctor`.
 | `ADAPT_TAILSCALE` | Explicit Tailscale client for `tailscale` commands. |
 | `ADAPT_NO_BANNER`, `ADAPT_BANNER`, `ADAPT_NO_PROGRESS`, `ADAPT_TIPS` | Presentation switches described above. |
 | `ADAPT_CONFIG_DIR` | Directory holding `preferences.json`. |
+| `ADAPT_FAILURE_GUIDANCE` | `full`, `short` or `off`: how much failure guidance a human sees on stderr (see [help](help.md#failure-guidance)). |
+| `ADAPT_DEBUG` | `1` shows the Python traceback for an unexpected internal error instead of the generic report. |
 
 ## Exit codes
 
 There is no single table: each family reports its own codes, listed under the command. In general `0` is success, `1` a failure or refusal inside a typed workflow, `2` a refused request or partial/inconclusive evidence, and `3` an unsafe shared ADB server (`doctor`, `setup`, `everything`, `devices`, `adb`, `pair`, `connect`). Always read the report's `status` and `claim_boundary`/`note` fields rather than relying on an exit code alone.
+
+*(development tree)* Failure guidance never changes an exit code or an existing key. Under `--json`, error payloads and reports that are refused, failed, partial or inconclusive gain an additive `failure` object whose `id` can be looked up with `adapt explain ID`; every `doctor` check carries `failure_id` (`null` when it passed or was skipped). The `dex receiver-*` commands are the exception: their refusals carry no `failure` object, and `receiver-status` explains a receiver reason code in its own `last_failure` block. See [help](help.md#failure-guidance).
 
 ## Hidden aliases
 
@@ -105,14 +111,37 @@ Learn workflows or explore everything this installed ADAPT can do.
 | `all_commands` | `--all` | flag | no | off | Show every registered command and option. |
 | `json_output` | `--json` | flag | no | off | Emit the guide as JSON. |
 
-- 59 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note.
-- `--all` lists every registered command and option of the installed build. An unknown topic exits 2.
+- 64 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
+- `--all` lists every registered command and option of the installed build. A failure ID (for example `adb.not_found`) shows the same guide as `adapt explain`. An unknown topic exits 2.
 
 ```text
 adapt help-me
 adapt help-me wireless
 adapt help-me "dev-options apply"
 adapt help-me --all --json
+```
+
+### `adapt explain`
+
+Explain a failure: what happened, possible causes and what to try next. Runs nothing.
+
+**Effects.** Offline. Reads the built-in failure guide registry only; no device, network or file access.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `query` | `QUERY...` (argument) | text, repeatable | no |  | A failure ID (`device.unauthorized`), a keyword (`5037`), or pasted error text. |
+| `list_all` | `--list` | flag | no | off | List every known failure ID with a one-line summary. |
+| `json_output` | `--json` | flag | no | off | Emit the explanation or list as JSON. |
+
+- No query, or `--list`, lists every ID grouped by area. One match shows the full guide (all causes, all steps with platform labels, setup variations, help topic and docs path); several matches are listed.
+- No match exits 2 (`{"error": "unknown_failure", "message": ...}` with `--json`). stderr stays empty for `--json`.
+- Failing commands print `More: adapt explain ID` so the ID can be looked up later.
+
+```text
+adapt explain --list
+adapt explain device.unauthorized
+adapt explain "failed to authenticate"
+adapt explain adb.server.unverified --json
 ```
 
 ### `adapt tips`
@@ -146,7 +175,8 @@ Locate adb, inspect port 5037 safety, OS prerequisites, and device states.
 | `json_output` | `--json` | flag | no | off | Emit machine-checkable JSON diagnostic report on stdout. |
 | `fix` | `--fix` | flag | no | off | Print safe remediation commands only (never kills server, runs sudo, or wipes adbkey). |
 
-- Checks: `adb_path`, `adb_version` (>= 34.0.0), `adb_origin`, `path_config`, `adb_server_5037`, Windows PnP driver state or Debian udev/plugdev, `android_home`, `devices_state`.
+- Checks: `adb_path`, `adb_version` (>= 34.0.0), `adb_origin`, `path_config`, `adb_server_5037`, Windows PnP driver state or Linux udev/plugdev, `android_home`, `devices_state`.
+- *(development tree)* `host.os` is `windows`, `debian` (Debian family, from `/etc/os-release`), `linux` (other Linux, with distribution-neutral advice) or `macos` (reported as unsupported). The toolchain checks report the `adb` that ADAPT's commands use and say when it is not on `PATH`. A distribution-packaged `adb` at or above 34.0.0 is a `warn`. On Linux, every listener on port 5037 in `/proc/net/tcp` and `/proc/net/tcp6` is checked. On Windows, a driver problem only on USB devices not confirmed as Android is a `warn`. Running as root or in an elevated Administrator session prints a warning in human output. The udev advice names the installed path of the `51-android.rules` file that ships in the wheel. Details: [doctor](doctor.md).
 - Exit codes by precedence: **3** unsafe shared ADB server (not current-user-owned, root/system-owned, or version differs from the client), **1** missing/outdated toolchain, **2** device unauthorized/offline or missing USB permissions, **0** ok.
 - `--fix` prints remediation commands only; it never kills the server, runs sudo or deletes the adb key.
 - In an interactive terminal without `--json`, a `Next action` menu follows. Choosing `setup`, `udev` (which runs the sudo commands for the udev rules) or `wireless` performs that action; quit with `q`.
@@ -189,10 +219,10 @@ Download and configure official Google platform-tools in user scope.
 | `sha256` | `--sha256` | text | no |  | Expected SHA-256 of the archive. A mismatch always fails. Without it ADAPT looks up Google's repository metadata digest (SHA-256, or SHA-1 fallback) and refuses to continue if none is found. |
 
 - Targets: Windows `%LOCALAPPDATA%\Android\platform-tools`; Linux `~/.local/share/android/platform-tools`; `--isolated` uses `~/.android/platform-tools` on both.
-- Order: port 5037 preflight (aborts with exit 3 on an unsafe server) -> noop if a healthy adb (>= 34.0.0) is already usable and `--force` is absent -> `--dry-run` report -> confirm (a prompt on interactive terminals; non-interactive runs stop here unless `--yes` is given) -> download, digest check, safe zip extraction (path traversal and size limits), staged adb version check, atomic swap -> PATH update.
+- Order: *(development tree)* refuse on an unsupported host (macOS, `unsupported_platform`) -> port 5037 preflight (aborts with exit 3 on an unsafe server) -> noop if a healthy adb (>= 34.0.0) is already first on `PATH` and `--force` is absent -> *(development tree)* if setup's own install folder already holds a healthy adb that is not on `PATH`, add that folder to `PATH` after confirmation without downloading (`path_registered`; `noop_already_installed` with `--no-path`) -> Linux architecture check (`unsupported_architecture` unless x86-64) -> `--dry-run` report -> confirm (a prompt on interactive terminals; non-interactive runs stop here unless `--yes` is given) -> download, digest check, safe zip extraction (path traversal and size limits), staged adb version check, atomic swap -> PATH update.
 - The archive digest is mandatory: explicit `--sha256`, else Google's repository metadata. A mismatch always fails.
 - PATH update: Windows user `Path` (HKCU); Linux a managed block appended to `~/.profile`. Skipped by `--no-path`.
-- Exit codes follow `doctor` (0/1/2/3); an exception exits 1. It installs no USB drivers and no system packages.
+- Exit codes follow `doctor` (0/1/2/3); an exception exits 1. *(development tree)* When setup did not do what was asked (aborted, failed, or refused for the platform or architecture), a healthy pre-check's exit 0 becomes 1; in 0.1.1 an aborted setup keeps the pre-check's code. It installs no USB drivers and no system packages.
 
 ```text
 adapt setup --dry-run
@@ -211,8 +241,8 @@ Start the ADAPT stdio MCP server.
 | `read_only` | `--read-only` | flag | no | off | Expose inspection tools and deny interaction/install calls. |
 | `device` | `--device` | text, repeatable | no |  | Restrict the session to this exact transport; repeat to allow several. Blank, whitespace-padded, control-character or `-`-prefixed values exit 2. |
 
-- Requires the `mcp` extra (`pip install -e ".[mcp]"`); without it the command prints an install hint and exits 2.
-- `--read-only` exposes the 19 observation tools; `--device` pins exact targets and requires `device` on all 17 device-bound tools. See [MCP access](mcp-access.md).
+- Requires the `mcp` extra (`adapt-adb[mcp]`; from a checkout, `pip install -e ".[mcp]"`); without it the command prints an install hint and exits 2.
+- `--read-only` exposes the 19 observation tools; `--device` pins exact targets and requires `device` on the 17 device-bound tools, except that a session started with exactly one `--device` lets the five tools that act on the phone omit it. *(development tree)* Without `--device`, the tools that act on the phone (`tap`, `swipe`, `key`, `type`, `install_apk`) still need `device` and never pick one; in 0.1.1 they use the only ready device. Error results carry a `failure` object. See [MCP access](mcp-access.md).
 - Never prints a banner, tips or progress to stdout; logging goes to stderr. Do not run it expecting an interactive prompt.
 
 ```text
@@ -478,7 +508,7 @@ adapt android versions --json
 
 ## `adapt dex`
 
-Samsung DeX display inspection, dual mirroring and the experimental `pc-*` workflow. 12 commands.
+Samsung DeX display inspection, dual mirroring and the experimental `pc-*` workflow and the native receiver's `receiver-*` commands. 16 commands.
 
 ### `adapt dex inspect`
 
@@ -555,6 +585,86 @@ adapt dex mirror -s SERIAL --dex-display DISPLAY_ID --yes
 adapt dex mirror -s SERIAL --dex-display DISPLAY_ID --view-only --yes
 ```
 
+### `adapt dex receiver-plan`
+
+Explain both PC receiver routes, including the experimental native one; runs nothing.
+
+**Effects.** Offline; runs and checks nothing on this PC.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
+
+- Compares Microsoft's Wireless Display feature (`pc-receiver-plan`) with ADAPT's own native receiver. For the native one it lists the prerequisites (Windows x64, a Wi-Fi adapter with Wi-Fi Direct support, the pinned Rust toolchain, TCP 7236 free), the build command and output path, the security posture (open admission by default; optional name/ID restrictions are not authentication; it listens on TCP 7236), the data directory and the follow-up commands. Whether any prerequisite holds on this PC is not observed.
+
+```text
+adapt dex receiver-plan --json
+```
+
+### `adapt dex receiver-status`
+
+Read the native receiver's own status file and say what state it is in; read-only.
+
+**Effects.** Reads `status.json` in the receiver's data directory and lists `dexdesk.exe` processes (image name and PID only). Writes nothing; never reads the receiver's log.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `data_dir` | `--data-dir` | path | no | `ADAPT_DEX_DATA_DIR`, else `%LOCALAPPDATA%\DeXDesk` | The receiver's data directory. The default is shown symbolically, not expanded. |
+| `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
+
+- Reports `state`: `not_running`, `starting`, `ready`, `connecting`, `streaming`, `stopping`, `not_working`, `stale`, `unverified` or `unreadable`. A file whose process is gone, or not updated for 10 seconds while its process is alive, is stale. The last failure's reason code is explained with possible causes and ordered next steps; the receiver's message text is withheld. When a phone is streaming the next steps are `pc-probe` and `pc-attach`.
+- Exit codes: `0` a normal state, `1` unreadable status or a refusal, `2` `not_working`, `stale` or `unverified`. JSON keys: `schema_version`, `status` (`observed` or `refused`), `state`, `summary`, `data_dir`, `data_dir_source`, `status_file`, `process`, `stale`, `observed`, `stages`, `last_failure`, `last_session_end`, `warnings`, `next_steps`, `claim_boundary`.
+- Reports what the receiver recorded; an advertising receiver is not a working desktop and a decoded frame does not certify input, audio or Samsung DeX.
+
+```text
+adapt dex receiver-status
+adapt dex receiver-status --data-dir DIRECTORY --json
+```
+
+### `adapt dex receiver-start`
+
+Start a user-built dexdesk.exe detached and wait for it to advertise; advertises this PC over Wi-Fi Direct.
+
+**Effects.** Starts one detached `dexdesk.exe` process that advertises this PC over Wi-Fi Direct and listens on TCP 7236 on every IPv4 interface. Creates no firewall rule and writes no file of its own.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `exe` | `--exe` | path | yes |  | An existing file named `dexdesk.exe` that you built. Never searched for, downloaded or bundled. |
+| `data_dir` | `--data-dir` | path | no | `ADAPT_DEX_DATA_DIR`, else `%LOCALAPPDATA%\DeXDesk` | Passed to the receiver as `ADAPT_DEX_DATA_DIR`; must be absolute after resolution. |
+| `expect_name` | `--expect-name` | text | no |  | Admit only a phone with exactly this friendly name (at most 256 bytes, no control characters). Passed as `ADAPT_DEX_EXPECTED_NAME`, never on the command line. Not authentication. |
+| `expect_id` | `--expect-id` | text | no |  | Admit only the phone with exactly this Windows peer ID (at most 1024 bytes). Passed as `ADAPT_DEX_EXPECTED_ID`. Not authentication. |
+| `audio` | `--audio` | flag | no | off | Experimental audio: sets `ADAPT_DEX_AUDIO=1`. Audible, correct sound is not established. |
+| `yes` | `--yes` | flag | no | off | Required: starting advertises this PC and opens TCP 7236. |
+| `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
+
+- Refuses outside Windows, without `--yes`, for a missing or wrongly named file, for an unusable restriction value, while any `dexdesk.exe` process runs (single instance) and when TCP 7236 cannot be bound, and says which. Returns once the receiver's `status.json` (for the process it started) shows it advertising, within 30 seconds. The report says open admission is in effect when no restriction was given; values are never printed back.
+- Exit codes: `0` advertising observed (or already connecting or streaming), `1` refused, failed or exited (the recorded reason code is explained), `2` `start_pending` (no status in time; the process is left alone). Start-up errors the receiver reports only on stderr or in a message box are not captured.
+
+```text
+adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes
+adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --expect-name PHONE_NAME --audio --yes --json
+```
+
+### `adapt dex receiver-stop`
+
+Ask the native receiver to stop through its stop.request file; never ends a process by ID.
+
+**Effects.** Creates `stop.request` in the data directory only when `status.json` there names a live `dexdesk.exe` that is still running; waits up to 20 s; removes the file after the process exits.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `data_dir` | `--data-dir` | path | no | `ADAPT_DEX_DATA_DIR`, else `%LOCALAPPDATA%\DeXDesk` | The receiver's data directory. |
+| `yes` | `--yes` | flag | no | off | Required: closes the receiver window and ends any phone session. |
+| `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
+
+- Reports the final recorded state. If nothing is running it says so and writes nothing; if a `dexdesk.exe` process has no usable status here it refuses rather than guess. Never kills a process: an unconfirmed stop is `stop_pending` (exit 2) and the request stays in place.
+- Exit codes: `0` stopped or nothing running, `1` refused, `2` `stop_pending`.
+
+```text
+adapt dex receiver-stop --yes
+adapt dex receiver-stop --data-dir DIRECTORY --yes --json
+```
+
 ### `adapt dex pc-plan`
 
 Offline preview of experimental activation; no device or process access.
@@ -588,6 +698,7 @@ Explain Microsoft's receiver setup without installs or device actions.
 | `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
 
 - Describes Microsoft's optional Wireless Display receiver (`App.WirelessDisplay.Connect~~~~0.0.1.0`, needs administrator approval). `scripts/install_windows_wireless_display.ps1` is a separate, reviewed, elevated script that installs only that capability and writes a receipt; ADAPT never runs it.
+- The JSON also carries `alternative_route`, which points to ADAPT's own experimental native receiver and `adapt dex receiver-plan`.
 
 ```text
 adapt dex pc-receiver-plan --json
@@ -901,6 +1012,7 @@ Run an allowlisted read-only check on this exact SSH worker.
 | `json_output` | `--json` | flag | no | off | Emit one JSON document on stdout instead of the human rendering. |
 
 - Needs existing host-key trust and key/agent authentication; nothing is auto-accepted. No local ADB fallback. Remote JSON over 4 MiB is rejected. Remote exit codes 0-3 are relayed.
+- *(development tree)* An SSH client failure (exit 255) adds a fixed `ssh_failure_reason` and `hint`, and a reply that is not one ADAPT JSON object adds `response_reason` and `hint`; ssh's own output is never copied into the report ([SSH workers](ssh-workers.md#failure-reasons)).
 - SSH connectivity alone gives no USB access, authorized ADB transport or graphical session.
 
 ```text

@@ -199,5 +199,148 @@
     "generated": 9,
     "actual_offline_cli_capture": 1,
     "generator_verification": "passed"
-  }
+  },
+  "later_records": [
+    {
+      "date": "2026-11-14",
+      "label": "Reconciliation of the entries above with the 0.1.1 release. Added without editing any earlier entry.",
+      "note": "The entries above are kept as history and describe different states of the repository, so they must not be read as one 0.1.1 record. This entry says which state each part describes and what was re-established on the date above.",
+      "release": {
+        "version": "0.1.1",
+        "tag": "v0.1.1",
+        "commit": "45b2a0a00643521a23a4abb8cb94abb7c2dc49fc"
+      },
+      "earlier_entries_describe": {
+        "python.tests and python.test_files": "Commit 718514d: pytest --collect-only collects 909 tests in 32 test files there. The commit the recorded run used is not recorded.",
+        "native.passed": "The source has 20 #[test] functions from commit 369e625 onward. The commit the recorded cargo run used is not recorded.",
+        "public_source_sha256": "The initial public commit 21fb3a8: all 34 listed files match it. At v0.1.1, 17 of the 34 files differ.",
+        "distribution.artifacts": "Local builds of version 0.1.0 made from the initial export. They are not the GitHub Release assets of v0.1.0 or v0.1.1.",
+        "fixture_sanitization.full_suite_after_final_edits": "579 equals the value python.tests had in the initial public commit. It was never updated and disagrees with python.tests (909).",
+        "live_device_work_this_publication_pass": "false. The message of commit 758fb20 says its fixes were found by running against real devices. No record of that run exists."
+      },
+      "checks_run_on_the_date_above": {
+        "python": {
+          "source": "git archive export of commit 45b2a0a, run from a scratch directory outside the repository",
+          "host": "Windows",
+          "python_version": "3.13.15",
+          "command": "python -m pytest -q -p no:cacheprovider -x -q",
+          "tests_collected": 917,
+          "test_files": 33,
+          "passed": 917,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "native": {
+          "test_functions_counted": 20,
+          "counted_in": "native/windows-receiver/src at 45b2a0a",
+          "cargo_test_run": false
+        }
+      },
+      "release_workflow": {
+        "file": ".github/workflows/release.yml",
+        "configured_to": "run pytest on ubuntu-latest with Python 3.11; build and check the wheel and source archive; install the wheel on ubuntu-latest and windows-latest with Python 3.11 and 3.13 and run adapt --help, adapt android versions and adapt mcp --help; publish a pre-release only for a tag after every job passes",
+        "run_result_recorded": false
+      },
+      "not_recorded": [
+        "run number or result of the v0.1.0 and v0.1.1 release workflow runs",
+        "local run of the docs/releasing.md step 2 commands for 0.1.1",
+        "docs/releasing.md step 6: the README pipx commands run from a clean pipx home against the published URL",
+        "gh attestation verify for the wheel, the source archive and SHA256SUMS.txt",
+        "checksums of the 0.1.1 wheel and source archive (SHA256SUMS.txt is in the release, not in this repository)",
+        "the commit used for the recorded cargo test run, and any cargo test run on 0.1.1",
+        "any repeat of privacy_checks on commits after 21fb3a8",
+        "any physical device run of 0.1.1, and any device run from Linux"
+      ]
+    },
+    {
+      "date": "2026-11-14",
+      "label": "Documentation reconciled with the uncommitted working tree (the next release) and with the physical records of 2026-11-14. Added without editing any earlier entry.",
+      "note": "The documents now describe the working tree, labelled as unreleased, and keep 0.1.1 facts labelled with commit 45b2a0a. This entry records the counts recomputed from the working tree and the physical records added to docs/validation.md. It supersedes the last item of the previous entry's not_recorded list ('any physical device run of 0.1.1'), which is now recorded; the previous entry is left unchanged.",
+      "code_described": {
+        "release": "0.1.1 (commit 45b2a0a, tag v0.1.1)",
+        "working_tree": "uncommitted changes on top of 45b2a0a; no commit identifier exists for them"
+      },
+      "working_tree_counts": {
+        "visible_leaf_commands": 69,
+        "visible_groups_including_root": 13,
+        "visible_cli_entries": 82,
+        "hidden_aliases": 2,
+        "authored_help_topics": 64,
+        "mcp_tools": 24,
+        "native_test_functions": 119,
+        "method": "CLI counts from walking the Typer command tree (typer.main.get_command on adapt_adb.cli.app); help topics as len(help_system.HOW_TO); MCP tools as len(mcp.tools.TOOL_SCHEMAS); native tests by counting #[test] under native/windows-receiver/src. The same walk on an export of 45b2a0a gives 64 leaf commands and 59 topics.",
+        "python_tests_collected": "1706 in one collection and 1741 in a later one the same day, while tests were still being added; no full-suite run of the working tree is recorded here"
+      },
+      "physical_records_added_to_validation_md": [
+        "Released 0.1.1 smoke pass on a Samsung Android 13 phone over USB, Windows 11 host, Platform-Tools 37.0.1, including one dev-options touches apply and restore and one read-only MCP session",
+        "Released 0.1.1 smoke pass on a Samsung Android 17 phone and a Samsung Android 16 tablet over wireless debugging, same host",
+        "A wireless DeX session found running on an earlier receiver build that is not the published source",
+        "Native receiver at 45b2a0a (debug build): one session of about four minutes with the Android 13 phone",
+        "Native receiver from the working tree with audio enabled (debug build): short sessions with the Android 13 phone and the Android 17 phone; audio output opened, nobody listened",
+        "adapt dex receiver-status, receiver-start and receiver-stop from the working tree against the real receiver, no phone"
+      ],
+      "live_device_work_this_documentation_pass": false,
+      "not_recorded": [
+        "any device run of the working tree's Python code (failure guidance, MCP explicit devices, doctor and setup changes, the new DeX parser, SSH reason codes)",
+        "a full Python suite result for the working tree",
+        "a cargo test run record (toolchain, output) for the working tree's native tests",
+        "any run of the working tree's release workflow, including Python 3.12",
+        "any device run from Linux",
+        "audible output from the receiver's audio option, and real mouse or keyboard use with the current receiver",
+        "the Windows build and firmware build numbers for the 2026-11-14 records",
+        "regeneration of docs/ADAPT-overview.pdf, which still carries 0.1.0 counts and labels"
+      ]
+    },
+    {
+      "date": "2026-11-14",
+      "label": "Documentation updated with the later physical records of 2026-11-14 and the code changes made after the previous entry. Added without editing any earlier entry.",
+      "note": "The documents call the unreleased code 'the development tree'; it was uncommitted on the distribution/public-release branch when these records were made. Every smoke pass used released 0.1.1 (commit 45b2a0a); the working tree's Python code was run on devices only for the DeX inspection commands and the adapt dex receiver-* commands listed below. Offline tests, physical observations and planning-only commands are separate and are not added together. This entry supersedes, without editing it, the previous entry's not_recorded items on real mouse or keyboard use and audible audio (now recorded for one phone) and its working_tree_counts.python_tests_collected.",
+      "code_described": {
+        "release": "0.1.1 (commit 45b2a0a, tag v0.1.1)",
+        "working_tree": "uncommitted changes on top of 45b2a0a on the distribution/public-release branch; no commit identifier exists for them"
+      },
+      "working_tree_changes_since_previous_entry": [
+        "dex inspect confirms DeX from display flags (FLAG_WIRELESS_DEX_DISPLAY with FLAG_EXTERNAL_DEX_HOSTING on exactly one external display) when the desktopmode service is absent on a Samsung device",
+        "MCP list_devices reads the transport label from the serial (tcp, local or usb); offline tests only",
+        "dex pc-probe replaces MAC-style hardware addresses in its observations with <hardware-address>; offline tests only",
+        "failure guidance extended to the remaining command modules; the dex receiver-* commands keep their own reporting"
+      ],
+      "working_tree_counts": {
+        "visible_leaf_commands": 69,
+        "visible_groups_including_root": 13,
+        "hidden_aliases": 2,
+        "authored_help_topics": 64,
+        "mcp_tools": 24,
+        "failure_guides": 278,
+        "failure_guides_for_receiver_reason_codes": 33,
+        "native_test_functions": 119,
+        "python_tests_collected": 2034,
+        "python_test_modules_collected": 59,
+        "method": "CLI counts from walking the Typer command tree of adapt_adb.cli.app; help topics as len(help_system.HOW_TO); MCP tools as len(mcp.tools.TOOL_SCHEMAS); failure guides as len(failure_guide.GUIDES) and len(failure_guide.RECEIVER_GUIDES); native tests by counting #[test] under native/windows-receiver/src; Python tests with python -m pytest --collect-only -q -p no:cacheprovider. Collection counts, not a run."
+      },
+      "physical_records_added_to_validation_md": [
+        "Native receiver from the working tree with audio enabled (debug build), Samsung Android 17 phone (One UI 9): a session of about 48 minutes; 86,202 decoded frames, 653 video recovery events and 9 audio underruns in the log; read with the working tree's adapt dex receiver-status and ended with its adapt dex receiver-stop --yes",
+        "Owner's manual check on that session: real mouse and keyboard use in the receiver window worked and sound played on the phone was heard from the PC; asked afterwards, the owner judged the audio quality great. One listener, one session, one phone, one PC; no further detail recorded",
+        "Native receiver from the working tree, Samsung Android 16 tablet (One UI 8): started with the working tree's adapt dex receiver-start --expect-name --audio --yes; every stage through first_frame_decoded in about five seconds; 1920x1080 at 30 FPS; audio output opened; read with receiver-status and ended with receiver-stop. No window capture, no real mouse or keyboard use, nobody listened",
+        "Working-tree dex inspect during the Android 17 phone session: DeX confirmed on display 6 from display flags; dex list-displays reported confirmed_dex_display_id 6; dex plan-dual-mirror produced a plan for displays 0 and 6 (nothing launched); dex pc-probe still refused (exit 1)",
+        "Working-tree dex inspect during the Android 16 tablet session: DeX confirmed on display 6 from display flags"
+      ],
+      "live_device_work_this_documentation_pass": false,
+      "not_recorded": [
+        "real mouse or keyboard use, or listening, with the Android 13 phone or the Android 16 tablet",
+        "which apps were used, for how long, and whether any stutter was noticed in the owner's check on the Android 17 phone",
+        "a receiver reconnect on the current source, open admission with a device connecting, any receiver failure reason code, a release build of the receiver, or a session longer than about 48 minutes",
+        "wired or standalone DeX; dex mirror or any scrcpy capture of a display confirmed from display flags; dex pc-probe completing on One UI 9",
+        "the receiver build profile for the Android 16 tablet session, and the exit code and options of the working tree's dex inspect on the tablet",
+        "a device run of the working tree's MCP changes (explicit-device rule, transport label, new error codes), the pc-probe hardware-address change, the Android 13 DeX parser, doctor and setup changes or SSH reason codes",
+        "failure guidance shown for a real failure on any device or host",
+        "a dev-options apply and restore cycle that changed a value on the Android 16 or Android 17 device (the setting was already on)",
+        "a full Python suite result and a cargo test run record for the working tree",
+        "any device run from Linux",
+        "the Windows build and firmware build numbers",
+        "regeneration of docs/ADAPT-overview.pdf"
+      ]
+    }
+  ]
 }

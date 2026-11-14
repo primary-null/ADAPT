@@ -52,9 +52,9 @@ Windows 11 requires a signed driver bound to the phone's composite ADB interface
 | **Samsung Galaxy** | **Samsung Mobile USB Composite Driver** (OEM installer) | Windows 11 attaches MTP by default, leaving the `SAMSUNG_Android` ADB interface unbound (yellow exclamation mark in Device Manager) without the official Samsung OEM driver. Generic `WinUSB` binding often breaks Samsung mode-switching. |
 | **Other OEMs** | **Vendor-specific OEM USB Drivers** | Refer to the [official OEM USB driver directory](https://developer.android.com/studio/run/oem-usb) when native WinUSB descriptors (WCID / MS OS 2.0) are not provided by the device firmware. |
 
-`adapt doctor` reads Windows PnP device status and fails (exit 2) when a device it confirms as Android reports a driver problem. On the main branch (unreleased), a problem reported only by USB devices it does not confirm as Android is a warning that lists them, so an unrelated device no longer fails the check; check Device Manager if your phone is among them. ADAPT never installs drivers.
+`adapt doctor` reads Windows PnP device status and fails (exit 2) when a device it confirms as Android reports a driver problem. In the development tree (unreleased), a problem reported only by USB devices it does not confirm as Android is a warning that lists them, so an unrelated device no longer fails the check; check Device Manager if your phone is among them. ADAPT never installs drivers.
 
-Run ADAPT from a normal, non-elevated terminal. An `adb` server started from an elevated (Administrator) session cannot be shared with tools in non-elevated sessions; on the main branch ADAPT prints a warning when it runs elevated.
+Run ADAPT from a normal, non-elevated terminal. An `adb` server started from an elevated (Administrator) session cannot be shared with tools in non-elevated sessions; in the development tree ADAPT prints a warning when it runs elevated.
 
 ---
 

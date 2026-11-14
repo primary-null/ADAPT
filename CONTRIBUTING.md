@@ -57,7 +57,7 @@ Use placeholders and documentation-reserved values: `SERIAL`, `PHONE_PEER`, `PAI
 2. Give every option a precise name; use `--serial/-s` for the target and `--json` for machine output; add `--yes` for side effects.
 3. Add a `HOW_TO` topic in `src/adapt_adb/help_system.py` if the command deserves a tip, with a generic example.
 4. Add tests (parsing, refusal paths, JSON stdout cleanliness, and safety boundaries) under `tests/`.
-5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (69 visible leaf commands in 13 groups on the main branch at the time of writing; `docs/ADAPT-overview.pdf` is generated from the inventory by `scripts/build_public_overview.py`) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
+5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (69 visible leaf commands in 13 groups in the development tree at the time of writing; `docs/ADAPT-overview.pdf` is generated from the inventory by `scripts/build_public_overview.py`) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
 
 ## Adding or changing an MCP tool
 
@@ -69,7 +69,7 @@ Use placeholders and documentation-reserved values: `SERIAL`, `PHONE_PEER`, `PAI
 
 ## Native receiver (`native/windows-receiver`)
 
-Rust 1.99.1 (pinned in `rust-toolchain.toml`). Build with `cargo build --release --locked` (or `scripts\build_receiver.ps1` from the repository root on the main branch) and test with `cargo test --locked --offline` from that directory. The receiver's `status.json` is an interface that `adapt dex receiver-status` reads; change it together with `src/adapt_adb/dex_receiver.py`. Keep the upstream MIT [LICENSE](native/windows-receiver/LICENSE) and update `THIRD-PARTY-NOTICES.txt` and the root [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) whenever dependencies change. Do not claim compatibility from a build or from the offline tests; hardware claims need a recorded observation with its exact scope.
+Rust 1.99.1 (pinned in `rust-toolchain.toml`). Build with `cargo build --release --locked` (or `scripts\build_receiver.ps1` from the repository root in the development tree) and test with `cargo test --locked --offline` from that directory. The receiver's `status.json` is an interface that `adapt dex receiver-status` reads; change it together with `src/adapt_adb/dex_receiver.py`. Keep the upstream MIT [LICENSE](native/windows-receiver/LICENSE) and update `THIRD-PARTY-NOTICES.txt` and the root [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) whenever dependencies change. Do not claim compatibility from a build or from the offline tests; hardware claims need a recorded observation with its exact scope.
 
 ## Documentation
 

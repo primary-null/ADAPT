@@ -2,7 +2,7 @@
 
 Host setup instructions and packaging artifacts for running **ADAPT** (`adapt`) on Debian and other Linux systems. The commands below are written for Debian-family systems (`apt`, the `plugdev` group). Other distributions use different package names and may use a different group (some use `adbusers`) or ship their own Android udev rules; use your distribution's equivalent. ADAPT on Linux is offline-tested only: no device session from a Linux host is recorded.
 
-On the main branch (unreleased), `adapt doctor` reports Debian-family hosts (from `/etc/os-release`) as `debian` and gives `apt`/`plugdev` advice only there; other Linux hosts are reported as `linux` with distribution-neutral advice. ADAPT 0.1.1 treats every Linux host as Debian.
+In the development tree (unreleased), `adapt doctor` reports Debian-family hosts (from `/etc/os-release`) as `debian` and gives `apt`/`plugdev` advice only there; other Linux hosts are reported as `linux` with distribution-neutral advice. ADAPT 0.1.1 treats every Linux host as Debian.
 
 ---
 
@@ -15,7 +15,7 @@ Do not rely on Debian's standard `apt install adb` package for modern Android wo
 
 ### Recommended Installation (`platform-tools-latest-linux.zip`)
 
-ADAPT (via `adapt setup`) or manual bootstrapping should install Google's standalone distribution into a user-scope directory (`~/.local/share/android/platform-tools`). Google publishes the Linux archive for **x86-64 only**, so on other architectures (for example ARM64) you need an `adb` from another source. On the main branch `adapt setup` stops with `unsupported_architecture` there before downloading; 0.1.1 has no such check and installs x86-64 programs that cannot run:
+ADAPT (via `adapt setup`) or manual bootstrapping should install Google's standalone distribution into a user-scope directory (`~/.local/share/android/platform-tools`). Google publishes the Linux archive for **x86-64 only**, so on other architectures (for example ARM64) you need an `adb` from another source. In the development tree `adapt setup` stops with `unsupported_architecture` there before downloading; 0.1.1 has no such check and installs x86-64 programs that cannot run:
 
 1. Download the official archive from Google:
    `https://dl.google.com/android/repository/platform-tools-latest-linux.zip`
@@ -42,7 +42,7 @@ Reload your shell configuration (`source ~/.profile`) and confirm with `command 
 
 ## 3. Udev Rules & Device Permissions (`51-android.rules`)
 
-Linux creates raw USB device nodes under `/dev/bus/usb/` owned by `root:root` (`0660`). To access Android devices without root privileges, install [`51-android.rules`](./51-android.rules). On the main branch the same file also ships inside the Python wheel (`adapt_adb/data/51-android.rules`), and `adapt doctor` prints a copy command with its installed path; the 0.1.1 wheel does not contain it, so with 0.1.1 use this file from a source checkout. Replace `/path/to/51-android.rules` with the path doctor prints, or with `packaging/linux/51-android.rules` in a checkout:
+Linux creates raw USB device nodes under `/dev/bus/usb/` owned by `root:root` (`0660`). To access Android devices without root privileges, install [`51-android.rules`](./51-android.rules). In the development tree the same file also ships inside the Python wheel (`adapt_adb/data/51-android.rules`), and `adapt doctor` prints a copy command with its installed path; the 0.1.1 wheel does not contain it, so with 0.1.1 use this file from a source checkout. Replace `/path/to/51-android.rules` with the path doctor prints, or with `packaging/linux/51-android.rules` in a checkout:
 
 ```sh
 sudo tee /etc/udev/rules.d/51-android.rules < /path/to/51-android.rules > /dev/null

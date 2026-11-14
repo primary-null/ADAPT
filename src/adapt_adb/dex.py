@@ -81,12 +81,13 @@ EVIDENCE_SOURCE_DISPLAY_FLAGS = "dumpsys_display_flags"
 FLAG_WIRELESS_DEX = "FLAG_WIRELESS_DEX_DISPLAY"
 FLAG_EXTERNAL_DEX_HOSTING = "FLAG_EXTERNAL_DEX_HOSTING"
 DISPLAY_FLAGS_OBSERVED_ON = (
-    "one Samsung phone on Android 17 (One UI 9) during one live wireless DeX session"
+    "one Samsung phone on Android 17 (One UI 9) and one Samsung tablet on Android 16 (One UI 8), "
+    "each during one live wireless DeX session"
 )
 DISPLAY_FLAGS_NOT_OBSERVED = [
     "wired DeX",
     "standalone DeX",
-    "the Android 16 (One UI 8) tablet with DeX running",
+    "a screen capture of the flagged display",
 ]
 # Classifications that confirm a DeX desktop on an existing non-primary display.
 _CONFIRMED_DUAL_CLASSIFICATIONS = frozenset({"active_dual", CLASSIFICATION_DISPLAY_FLAGS})

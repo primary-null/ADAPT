@@ -25,7 +25,7 @@ There is no DNS fallback, port scan or selection of another phone. Status
 returns minimal peer observations, not account records, keys or login URLs.
 Its output still includes private peer names and addresses: review before sharing.
 
-On the main branch (unreleased; not in 0.1.1), `status` also reports this PC's
+In the development tree (unreleased; not in 0.1.1), `status` also reports this PC's
 own node, the client version and an `auth_state` with a hint when the daemon is
 not running or not signed in (for example `needs_login` or `stopped`); a peer
 query that names this PC's own node is refused; and the TLS check, when ADB

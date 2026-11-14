@@ -81,7 +81,7 @@ its JSON are retained. A successful SSH command is not device-feature proof.
 
 ## Failure reasons
 
-On the main branch (unreleased; 0.1.1 does not have this), when the SSH client
+In the development tree (unreleased; 0.1.1 does not have this), when the SSH client
 itself fails (exit 255) the `ssh_failed` report keeps its existing keys and
 adds `ssh_failure_reason` and `hint`. ADAPT chooses the reason by matching well-known OpenSSH client messages in the captured stderr, then
 discards that text: only the fixed reason code and fixed sentences below are

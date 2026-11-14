@@ -221,11 +221,12 @@ def test_confirmation_report_names_the_source_and_every_observation_limit():
     assert "dumpsys display" in evidence["flags_read_from"]
     assert evidence["flagged_displays"] == [{"id": 6, "flags": [WIRELESS_DEX, EXTERNAL_HOSTING]}]
     assert "one Samsung phone on Android 17" in evidence["observed_on"]
+    assert "one Samsung tablet on Android 16" in evidence["observed_on"]
     assert "one live wireless DeX session" in evidence["observed_on"]
     assert evidence["not_observed"] == [
         "wired DeX",
         "standalone DeX",
-        "the Android 16 (One UI 8) tablet with DeX running",
+        "a screen capture of the flagged display",
     ]
 
     reason = desktop["confirmation_reason"]
@@ -233,7 +234,8 @@ def test_confirmation_report_names_the_source_and_every_observation_limit():
     assert "logical display 6 carries FLAG_WIRELESS_DEX_DISPLAY and FLAG_EXTERNAL_DEX_HOSTING" in reason
     assert "'dumpsys display'" in reason
     assert "one Samsung phone on Android 17" in reason
-    assert "wired DeX, standalone DeX and the Android 16 (One UI 8) tablet with DeX running were not observed" in reason
+    assert "one Samsung tablet on Android 16" in reason
+    assert "wired DeX, standalone DeX and a screen capture of the flagged display were not observed" in reason
 
 
 def test_the_receiving_pc_name_is_not_copied_into_the_dex_evidence():

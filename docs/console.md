@@ -18,7 +18,7 @@ original CLI paths.
 - **Q**: exit the console.
 - **R** on a command detail page: enter arguments and run that original ADAPT
   command. Use double quotes for paths containing spaces. No shell is evaluated.
-  On the main branch (unreleased) the argument prompt also accepts `:b` to go
+  In the development tree (unreleased) the argument prompt also accepts `:b` to go
   back, `:h` (or `H`) for the main screen and `:q` to exit.
 
 Opening menus performs no host/device checks or installations. Running a command

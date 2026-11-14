@@ -21,6 +21,8 @@ Supported goals are `testing`, `mirroring`, `remote-worker`, `aosp-build`, `line
 
 `--json` writes one JSON object to stdout. Validation errors are also JSON when `--json` is selected, with a nonzero `exit_code` and no human error mixed into stdout.
 
+A refused or failed `list`, `info`, `plan` or `install` adds a `failure` object to that JSON; human output prints the same guide on stderr after the error line (for example `adapt explain scrcpy.download_failed`). See [help](help.md#failure-guidance).
+
 ## What detection means
 
 Detection uses `shutil.which` only. ADAPT never invokes a discovered executable, so a result such as:

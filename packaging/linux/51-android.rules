@@ -2,7 +2,8 @@
 #
 # Installation:
 # 1. Install the rules file to /etc/udev/rules.d/51-android.rules:
-#    sudo tee /etc/udev/rules.d/51-android.rules < packaging/linux/51-android.rules > /dev/null
+#    sudo tee /etc/udev/rules.d/51-android.rules < /path/to/this/51-android.rules > /dev/null
+#    (`adapt doctor` prints the full path of the copy installed with ADAPT.)
 #
 # 2. Reload udev rules and re-trigger USB events:
 #    sudo udevadm control --reload-rules && sudo udevadm trigger

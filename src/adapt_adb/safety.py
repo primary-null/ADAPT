@@ -3,7 +3,8 @@
 Enforces ADAPT hard guardrails before spawning `adb` commands:
 - Never run `adb kill-server`, under any circumstances.
 - Never run `sudo adb` or elevate `adb` privileges.
-- Never run `pm clear` or `uninstall` without an explicit confirmation flag.
+- Never run `pm clear` or `uninstall` through the guarded passthrough; deliberate
+  destructive work is done with plain adb outside ADAPT.
 - Only run device commands (`shell`, `exec-out`, `exec-in`) that token
   inspection can establish: shell control syntax, shell indirection and
   command wrappers that would hide the real command are refused.
@@ -101,6 +102,8 @@ class ForbiddenArgv(SafetyError):
 
 class NeedSerial(SafetyError):
     """Raised when multiple devices are present and no serial was specified."""
+
+    failure_id = "device.multiple"  # failure guidance class default
 
 
 class VersionMismatch(SafetyError):
@@ -376,6 +379,8 @@ def check_no_destructive_package_ops(
 ) -> None:
     """Forbid `pm clear` and `uninstall` unless `allow_destructive=True` is set.
 
+    `allow_destructive` is an internal parameter: no CLI option or MCP tool passes it.
+
     Device commands sent through `shell`, `exec-out` or `exec-in` are inspected
     with `inspect_simple_shell`, so absolute paths (`/system/bin/pm`), adb
     shell options, wrappers and `sh -c` nesting cannot hide `pm clear`,
@@ -389,7 +394,8 @@ def check_no_destructive_package_ops(
         return
     if command[0] == "uninstall":
         raise ForbiddenArgv(
-            "Forbidden command 'uninstall': uninstalling packages requires an explicit confirmation flag."
+            "Forbidden command 'uninstall': ADAPT's guarded adb passthrough does not run this "
+            "operation. If you intend it, run it with plain adb outside ADAPT."
         )
     shell_tokens = _inspect_remote_command(args)
     if shell_tokens is None:
@@ -398,7 +404,8 @@ def check_no_destructive_package_ops(
     if subcommand is not None:
         operation = "pm clear" if subcommand == "clear" else "uninstall"
         raise ForbiddenArgv(
-            f"Forbidden command '{operation}': destructive package operations require an explicit confirmation flag."
+            f"Forbidden command '{operation}': ADAPT's guarded adb passthrough does not run this "
+            "operation. If you intend it, run it with plain adb outside ADAPT."
         )
 
 
@@ -451,7 +458,7 @@ def validate_adb_args(
     Raises `ForbiddenArgv` if the arguments contain:
     - `sudo`
     - `kill-server` (always)
-    - `pm clear` or `uninstall` (unless `allow_destructive=True`)
+    - `pm clear` or `uninstall` (unless the internal `allow_destructive=True` is passed)
     - a device command (`shell`, `exec-out`, `exec-in`) that cannot be
       safety-checked: shell control syntax, indirection or command wrappers
     - interactive `shell` / `exec-out` / `exec-in` with no device command

@@ -13,7 +13,7 @@ CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 
 
-def packages(folder, *, extra=None, name="adapt-adb", missing_bridge=False, cli_version=None):
+def packages(folder, *, extra=None, name="adapt-adb", missing_bridge=False, cli_version=None, missing_rules=False):
     version = CHECK.version()
     info = f"adapt_adb-{version}.dist-info"
     members = {
@@ -27,6 +27,8 @@ def packages(folder, *, extra=None, name="adapt-adb", missing_bridge=False, cli_
     }
     if not missing_bridge:
         members["adapt_adb/resources/dex_bridge/adapt-dex-bridge.jar"] = "synthetic bridge fixture"
+    if not missing_rules:
+        members["adapt_adb/data/51-android.rules"] = "synthetic rules fixture"
     if extra:
         members[extra] = "synthetic blocked content"
     with zipfile.ZipFile(folder / f"adapt_adb-{version}-py3-none-any.whl", "w") as archive:
@@ -61,6 +63,18 @@ def test_private_or_unsafe_files_cannot_ship(tmp_path, path):
 def test_missing_bundled_bridge_is_not_a_complete_cli_package(tmp_path):
     packages(tmp_path, missing_bridge=True)
     with pytest.raises(ValueError, match="Required wheel content missing"):
+        CHECK.check_dist(tmp_path)
+
+
+def test_missing_udev_rules_is_not_a_complete_cli_package(tmp_path):
+    packages(tmp_path, missing_rules=True)
+    with pytest.raises(ValueError, match="Required wheel content missing: adapt_adb/data/51-android.rules"):
+        CHECK.check_dist(tmp_path)
+
+
+def test_stray_package_data_cannot_ship(tmp_path):
+    packages(tmp_path, extra="adapt_adb/data/notes.txt")
+    with pytest.raises(ValueError, match="Unexpected package data file"):
         CHECK.check_dist(tmp_path)
 
 

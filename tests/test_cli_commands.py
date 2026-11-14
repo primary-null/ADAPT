@@ -29,7 +29,8 @@ def test_mcp_command():
     with patch.dict(sys.modules, {"mcp": None}):
         result_missing = runner.invoke(app, ["mcp"])
         assert result_missing.exit_code == 2
-        assert "MCP server support lands in v1." in result_missing.stderr
+        assert "Python MCP SDK is not installed" in result_missing.stderr
+        assert "lands in v1" not in result_missing.stderr
         assert result_missing.stdout == ""
 
 
@@ -51,7 +52,7 @@ def test_devices_command_found_adb(monkeypatch):
 
     result = runner.invoke(app, ["devices"])
     assert result.exit_code == 0
-    mock_run.assert_called_once_with([str(fake_path), "devices", "-l"])
+    mock_run.assert_called_once_with([str(fake_path), "devices", "-l"], timeout=10)
 
 
 from adapt_adb.doctor import DoctorEnv, Server5037State
@@ -440,7 +441,7 @@ def test_adb_version_with_zero_ready_devices_runs_without_serial(monkeypatch):
     result = runner.invoke(app, ["adb", "version"])
     assert result.exit_code == 0
     assert "adapt doctor" not in result.stderr
-    mock_run.assert_called_once_with([str(fake_path), "version"], timeout=None)
+    mock_run.assert_called_once_with([str(fake_path), "version"], timeout=60)
     assert "-s" not in mock_run.call_args.args[0]
 
 
@@ -462,7 +463,7 @@ def test_adb_version_with_multiple_ready_devices_runs_without_serial(monkeypatch
     result = runner.invoke(app, ["adb", "version"])
     assert result.exit_code == 0
     assert "Multiple devices connected" not in (result.output + result.stderr)
-    mock_run.assert_called_once_with([str(fake_path), "version"], timeout=None)
+    mock_run.assert_called_once_with([str(fake_path), "version"], timeout=60)
     assert "-s" not in mock_run.call_args.args[0]
 
 
@@ -601,7 +602,9 @@ def test_adb_pair_and_connect_host_only_without_serial(monkeypatch):
     assert mock_run.call_args.kwargs["input"] == "123456\n"
     assert "-s" not in mock_run.call_args.args[0]
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    mock_run.return_value = MagicMock(
+        returncode=0, stdout="connected to 192.0.2.1:5555\n", stderr=""
+    )
 
     monkeypatch.setattr(
         "adapt_adb.cli.get_connected_devices",

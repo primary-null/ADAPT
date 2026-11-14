@@ -1,7 +1,7 @@
 # MCP client examples
 
-These examples start the local `adapt mcp --read-only` server. Install ADAPT
-from a trusted checkout first; no registry package is assumed.
+These examples start the local `adapt mcp --read-only --device SERIAL` server.
+`SERIAL` is a placeholder that you replace before use (see below).
 
 - `mcp.json`: generic stdio configuration shape.
 - `claude.mcp.json`: the same shape for clients using `mcpServers`.
@@ -10,14 +10,51 @@ from a trusted checkout first; no registry package is assumed.
 Check your client's current configuration format and approval controls. No
 external client registration has been live-accepted as part of this release.
 
-Before connecting a phone, append `--device SERIAL` to the argument list and
-replace `SERIAL` with that exact transport. Read-only observation may expose
-screens, logs and identifiers to the AI client. Remove `--read-only` only when
-you intend to expose the five interaction/installation tools.
+## Install ADAPT first
 
-If the client cannot find `adapt`, use the executable path in your installed
-virtual environment, such as `<venv>/bin/adapt` or `<venv>\Scripts\adapt.exe`.
-Do not commit your real path or device identifier back into these examples.
+Users install the published wheel with [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html),
+adding the `mcp` extra because the MCP server needs the MCP SDK:
+
+```text
+pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.1/adapt_adb-0.1.1-py3-none-any.whl"
+pipx ensurepath
+adapt --help
+```
+
+This is the form from the root README ([Download and install](../README.md#download-and-install));
+use the wheel URL of the release you intend to install. ADAPT is not published
+to PyPI, so do not run `pipx install adapt-adb`. Contributors working on ADAPT
+itself install from a checkout instead ([Install from a checkout](../README.md#install-from-a-checkout-contributors)).
+
+If the client cannot find `adapt`, use the full path of the `adapt` executable
+(for a checkout, `<venv>/bin/adapt` or `<venv>\Scripts\adapt.exe`).
+
+## Replace `SERIAL` before connecting a phone
+
+Each configuration passes `--device SERIAL`. Replace `SERIAL` with the exact
+transport name that `adapt devices` prints (a USB serial, or a wireless
+`host:port`); repeat `--device` to allow several. Do not commit your real path
+or device identifier back into these examples. Read-only observation may expose
+screens, logs and identifiers to the AI client. Remove `--read-only` only when
+you intend to expose the five tools that act on the phone: `tap`, `swipe`,
+`key`, `type` and `install_apk`.
+
+## If `--device` is omitted
+
+The session is then not limited to particular transports:
+
+- Read-only tools (`device_info`, `screenshot`, `ui_summary`, `logcat_tail`)
+  use the only ready device when a call names none. With several ready devices
+  they return `need_device` and list the candidates.
+- Tools that act on the phone (`tap`, `swipe`, `key`, `type`, `install_apk`;
+  available only without `--read-only`) refuse a call that names no `device`.
+  They return `need_device` with the candidate list, even if only one phone is
+  connected, and do nothing. The client must pass `device` with an exact
+  transport name.
+
+With `--device`, every device call must name an allowed transport. The one
+exception: a session started with exactly one `--device` lets the tools that act
+on the phone omit `device` and then uses that target.
 
 ADAPT implements local stdio only. It does not provide a remote HTTPS server
 or authentication bridge for clients that require remote connectors.

@@ -1,6 +1,7 @@
 # Example MCP server configuration for Codex CLI
 # Copy into ~/.codex/config.toml (user-scoped) or .codex/config.toml (project-scoped).
+# Replace SERIAL with the exact transport name that `adapt devices` prints.
 
 [mcp_servers.adapt]
 command = "adapt"
-args = ["mcp", "--read-only"]
+args = ["mcp", "--read-only", "--device", "SERIAL"]

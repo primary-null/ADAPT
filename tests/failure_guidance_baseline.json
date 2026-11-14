@@ -1,0 +1,4 @@
+{
+  "untagged_raise_sites": 86,
+  "note": "Raise sites of project exception classes and bare ValueError/RuntimeError in src/adapt_adb with no tagged(), no class-default failure_id and no KIND_MAP entry. tests/test_failure_guide.py fails if the count grows, and asks for this number to be lowered when coverage grows. Set in failure guidance Phase 1 (2026-11-14) at 378; lowered to 278 in Phases 2-3 (KIND_MAP for dev_options, dex and android_support; everything confirmation tag); lowered to 86 in Phase 4 (development/rapid, device_state, desktop, dex_pc, ssh_worker, tailscale_mode, diagnostics, tool_catalog/scrcpy_install and everything tagged or given class defaults)."
+}

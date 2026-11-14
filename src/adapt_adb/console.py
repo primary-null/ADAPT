@@ -45,6 +45,7 @@ def render_console_report(
     show_fix: bool = False,
     width: int = 80,
     color: bool = False,
+    explain: bool = True,
 ) -> str:
     """Render a compact, width-bounded view of an existing diagnostic report.
 
@@ -53,7 +54,7 @@ def render_console_report(
     colors add emphasis only. No device identity or state is inferred here.
     """
     width = max(12, width)
-    color = color and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
+    color = color and "NO_COLOR" not in os.environ and os.environ.get("TERM", "").strip().lower() != "dumb"
     lines: list[str] = []
 
     def add(value: str = "", indent: str = "") -> None:
@@ -76,11 +77,14 @@ def render_console_report(
     add(f"ADAPT / HOST CHECK  |  {status}")
     add("-" * min(width, 64))
     host, tools = report.get("host", {}), report.get("toolchain", {})
+    # When no adb is on PATH but ADAPT's commands use a copy elsewhere, show that
+    # copy and say so, instead of claiming adb was not found.
+    off_path = not tools.get("adb_path") and bool(tools.get("command_adb_path"))
     for key, value in (
         ("OS", f"{host.get('os', 'unknown')} ({host.get('arch', 'unknown')})"),
-        ("ADB Version", tools.get("platform_tools_version") or "Unavailable"),
-        ("ADB Path", tools.get("adb_path") or "Not found"),
-        ("Origin", tools.get("origin", "unknown")),
+        ("ADB Version", (tools.get("command_adb_version") if off_path else tools.get("platform_tools_version")) or "Unavailable"),
+        ("ADB Path", f"{tools['command_adb_path']} (used by ADAPT; not on PATH)" if off_path else tools.get("adb_path") or "Not found"),
+        ("Origin", (tools.get("command_adb_origin") if off_path else tools.get("origin")) or "unknown"),
     ):
         add(f"{key}: {value}", "  ")
     add(f"Status: {report.get('status', 'unknown')} (exit code {report.get('exit_code', '?')})", "  ")
@@ -94,15 +98,20 @@ def render_console_report(
         add(f"{label:<7}  {name} / {check.get('summary', '')}", "  ")
         if color and len(lines) > start:
             lines[start] = lines[start].replace(label, badge(check.get("status", "")), 1)
+        # Each blocked or waiting check points at its failure guide (checks[].failure_id).
+        if explain and check.get("status") in {"fail", "warn"} and isinstance(check.get("failure_id"), str):
+            add(f"More: adapt explain {check['failure_id']}", "           ")
     add()
     devices = report.get("devices")
     if not isinstance(devices, dict) or "by_state" not in devices:
         devices = next((c.get("details", {}) for c in report.get("checks", []) if c.get("id") == "devices_state"), {})
     counts = devices.get("by_state") if isinstance(devices, dict) else None
     if isinstance(counts, dict):
-        add("TRANSPORTS / reported connection counts")
-        add("  ".join(f"{key}={counts[key]}" for key in ("device", "unauthorized", "offline", "no_permissions", "other") if key in counts), "  ")
-        add()
+        counts_line = "  ".join(f"{key}={counts[key]}" for key in ("device", "unauthorized", "offline", "no_permissions", "other") if key in counts)
+        if counts_line:
+            add("TRANSPORTS / reported connection counts")
+            add(counts_line, "  ")
+            add()
     add("Next: ACTIONS")
     # Action order/keys and enablement are owned by build_next_actions.
     for action in actions:
@@ -118,4 +127,7 @@ def render_console_report(
             add(f"{check['id']}: {check['remediation']}", "  ")
         if not fixes:
             add("No remediation actions needed.", "  ")
+    elif any(c.get("status") in {"fail", "warn"} and c.get("remediation") for c in report.get("checks", [])):
+        add()
+        add("Run 'adapt doctor --fix' to see how to fix the items above.")
     return "\n".join(lines)

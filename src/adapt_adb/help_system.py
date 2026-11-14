@@ -12,6 +12,7 @@ from contextvars import ContextVar
 
 import typer
 from typer.core import TyperGroup
+from adapt_adb.failure_guide import GUIDES, RENAMED
 try:
     from typer import _click as click  # Typer versions with bundled Click.
 except ImportError:
@@ -31,6 +32,43 @@ class GuidedGroup(TyperGroup):
         if ctx.parent is None:
             ctx.meta["adapt_machine_output"] = any(a == "--json" or a.startswith("--json=") for a in args)
         return super().parse_args(ctx, args)
+
+    def resolve_command(self, ctx: click.Context, args: list[str]) -> Any:
+        name, command, rest = super().resolve_command(ctx, args)
+        if ctx.parent is None and name:
+            path = name
+            # Record "group subcommand" (static names only) for the unexpected-failure activity line.
+            if rest and callable(getattr(command, "get_command", None)) and not rest[0].startswith("-"):
+                try:
+                    if command.get_command(ctx, rest[0]) is not None:
+                        path = f"{name} {rest[0]}"
+                except Exception:
+                    pass
+            ctx.meta["adapt_command_path"] = path
+        return name, command, rest
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except _control_flow_exceptions():
+            raise
+        except Exception as exc:  # Truly unexpected: replace the traceback (design 2.7, D8).
+            if os.environ.get("ADAPT_DEBUG") == "1":
+                raise
+            from adapt_adb.failure_report import report_unexpected
+            report_unexpected(ctx, exc)
+            raise typer.Exit(code=1) from None
+
+
+def _control_flow_exceptions() -> tuple[type[BaseException], ...]:
+    """Exit/abort/usage exceptions that Click and Typer handle themselves (bundled or not)."""
+    found: list[type[BaseException]] = [SystemExit, KeyboardInterrupt, EOFError]
+    for module in (getattr(click, "exceptions", None), sys.modules.get("typer.exceptions"), typer):
+        for name in ("ClickException", "Exit", "Abort", "TyperException"):
+            cls = getattr(module, name, None)
+            if isinstance(cls, type) and issubclass(cls, BaseException):
+                found.append(cls)
+    return tuple(dict.fromkeys(found))
 
 
 HOW_TO: dict[str, tuple[str, ...]] = {
@@ -81,6 +119,7 @@ HOW_TO: dict[str, tuple[str, ...]] = {
     "dev-options restore": ("Restore a saved profile on the matching device, build, and Android user.", "adapt dev-options restore -s SERIAL --snapshot touches.json", "Conflicting external changes are not overwritten. The snapshot is retained."),
     "mcp": ("An AI client starts ADAPT and discovers named device tools through local stdio.", "codex mcp add adapt -- adapt mcp --read-only", "Use --device SERIAL to restrict exact targets. MCP is not an Android permission grant; client approvals and Android authorization remain separate."),
     "guide": ("Read the official Android tooling notes for a selected topic.", "adapt guide testing", "Use help-me --all for every currently registered command."),
+    "explain": ("Look up why a failure happened and what to try next, by failure ID, keyword or pasted error text.", "adapt explain device.unauthorized\nadapt explain --list\nadapt explain \"failed to authenticate\"", "Explaining runs nothing and contacts no device. Steps that depend on your setup are labelled; adapt doctor checks this PC read-only."),
     "android": ("Inspect version-dependent capabilities before choosing a device workflow.", "adapt android capabilities -s SERIAL --json", "Version eligibility and tested support are different; inspect runtime evidence too."),
     "dex": ("Inspect the Samsung device and available displays before selecting a desktop mirror.", "adapt dex --help", "A generic virtual display is not proof that Samsung DeX is running."),
     "dex pc-plan": ("Preview experimental phone-side DeX activation without touching a device.", "adapt dex pc-plan -s SERIAL --method loopback --json", "A vendor API may exist but deny shell permission. A simulated display may remain generic; neither is a verified desktop."),
@@ -89,6 +128,10 @@ HOW_TO: dict[str, tuple[str, ...]] = {
     "dex pc-probe": ("Use the bundled temporary helper to observe real Samsung desktop state and display IDs.", "adapt dex pc-probe -s SERIAL --yes --json", "This transfers/runs a local-built JAR and removes it; no APK install, root or display activation."),
     "dex pc-attach": ("Mirror the observed sole external display of a genuinely active Samsung dual DeX session.", "adapt dex pc-attach -s SERIAL --display ID --yes", "The external receiver connection is user-owned and is not disconnected when this mirror closes."),
     "dex pc-receiver-plan": ("Use Microsoft's Wireless Display receiver when vendor shell activation is denied.", "adapt dex pc-receiver-plan --json", "The plan performs no installation. The Windows optional feature needs administrator approval and native phone/receiver pairing."),
+    "dex receiver-plan": ("Compare the two PC receiver routes and read the native receiver's build steps, security posture and commands.", "adapt dex receiver-plan --json", "The plan runs nothing and checks nothing on this PC. The native receiver is experimental source you build yourself; it is not in the Python wheel."),
+    "dex receiver-status": ("Read what the native receiver recorded in its own status file: not running, starting, ready, connecting, streaming or not working.", "adapt dex receiver-status --json\nadapt dex receiver-status --data-dir DIRECTORY", "Read-only. Advertising is not a working desktop, and a decoded frame does not certify input, audio or Samsung DeX. A status file whose process is gone is reported as stale."),
+    "dex receiver-start": ("Start a receiver you built and wait until it is advertising; choose this PC on the phone afterwards.", "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes\nadapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --expect-name PHONE_NAME --yes", "This advertises the PC over Wi-Fi Direct and opens TCP 7236 on every IPv4 interface. Admission is open unless you restrict it, and the restrictions are not authentication. ADAPT does not build, find or download the program."),
+    "dex receiver-stop": ("Ask the native receiver to close through its stop request and wait a bounded time.", "adapt dex receiver-stop --yes", "ADAPT never ends a process by ID. A stop that is not confirmed stays pending; close the receiver window yourself if it is stuck."),
     "dex inspect": ("Check Samsung identity, desktop-mode evidence, and existing logical displays.", "adapt dex inspect -s SERIAL --json", "Unknown service/output stays unknown; no DeX session is started."),
     "dex list-displays": ("Discover current logical display IDs; do not assume the desktop is display 2.", "adapt dex list-displays -s SERIAL", "Standalone DeX on display 0 is not a second phone-plus-desktop surface."),
     "dex plan-dual-mirror": ("Select the existing nonzero desktop display you observed in inspection.", "adapt dex plan-dual-mirror -s SERIAL --dex-display ID", "The plan launches nothing and labels unconfirmed external displays clearly."),
@@ -152,7 +195,7 @@ def tips_enabled(ctx: click.Context | None = None) -> bool:
 
 def emit_context_tip(topic: str, ctx: click.Context | None = None) -> None:
     ctx = ctx or _TIP_CONTEXT.get()
-    if topic in {"help-me", "tips", "mcp", "done"} or not tips_enabled(ctx):
+    if topic in {"help-me", "tips", "mcp", "done", "explain"} or not tips_enabled(ctx):
         return
     if not all(getattr(stream, "isatty", lambda: False)() for stream in (sys.stdin, sys.stdout, sys.stderr)):
         return
@@ -183,6 +226,16 @@ def command_inventory(root: click.Command) -> list[dict[str, Any]]:
     return records
 
 
+def linked_failures(*topics: str) -> list[dict[str, str]]:
+    """Failure guides whose help topic or raising command matches; help points to failures."""
+    wanted = {t for t in topics if t}
+    ids = [g.id for g in GUIDES.values() if g.help_topic in wanted or wanted & set(g.commands)]
+    if not ids:
+        return []
+    from adapt_adb.failure_report import list_entries
+    return list_entries(ids)
+
+
 def guide_payload(root: click.Command, topic: str | None, all_commands: bool) -> dict[str, Any]:
     inventory = command_inventory(root)
     if all_commands:
@@ -192,15 +245,23 @@ def guide_payload(root: click.Command, topic: str | None, all_commands: bool) ->
         key = topic.strip().lower().removeprefix("adapt ")
         alias = {"wireless": "pair", "device_manager": "doctor", "udev": "doctor", "recheck": "doctor"}.get(key, key)
         if alias not in available:
+            failure_id = RENAMED.get(key, key)
+            if failure_id in GUIDES:  # Failure IDs are answered here too (same as adapt explain ID).
+                from adapt_adb.failure_report import failure_payload, resolve
+                return {"topic": key, "failure": failure_payload(resolve(failure_id), full=True)}
             raise ValueError("Unknown help topic. Run 'adapt help-me --all' for available commands.")
         return {"topic": key, "how_to": list(HOW_TO.get(key) or HOW_TO.get(key.split(" ")[0]) or (f"Use adapt {key} --help for available arguments.",)),
-                "commands": [r for r in inventory if r["command"] == f"adapt {alias}" or r["command"].startswith(f"adapt {alias} ")]}
+                "commands": [r for r in inventory if r["command"] == f"adapt {alias}" or r["command"].startswith(f"adapt {alias} ")],
+                "failures": linked_failures(key, alias, *(("connect",) if key == "wireless" else ()))}
     return {"start_here": ["adapt doctor", "adapt devices", "adapt help-me wireless", "adapt tools list", "adapt help-me --all"],
             "description": "Choose a topic for step-by-step help, or --all for every registered command and option.",
             "topics": sorted((available - {"adapt"}) | ({"wireless"} if "pair" in available else set())), "tips_controls": ["adapt tips off", "adapt tips on", "adapt --no-tips COMMAND"]}
 
 
 def render_guide(payload: dict[str, Any]) -> str:
+    if "failure" in payload:
+        from adapt_adb.failure_report import render_explain, resolve
+        return render_explain(resolve(payload["failure"]["id"]))
     lines = ["ADAPT / HELP ME", ""]
     if "description" in payload:
         lines += [payload["description"], "", *payload["start_here"], "", "Topics:", *("  " + t for t in payload["topics"])]
@@ -211,6 +272,9 @@ def render_guide(payload: dict[str, Any]) -> str:
         lines += [f"  {flag}  {description}" for flag, description in command["parameters"]]
         lines += ["  " + step.replace("\n", "\n  ") for step in command.get("how_to", [])]
         lines.append("")
+    if payload.get("failures"):
+        lines += ["Common failures:", *(f"  {f['id']}  {f['summary']}" for f in payload["failures"]),
+                  "  Details: adapt explain ID", ""]
     if "tips_controls" in payload:
         lines += ["Tips:", *("  " + t for t in payload["tips_controls"])]
     return "\n".join(lines)

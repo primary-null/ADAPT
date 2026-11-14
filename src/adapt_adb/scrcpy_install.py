@@ -8,6 +8,7 @@ replaces an existing directory.  The public integration surface is
 
 from __future__ import annotations
 
+from adapt_adb.failure_report import tagged
 from adapt_adb.progress import operation
 
 import ctypes
@@ -76,21 +77,31 @@ class ScrcpyInstallError(RuntimeError):
 class UnsupportedScrcpyHostError(ScrcpyInstallError):
     """Raised when upstream publishes no approved asset for this host."""
 
+    failure_id = "scrcpy.unsupported_host"
+
 
 class ScrcpyConfirmationRequiredError(ScrcpyInstallError):
     """Raised when a non-interactive caller omitted explicit ``yes=True``."""
+
+    failure_id = "scrcpy.needs_confirmation"
 
 
 class ScrcpyInstallConflictError(ScrcpyInstallError):
     """Raised when safe placement would clobber an existing path or install."""
 
+    failure_id = "scrcpy.install_conflict"
+
 
 class ScrcpyIntegrityError(ScrcpyInstallError):
     """Raised when downloaded or extracted bytes do not match pinned evidence."""
 
+    failure_id = "scrcpy.integrity_failed"
+
 
 class ScrcpyArchiveSafetyError(ScrcpyInstallError):
     """Raised when an archive violates bounded safe-extraction policy."""
+
+    failure_id = "scrcpy.archive_unsafe"
 
 
 @dataclass(frozen=True)
@@ -260,9 +271,9 @@ def _normalized_install_root(
         else get_default_scrcpy_root(platform_name)
     ).expanduser()
     if not root.is_absolute():
-        raise ScrcpyInstallError(
+        raise tagged(ScrcpyInstallError(
             "Managed scrcpy install root must be absolute; refusing a cwd-relative write."
-        )
+        ), "scrcpy.install_failed")
     return root
 
 
@@ -451,31 +462,31 @@ def _validate_delivery_url(url: str, artifact: ScrcpyArtifact, *, initial: bool)
         parsed = urllib.parse.urlsplit(url)
         port = parsed.port
     except ValueError as exc:
-        raise ScrcpyIntegrityError("Release URL is malformed; refusing download.") from exc
+        raise tagged(ScrcpyIntegrityError("Release URL is malformed; refusing download."), "scrcpy.download_redirect_refused") from exc
     if parsed.scheme.lower() != "https":
-        raise ScrcpyIntegrityError("Release delivery must remain HTTPS on every redirect hop.")
+        raise tagged(ScrcpyIntegrityError("Release delivery must remain HTTPS on every redirect hop."), "scrcpy.download_redirect_refused")
     if parsed.username is not None or parsed.password is not None:
-        raise ScrcpyIntegrityError("Release URL must not contain credentials.")
+        raise tagged(ScrcpyIntegrityError("Release URL must not contain credentials."), "scrcpy.download_redirect_refused")
     if port not in (None, 443):
-        raise ScrcpyIntegrityError("Release URL must use the default HTTPS port.")
+        raise tagged(ScrcpyIntegrityError("Release URL must use the default HTTPS port."), "scrcpy.download_redirect_refused")
     if parsed.fragment:
-        raise ScrcpyIntegrityError("Release URL must not contain a fragment.")
+        raise tagged(ScrcpyIntegrityError("Release URL must not contain a fragment."), "scrcpy.download_redirect_refused")
 
     host = (parsed.hostname or "").lower()
     expected_path = urllib.parse.urlsplit(artifact.source_url).path
     if host == _GITHUB_HOST:
         if parsed.path != expected_path or parsed.query:
-            raise ScrcpyIntegrityError(
+            raise tagged(ScrcpyIntegrityError(
                 "GitHub release URL did not remain pinned to the approved tag and asset."
-            )
+            ), "scrcpy.download_redirect_refused")
     elif not initial and host == _ASSET_DELIVERY_HOST:
         if not parsed.path.startswith("/") or "\x00" in parsed.path:
-            raise ScrcpyIntegrityError("GitHub asset-delivery path is malformed.")
+            raise tagged(ScrcpyIntegrityError("GitHub asset-delivery path is malformed."), "scrcpy.download_redirect_refused")
         # Signed delivery queries are accepted in transit but never logged or persisted.
     else:
-        raise ScrcpyIntegrityError(
+        raise tagged(ScrcpyIntegrityError(
             "Release redirect left the narrowly approved GitHub asset-delivery hosts."
-        )
+        ), "scrcpy.download_redirect_refused")
 
 
 def _sanitize_url(url: str) -> str:
@@ -499,7 +510,7 @@ class _ScrcpyRedirectHandler(urllib.request.HTTPRedirectHandler):
         newurl: str,
     ) -> Any:
         if len(self.chain) >= _MAX_REDIRECTS:
-            raise ScrcpyIntegrityError("Release download exceeded the redirect limit.")
+            raise tagged(ScrcpyIntegrityError("Release download exceeded the redirect limit."), "scrcpy.download_redirect_refused")
         target = urllib.parse.urljoin(req.full_url, newurl)
         _validate_delivery_url(target, self.artifact, initial=False)
         self.chain.append(_sanitize_url(target))
@@ -556,9 +567,9 @@ def _download_artifact(
     except ScrcpyInstallError:
         raise
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise ScrcpyInstallError(
+        raise tagged(ScrcpyInstallError(
             "scrcpy download failed without installing; signed redirect details were not retained."
-        ) from None
+        ), "scrcpy.download_failed") from None
 
     actual = digest.hexdigest()
     if total != artifact.size:
@@ -822,9 +833,9 @@ def _atomic_place_no_clobber(source: Path, target: Path, host_os: str) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
     if renameat2 is None:
-        raise ScrcpyInstallError(
+        raise tagged(ScrcpyInstallError(
             "This Linux runtime lacks atomic no-clobber rename support; refusing unsafe placement."
-        )
+        ), "scrcpy.install_failed")
     renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
     renameat2.restype = ctypes.c_int
     result = renameat2(-100, os.fsencode(source), -100, os.fsencode(target), 1)
@@ -913,9 +924,9 @@ def install_scrcpy(
     try:
         lock_dir.mkdir()
     except FileExistsError as exc:
-        raise ScrcpyInstallConflictError(
+        raise tagged(ScrcpyInstallConflictError(
             "Another scrcpy installation is active or left a lock; refusing concurrent placement."
-        ) from exc
+        ), "scrcpy.install_locked") from exc
 
     archive_path: Path | None = None
     staging_dir: Path | None = None

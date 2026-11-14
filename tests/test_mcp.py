@@ -209,8 +209,10 @@ def test_targeting_no_device_and_unknown_device(monkeypatch):
             argv, 0, stdout="List of devices attached\n\n", stderr=""
         ),
     )
-    no_dev = tool_tap(x=10, y=20)
-    assert no_dev["error"] == "no_device"
+    assert tool_device_info()["error"] == "no_device"
+    # A tool that acts on the phone never resolves an unnamed device, even with none ready.
+    assert tool_tap(x=10, y=20)["error"] == "need_device"
+    assert tool_tap(x=10, y=20, device="SERIAL_A")["error"] == "unknown_device"
 
     monkeypatch.setattr(
         "subprocess.run",
@@ -364,11 +366,11 @@ def test_input_and_install_tools_always_pass_dash_s(monkeypatch):
     assert info["screen"] == {"width": 1080, "height": 2400, "density": 420}
     assert info["lock"] == "unlocked"
 
-    assert tool_tap(269, 940) == {"ok": True, "tapped": [269, 940]}
-    assert tool_swipe(100, 500, 100, 100, duration_ms=250) == {"ok": True}
-    assert tool_key("BACK") == {"ok": True, "key": "BACK"}
-    assert tool_type("hello world") == {"ok": True, "n": 11}
-    assert tool_install_apk("/tmp/app-debug.apk", reinstall=True) == {
+    assert tool_tap(269, 940, device="SERIAL_A") == {"ok": True, "tapped": [269, 940]}
+    assert tool_swipe(100, 500, 100, 100, duration_ms=250, device="SERIAL_A") == {"ok": True}
+    assert tool_key("BACK", device="SERIAL_A") == {"ok": True, "key": "BACK"}
+    assert tool_type("hello world", device="SERIAL_A") == {"ok": True, "n": 11}
+    assert tool_install_apk("/tmp/app-debug.apk", reinstall=True, device="SERIAL_A") == {
         "ok": True,
         "apk": "app-debug.apk",
         "reinstall": True,
@@ -443,7 +445,7 @@ def test_fake_adb_script_integration(tmp_path, monkeypatch):
 
     status = tool_setup_status()
     assert status["installed"] is True
-    assert status["would_download"] is False
+    assert status["would_download"] is True
 
 
 def test_doctor_exit_3_skips_device_listing_and_maps_daemon(tmp_path, monkeypatch):
@@ -644,8 +646,8 @@ def test_screenshot_error_utf8_binary_capture():
 
 
 @pytest.mark.parametrize("name,kwargs", [
-    ("tap", {"x": 1, "y": 2}), ("swipe", {"x1": 1, "y1": 2, "x2": 3, "y2": 4}),
-    ("key", {"key": "BACK"}), ("install_apk", {"apk": "app.apk"}), ("logcat_tail", {}),
+    ("tap", {"x": 1, "y": 2, "device": "A"}), ("swipe", {"x1": 1, "y1": 2, "x2": 3, "y2": 4, "device": "A"}),
+    ("key", {"key": "BACK", "device": "A"}), ("install_apk", {"apk": "app.apk", "device": "A"}), ("logcat_tail", {}),
 ])
 @pytest.mark.parametrize("stream", ["stderr", "stdout"])
 def test_subprocess_errors_bounded(name, kwargs, stream, monkeypatch):

@@ -31,21 +31,28 @@ implicitly granted by exposing read-only inspection tools.
 
 ## Start locally
 
-Install from a trusted local checkout:
+Users install the published wheel with pipx, adding the `mcp` extra. This is
+the form from the root [README](../README.md#download-and-install):
 
 ```text
-uv pip install -e ".[mcp]"
-adapt mcp --read-only
+pipx install "adapt-adb[mcp] @ https://github.com/primary-null/ADAPT/releases/download/v0.1.1/adapt_adb-0.1.1-py3-none-any.whl"
+pipx ensurepath
+adapt mcp --read-only --device SERIAL
 ```
+
+Contributors install from a trusted checkout instead
+([README](../README.md#install-from-a-checkout-contributors)):
+`python -m pip install -e ".[mcp]"`.
 
 The server waits for its client's protocol input; it is not an interactive
 question-and-answer console. Do not expect a menu from that process. It emits
 no banner or automatic help tips into protocol output.
 
-For Codex, the verified local registration form is:
+Replace `SERIAL` with the exact transport name that `adapt devices` prints.
+For Codex, the documented local registration form is:
 
 ```text
-codex mcp add adapt -- adapt mcp --read-only
+codex mcp add adapt -- adapt mcp --read-only --device SERIAL
 ```
 
 Or configure the equivalent in `~/.codex/config.toml`:
@@ -53,7 +60,7 @@ Or configure the equivalent in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.adapt]
 command = "adapt"
-args = ["mcp", "--read-only"]
+args = ["mcp", "--read-only", "--device", "SERIAL"]
 ```
 
 Use the full executable path if the AI application's PATH does not find ADAPT.
@@ -68,14 +75,16 @@ client's current schema and approval controls rather than assuming identical fil
   "mcpServers": {
     "adapt": {
       "command": "adapt",
-      "args": ["mcp", "--read-only"]
+      "args": ["mcp", "--read-only", "--device", "SERIAL"]
     }
   }
 }
 ```
 
-No published package availability is assumed; prefer a verified local
-installation instead of automatically installing a similarly named registry package.
+ADAPT is not published to PyPI. Install the release wheel as shown above, and
+do not install a similarly named registry package instead.
+
+The server announces itself as `adapt` with the installed ADAPT package version.
 
 ## Access is layered
 
@@ -104,17 +113,45 @@ information; choose whether the connected AI client should receive them.
 
 `--device` restricts device operations to exact supplied transport strings.
 Every device call in that session must include an allowed `device`, even when
-only one phone is connected. USB and Wi-Fi identifiers are separate allowed
+only one phone is connected. The one exception: in a session started with
+exactly one `--device` target, the tools that act on the phone (`tap`, `swipe`,
+`key`, `type`, `install_apk`) use that target when `device` is omitted, because
+the operator chose it explicitly. USB and Wi-Fi identifiers are separate allowed
 transports; permissions do not automatically follow a phone to a new endpoint.
 Device-list/error results are filtered. Whole-host `doctor` is hidden/blocked
 in a restricted session because it describes all transports. Host tool catalog
 and setup-status information are still available and are not device-scoped.
 
-Without these flags, the existing local tool set remains available; multiple
-ready transports still require disambiguation. Client approval prompts remain
+Without these flags, the full local tool set remains available. Read-only tools
+(`device_info`, `screenshot`, `ui_summary`, `logcat_tail`) use the only ready
+device when a call names none, and fail with `need_device` when several are
+ready. The tools that act on the phone never pick a device: a call without
+`device` returns `need_device` with the candidate list and does nothing, even
+with a single phone connected. Pass `device` with an exact transport from
+`list_devices`; the advertised schema lists `device` as required for these tools.
+Client approval prompts remain
 client-specific, and enabling an action tool does not make every future call
 user-approved. If you coordinate shared devices, use your own reservation
 process alongside ADAPT's exact-target restrictions.
+
+## Reading results and errors
+
+A failed call returns `is_error` with an `error` code, a fixed `message`, a
+`devices` list and an additive `failure` object (a stable `id`, causes, steps,
+`next_tool` and a `retry` value) that an agent can act on. Codes include
+`need_device`, `unknown_device`, `no_device`, `unsafe_shared_server` (the shared
+ADB server on port 5037 is unverified or unsafe, and ADAPT did not contact it),
+`adb_command_refused` (ADAPT's safety rules refused an adb command before it
+ran; the message never repeats the command) and `internal_error` (unexpected
+failure, with no exception text). The complete list and the `failure` shape are
+in [MCP access](mcp-access.md#errors).
+
+`doctor` reports the shared server as `daemon`: `ok`, `version_mismatch`,
+`root_owned`, `foreign_owner`, `unverified` or `missing_adb`; for the unsafe
+states `daemon_reason` carries ADAPT's short explanation (`null` otherwise).
+`setup_status` reports `installed`, and `distribution_package: true` when the
+adb is the Linux distribution's package: it counts as installed when it meets
+the minimum version, but it is not verified Google Platform-Tools.
 
 ## Useful AI test loop
 
@@ -172,5 +209,5 @@ this local stdio process. Remote deployment needs its own authenticated and
 scoped design; exposing raw ADB or adding an unauthenticated proxy is not an
 ADAPT setup step. See the [MCP security guidance](https://modelcontextprotocol.io/specification/latest/basic/security_best_practices).
 
-Checked 2026-11-12. Protocol tests use the installed official Python MCP SDK;
+Checked 2026-11-14. Protocol tests use the installed official Python MCP SDK;
 registration acceptance in each external AI application remains separate.

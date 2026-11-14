@@ -322,11 +322,15 @@ def test_capabilities_cli_json_error_is_machine_readable_and_redacted(monkeypatc
     result = CliRunner().invoke(android_app, ["capabilities", "-s", "private target", "--json"])
 
     assert result.exit_code == 1
-    assert json.loads(result.stdout) == {
+    payload = json.loads(result.stdout)
+    # Failure guidance Phase 2 adds one additive `failure` key; the original keys are unchanged.
+    failure = payload.pop("failure")
+    assert payload == {
         "error": "adb_error",
         "message": "ADB property inspection failed.",
         "ok": False,
     }
+    assert failure["id"] == "device.command_failed"
     assert "private target" not in result.stdout
 
 

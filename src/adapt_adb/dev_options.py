@@ -26,6 +26,7 @@ from typing import Any, Iterator
 import typer
 
 from adapt_adb.doctor import UnsafeAdbServerError, preflight_adb_server
+from adapt_adb.failure_report import FailureContext, attach_failure, classify, emit_failure
 
 
 SCHEMA_VERSION = 1
@@ -115,10 +116,21 @@ class DeviceIdentity:
 class DevOptionsError(RuntimeError):
     """A classified, user-actionable Developer Options failure."""
 
-    def __init__(self, kind: str, message: str, report: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        kind: str,
+        message: str,
+        report: dict[str, Any] | None = None,
+        *,
+        failure_id: str | None = None,
+    ):
         super().__init__(message)
         self.kind = kind
         self.report = report
+        if failure_id is not None:
+            # Names the specific failure where one kind covers several situations;
+            # failure_report.classify prefers it over the kind map.
+            self.failure_id = failure_id
 
 
 class AdbCommandError(DevOptionsError):
@@ -191,9 +203,9 @@ def _run_adb(adb_path: Path, serial: str, device_args: list[str]) -> str:
     except subprocess.TimeoutExpired as exc:
         raise AdbCommandError("timeout", "adb command timed out.") from exc
     except FileNotFoundError as exc:
-        raise AdbCommandError("missing_adb", "adb binary was not found.") from exc
+        raise AdbCommandError("missing_adb", "adb binary was not found.", failure_id="adb.exec_failed") from exc
     except OSError as exc:
-        raise AdbCommandError("adb_error", f"adb could not start: {exc}") from exc
+        raise AdbCommandError("adb_error", f"adb could not start: {exc}", failure_id="adb.exec_failed") from exc
 
     stdout = result.stdout or ""
     stderr = result.stderr or ""
@@ -368,7 +380,9 @@ def _assert_regular_snapshot(path: Path) -> None:
     try:
         mode = path.lstat().st_mode
     except OSError as exc:
-        raise DevOptionsError("snapshot_io", f"Cannot inspect snapshot: {exc}") from exc
+        raise DevOptionsError(
+            "snapshot_io", f"Cannot inspect snapshot: {exc}", failure_id="devopts.snapshot_unreadable"
+        ) from exc
     if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
         raise DevOptionsError("unsafe_snapshot", "Snapshot must be a regular, non-symlink file.")
 
@@ -405,7 +419,8 @@ def _device_lock(identity: DeviceIdentity) -> Iterator[None]:
         handle = lock_path.open("a+b")
     except OSError as exc:
         raise DevOptionsError(
-            "concurrent_operation", "Cannot open the per-device transaction lock."
+            "concurrent_operation", "Cannot open the per-device transaction lock.",
+            failure_id="devopts.lock_unavailable",
         ) from exc
     acquired = False
     try:
@@ -608,10 +623,14 @@ def apply_profile(
                     _save_snapshot(path, document)
                 except DevOptionsError as save_exc:
                     document["errors"].append(str(save_exc))
+                # "rolled_back" means a readback matched the original value; any "error"
+                # entry leaves the device state unconfirmed.
+                rolled_back = not any(item["state"] == "error" for item in entries)
                 raise DevOptionsError(
                     "apply_failed",
                     "Profile apply failed; rollback was attempted and the snapshot was retained.",
                     document,
+                    failure_id="devopts.apply_rolled_back" if rolled_back else None,
                 ) from exc
 
         document["status"] = "applied"
@@ -637,7 +656,10 @@ def _load_snapshot(path: Path) -> dict[str, Any]:
     except DevOptionsError:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise DevOptionsError("malformed_snapshot", f"Cannot read snapshot: {exc}") from exc
+        raise DevOptionsError(
+            "malformed_snapshot", f"Cannot read snapshot: {exc}",
+            failure_id="devopts.snapshot_unreadable" if isinstance(exc, OSError) else None,
+        ) from exc
     return _validate_snapshot(document)
 
 
@@ -718,11 +740,13 @@ def _validate_snapshot(document: Any) -> dict[str, Any]:
             raise DevOptionsError("malformed_snapshot", "Snapshot setting fields are invalid.")
         name = entry["name"]
         if name not in expected_names or name in seen:
-            raise DevOptionsError("untrusted_setting", "Snapshot contains an untrusted setting.")
+            raise DevOptionsError("untrusted_setting", "Snapshot contains an untrusted setting.",
+                                  failure_id="devopts.snapshot_untrusted")
         seen.add(name)
         spec = _SETTING_BY_NAME[name]
         if entry["table"] != spec.table or entry["key"] != spec.key:
-            raise DevOptionsError("untrusted_setting", "Snapshot table/key is not allowlisted.")
+            raise DevOptionsError("untrusted_setting", "Snapshot table/key is not allowlisted.",
+                                  failure_id="devopts.snapshot_untrusted")
         expected_user = device["android_user"] if spec.user_scoped else None
         if entry["user"] != expected_user:
             raise DevOptionsError("malformed_snapshot", "Snapshot setting user is invalid.")
@@ -987,11 +1011,17 @@ def _render_inspection(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _emit_error(exc: DevOptionsError, *, json_output: bool = False) -> None:
+def _emit_error(exc: DevOptionsError, *, json_output: bool = False, command: str = "dev-options") -> None:
+    # The first line and the JSON keys are unchanged; failure guidance is added after
+    # them (stderr in human mode, an additive `failure` key in JSON mode).
+    failure_id = classify(exc, area="dev_options")
+    context = FailureContext.from_runtime(command=command)
     if json_output:
-        typer.echo(json.dumps({"ok": False, "error": exc.kind, "message": str(exc)}))
+        payload = {"ok": False, "error": exc.kind, "message": str(exc)}
+        typer.echo(json.dumps(attach_failure(payload, failure_id, context)))
     else:
         typer.echo(f"Error: {exc}", err=True)
+        emit_failure(failure_id, context)
 
 
 dev_options_app = typer.Typer(
@@ -1010,7 +1040,7 @@ def inspect_command(
     try:
         report = inspect_device(serial)
     except DevOptionsError as exc:
-        _emit_error(exc, json_output=json_output)
+        _emit_error(exc, json_output=json_output, command="dev-options inspect")
         raise typer.Exit(1) from exc
     typer.echo(json.dumps(report, sort_keys=True) if json_output else _render_inspection(report))
 
@@ -1025,7 +1055,7 @@ def apply_command(
     try:
         report = apply_profile(profile, serial, snapshot)
     except DevOptionsError as exc:
-        _emit_error(exc)
+        _emit_error(exc, command="dev-options apply")
         raise typer.Exit(1) from exc
     typer.echo(f"Applied {profile}; recovery snapshot: {report['snapshot']}")
     typer.echo(report["note"])
@@ -1048,12 +1078,17 @@ def restore_command(
     try:
         report = restore_snapshot(serial, snapshot, accept_uncertain=accept_uncertain)
     except DevOptionsError as exc:
-        _emit_error(exc)
+        _emit_error(exc, command="dev-options restore")
         raise typer.Exit(1) from exc
     if not report["ok"]:
         for conflict in report["conflicts"]:
             typer.echo(f"Conflict: {conflict}", err=True)
         typer.echo(report["note"], err=True)
+        context = FailureContext.from_runtime(command="dev-options restore")
+        if report.get("status") == "restore_partial":
+            emit_failure("devopts.restore_partial", context)
+        else:
+            emit_failure("devopts.restore_conflict", context)
         raise typer.Exit(1)
     typer.echo(f"Restored snapshot: {report['snapshot']}")
     typer.echo(report["note"])

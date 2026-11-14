@@ -18,6 +18,8 @@ original CLI paths.
 - **Q**: exit the console.
 - **R** on a command detail page: enter arguments and run that original ADAPT
   command. Use double quotes for paths containing spaces. No shell is evaluated.
+  On the main branch (unreleased) the argument prompt also accepts `:b` to go
+  back, `:h` (or `H`) for the main screen and `:q` to exit.
 
 Opening menus performs no host/device checks or installations. Running a command
 is explicit and retains its existing prompts, confirmations and exact-target
@@ -25,6 +27,12 @@ requirements. Operations use their native output/prompts; after completion choos
 H for the main screen or Enter to return to the detail view. MCP's stdio server
 is launched through an AI client or the original `adapt mcp` CLI, outside this
 interactive browser.
+
+With tips on, a command's detail page also lists its `COMMON FAILURES` (failure
+ID and one-line summary; `adapt explain ID` shows causes and steps). When a run
+ends with a non-zero exit code, the status line adds that the command's own
+`Why:`/`Try:` notes are above it. `explain` is in the "Logs, help & preferences"
+area.
 
 The console redraws its viewport on transitions, keeps longer screens paged,
 and restores the original terminal buffer on exit. It does not erase terminal

@@ -17,6 +17,7 @@ import typer
 
 from adapt_adb import dev_options, ssh_worker
 from adapt_adb.adb import is_host_only_adb_command
+from adapt_adb.failure_report import FailureContext, attach_failure, classify, current_command, emit_failure, emit_pointer, tagged
 from adapt_adb.progress import operation
 from adapt_adb.safety import validate_adb_args
 
@@ -24,10 +25,35 @@ tailscale_app = typer.Typer(help="Tailscale mode: select tailnet peers, pair/con
 _V4 = ipaddress.ip_network("100.64.0.0/10")
 _V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 _HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
+_AUTH_STATE_HINTS: dict[str, tuple[str, str | None]] = {
+    "Running": ("running", None),
+    "NeedsLogin": ("needs_login", "Sign in with the Tailscale app or tailscale login; ADAPT changed nothing."),
+    "NeedsMachineAuth": ("needs_machine_auth", "Ask a tailnet admin to approve this device; ADAPT changed nothing."),
+    "Stopped": ("stopped", "Start the Tailscale application or service; ADAPT changed nothing."),
+    "Starting": ("starting", "Wait for Tailscale to start and retry; ADAPT changed nothing."),
+    "InUseOtherUser": ("in_use_other_user", "Another OS user owns the Tailscale daemon; ADAPT changed nothing."),
+    "NoState": ("no_state", "Start Tailscale and check its status; ADAPT changed nothing."),
+}
 
 
 class TailscaleError(ValueError):
     pass
+
+
+_AUTH_GUIDES = {"needs_login": "tailscale.needs_login", "needs_machine_auth": "tailscale.needs_machine_auth",
+                "in_use_other_user": "tailscale.in_use_other_user"}
+
+
+def report_failure_id(report: dict[str, Any]) -> str | None:
+    """Guide for a status, probe or worker-run report that is not a working result."""
+    status = report.get("status")
+    if status == "missing_client":
+        return "tailscale.not_found"
+    if status == "not_running":
+        return _AUTH_GUIDES.get(report.get("auth_state"), "tailscale.not_running")
+    if status == "tcp_unreachable":
+        return "tailscale.tcp_unreachable"
+    return ssh_worker.report_failure_id(report)  # worker-run returns an SSH worker report
 
 
 def resolve_tailscale() -> str | None:
@@ -51,7 +77,7 @@ def _execute(argv: list[str], *, timeout: int = 12, input: str | None = None) ->
             timeout=timeout, check=False, shell=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
     except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
-        raise TailscaleError("The selected local command failed or timed out; no fallback or service restart ran.") from exc
+        raise tagged(TailscaleError("The selected local command failed or timed out; no fallback or service restart ran."), "tailscale.local_command_failed") from exc
 
 
 def _tail_ip(value: Any) -> str | None:
@@ -73,15 +99,15 @@ def _clean(value: Any) -> str:
 def parse_status(text: str) -> dict[str, Any]:
     try:
         if len(text.encode("utf-8")) > 8 * 1024 * 1024:
-            raise ValueError()
+            raise tagged(ValueError(), "tailscale.status_unrecognized")
         raw = json.loads(text)
         if not isinstance(raw, dict) or not isinstance(raw.get("BackendState"), str):
-            raise ValueError()
+            raise tagged(ValueError(), "tailscale.status_unrecognized")
         source = raw.get("Peer")
         if source is None:
             source = {}
         if not isinstance(source, dict):
-            raise ValueError()
+            raise tagged(ValueError(), "tailscale.status_unrecognized")
         peers, malformed = [], 0
         for value in source.values():
             if not isinstance(value, dict):
@@ -95,46 +121,73 @@ def parse_status(text: str) -> dict[str, Any]:
                 "addresses": list(dict.fromkeys(ip for address in addresses if (ip := _tail_ip(address)))),
                 "online": value.get("Online") if type(value.get("Online")) is bool else None,
                 "expired": value.get("Expired") is True})
-        return {"schema_version": 1, "backend_state": _clean(raw["BackendState"]), "peers": peers,
+        self_val = raw.get("Self")
+        if isinstance(self_val, dict):
+            self_ips = self_val.get("TailscaleIPs")
+            self_addresses = list(dict.fromkeys(ip for address in self_ips if (ip := _tail_ip(address)))) if isinstance(self_ips, list) else []
+            self_dict: dict[str, Any] | None = {
+                "hostname": _clean(self_val.get("HostName")),
+                "dns_name": _clean(self_val.get("DNSName")).rstrip("."),
+                "addresses": self_addresses,
+            }
+        else:
+            self_dict = None
+        version_clean = _clean(raw.get("Version"))
+        client_version = version_clean if version_clean else None
+        return {"schema_version": 1, "backend_state": _clean(raw["BackendState"]),
+            "client_version": client_version, "self": self_dict, "peers": peers,
             "malformed_peer_records": malformed, "peer_contact": False,
             "note": "Cached local Tailscale daemon observations. Online does not prove ADB is listening or authorized. User/keys/auth URLs and full raw status are not returned."}
     except (ValueError, TypeError) as exc:
-        raise TailscaleError("Tailscale returned unrecognized or oversized status JSON.") from exc
+        raise tagged(TailscaleError("Tailscale returned unrecognized or oversized status JSON."), "tailscale.status_unrecognized") from exc
 
 
 def status() -> dict[str, Any]:
     binary = resolve_tailscale()
     if not binary:
-        return {"schema_version": 1, "status": "missing_client", "exit_code": 1, "peer_contact": False,
+        report = {"schema_version": 1, "status": "missing_client", "exit_code": 1, "peer_contact": False,
             "setup": "Install and sign into the official Tailscale client: https://tailscale.com/download"}
+        if os.environ.get("ADAPT_TAILSCALE", "").strip():
+            report["override_error"] = "ADAPT_TAILSCALE is set but does not point to an existing file; no other Tailscale client was tried."
+        return report
     result = _execute([binary, "status", "--json"])
     if result.returncode:
-        raise TailscaleError("Cannot read the local Tailscale daemon. Check its service/sign-in; no settings were changed.")
+        try:
+            report = parse_status(result.stdout)
+        except TailscaleError:
+            report = None
+        if report and report.get("backend_state") != "Running":
+            auth_state, hint = _AUTH_STATE_HINTS.get(report.get("backend_state", ""), ("unknown", "Check Tailscale status outside ADAPT; ADAPT changed nothing."))
+            return {**report, "status": "not_running", "exit_code": 1, "binary": binary, "auth_state": auth_state, "hint": hint}
+        raise tagged(TailscaleError("Cannot read the local Tailscale daemon. Check its service/sign-in; no settings were changed."), "tailscale.daemon_unreadable")
     report = parse_status(result.stdout)
-    return {**report, "status": "running" if report["backend_state"] == "Running" else "not_running",
-            "exit_code": 0 if report["backend_state"] == "Running" else 1, "binary": binary}
+    is_running = report.get("backend_state") == "Running"
+    auth_state, hint = _AUTH_STATE_HINTS.get(report.get("backend_state", ""), ("unknown", "Check Tailscale status outside ADAPT; ADAPT changed nothing."))
+    return {**report, "status": "running" if is_running else "not_running",
+            "exit_code": 0 if is_running else 1, "binary": binary,
+            "auth_state": auth_state, "hint": hint}
 
 
 def _validate_peer(peer: str) -> str:
     if not isinstance(peer, str) or peer != peer.strip() or not peer or len(peer) > 253:
-        raise TailscaleError("Use an exact tailnet peer name, ID, MagicDNS name or Tailscale IP.")
+        raise tagged(TailscaleError("Use an exact tailnet peer name, ID, MagicDNS name or Tailscale IP."), "tailscale.peer_invalid")
     candidate = peer[1:-1] if peer.startswith("[") and peer.endswith("]") else peer
     try:
         ipaddress.ip_address(candidate)
     except ValueError:
         if not _HOST.fullmatch(candidate.rstrip(".")) or any(not 1 <= len(label) <= 63 or label.startswith("-") or label.endswith("-") for label in candidate.rstrip(".").split(".")):
-            raise TailscaleError("Peer must be a tailnet name/address, not a URL, endpoint, shell expression or option.")
+            raise tagged(TailscaleError("Peer must be a tailnet name/address, not a URL, endpoint, shell expression or option."), "tailscale.peer_invalid")
     else:
         normalized = _tail_ip(candidate)
         if not normalized:
-            raise TailscaleError("Direct Tailscale mode accepts tailnet node IPs only; use an explicit worker for other networks.")
+            raise tagged(TailscaleError("Direct Tailscale mode accepts tailnet node IPs only; use an explicit worker for other networks."), "tailscale.peer_not_tailnet")
         return normalized
     return candidate.rstrip(".")
 
 
 def _port(port: int) -> int:
     if type(port) is not int or not 1 <= port <= 65535:
-        raise TailscaleError("Choose the current phone-displayed TCP port (1-65535); pairing and connection ports differ.")
+        raise tagged(TailscaleError("Choose the current phone-displayed TCP port (1-65535); pairing and connection ports differ."), "tailscale.port_invalid")
     return port
 
 
@@ -142,20 +195,30 @@ def _select(peer: str) -> dict[str, Any]:
     query = _validate_peer(peer).casefold()
     report = status()
     if report.get("status") != "running":
-        raise TailscaleError("Tailscale must be running and signed in on this PC before selecting a peer.")
+        hint = report.get("hint")
+        suffix = f" {hint}" if hint else ""
+        raise tagged(TailscaleError(f"Tailscale must be running and signed in on this PC before selecting a peer.{suffix}"), report_failure_id(report) or "tailscale.not_running")
     matches = []
     for candidate in report["peers"]:
         aliases = {candidate["peer_id"], candidate["hostname"], candidate["dns_name"], candidate["dns_name"].split(".")[0], *candidate["addresses"]}
         if query in {name.casefold() for name in aliases if name}:
             matches.append(candidate)
     if len(matches) != 1:
-        raise TailscaleError("Peer selection is missing or ambiguous. Run adapt tailscale peers and choose an exact unique name or IP.")
+        if not matches and isinstance(report.get("self"), dict):
+            self_node = report["self"]
+            self_dns = self_node.get("dns_name") or ""
+            self_aliases = {self_node.get("hostname"), self_dns, self_dns.split(".")[0], *self_node.get("addresses", [])}
+            if query in {name.casefold() for name in self_aliases if name}:
+                raise tagged(TailscaleError("The selected name or address is this PC's own Tailscale node; choose a remote peer from adapt tailscale peers."), "tailscale.peer_is_self")
+        raise tagged(TailscaleError("Peer selection is missing or ambiguous. Run adapt tailscale peers and choose an exact unique name or IP."),
+                     "tailscale.peer_ambiguous" if matches else "tailscale.peer_not_found")
     selected = matches[0]
     if selected["online"] is not True or selected["expired"] or not selected["addresses"]:
-        raise TailscaleError("The selected peer is offline, expired or has no usable tailnet address. No other peer was tried.")
+        raise tagged(TailscaleError("The selected peer is offline, expired or has no usable tailnet address. No other peer was tried."),
+                     "tailscale.peer_expired" if selected["expired"] else "tailscale.peer_offline")
     address = next((ip for ip in selected["addresses"] if ipaddress.ip_address(ip).version == 4), selected["addresses"][0])
     if sum(address in node["addresses"] for node in report["peers"]) != 1:
-        raise TailscaleError("The selected address is ambiguous in Tailscale status.")
+        raise tagged(TailscaleError("The selected address is ambiguous in Tailscale status."), "tailscale.address_ambiguous")
     return {**selected, "address": address}
 
 
@@ -167,7 +230,7 @@ def _endpoint(selected: dict[str, Any], port: int) -> str:
 def _still_selected(selected: dict[str, Any]) -> None:
     current = _select(selected["peer_id"])
     if current["peer_id"] != selected["peer_id"] or selected["address"] not in current["addresses"]:
-        raise TailscaleError("Tailnet peer identity/address changed during the operation. Inspect the selected endpoint; no automatic disconnect ran.")
+        raise tagged(TailscaleError("Tailnet peer identity/address changed during the operation. Inspect the selected endpoint; no automatic disconnect ran."), "tailscale.peer_changed")
 
 
 def plan(peer: str, port: int, *, pairing_port: int | None = None, mode: str = "tls") -> dict[str, Any]:
@@ -175,7 +238,7 @@ def plan(peer: str, port: int, *, pairing_port: int | None = None, mode: str = "
     if pairing_port is not None:
         _port(pairing_port)
     if mode not in {"tls", "legacy"}:
-        raise TailscaleError("ADB mode must be tls or explicit legacy.")
+        raise tagged(TailscaleError("ADB mode must be tls or explicit legacy."), "tailscale.mode_invalid")
     commands = []
     if pairing_port is not None:
         commands.append(["adapt", "tailscale", "pair", "--peer", peer, "--port", str(pairing_port)])
@@ -220,16 +283,18 @@ def _adb_query(adb: Path, endpoint: str, args: list[str]) -> str:
 
 def _check(selected: dict[str, Any], port: int, adb: Path, mode: str) -> dict[str, Any]:
     if mode not in {"tls", "legacy"}:
-        raise TailscaleError("ADB mode must be tls or explicit legacy.")
+        raise tagged(TailscaleError("ADB mode must be tls or explicit legacy."), "tailscale.mode_invalid")
     endpoint = _endpoint(selected, port)
     if _adb_query(adb, endpoint, ["get-state"]) != "device":
-        raise TailscaleError("The exact tailnet ADB transport is not authorized and ready; no other transport was used.")
+        raise tagged(TailscaleError("The exact tailnet ADB transport is not authorized and ready; no other transport was used."), "tailscale.adb_not_ready")
     identity = dev_options._read_identity(adb, endpoint)
     model = _adb_query(adb, endpoint, ["shell", "getprop", "ro.product.model"])
     api = _adb_query(adb, endpoint, ["shell", "getprop", "ro.build.version.sdk"])
     tls = _adb_query(adb, endpoint, ["shell", "getprop", "service.adb.tls.port"])
     if mode == "tls" and (not re.fullmatch(r"[0-9]{1,3}", api) or int(api) < 30 or tls != str(port)):
-        raise TailscaleError("ADB responded, but its Android TLS listener did not match this port. The connection was left intact; inspect the current port or deliberately choose legacy mode.")
+        if not tls.strip() and re.fullmatch(r"[0-9]{1,3}", api) and int(api) >= 30:
+            raise tagged(TailscaleError("ADB responded, but the device reported no Wireless debugging TLS port (service.adb.tls.port is empty). The connection was left intact; re-read the current port on the phone's Wireless debugging screen or deliberately choose legacy mode."), "tailscale.tls_port_empty")
+        raise tagged(TailscaleError("ADB responded, but its Android TLS listener did not match this port. The connection was left intact; inspect the current port or deliberately choose legacy mode."), "tailscale.tls_port_mismatch")
     _still_selected(selected)
     from dataclasses import asdict
     return {"schema_version": 1, "status": "verified", "peer": selected, "serial": endpoint, "device": asdict(identity),
@@ -255,7 +320,7 @@ def connect(peer: str, port: int, *, mode: str = "tls") -> dict[str, Any]:
     result = _execute([str(adb), "connect", endpoint], timeout=30)
     text = (result.stdout or "").strip()
     if result.returncode or not any(line.startswith(("connected to " + endpoint, "already connected to " + endpoint)) for line in text.splitlines()) or re.search(r"cannot|failed|error|unable", text, re.I):
-        raise TailscaleError("ADB could not connect to the selected tailnet endpoint. Check pairing, current connection port and tailnet reachability; no fallback or disconnect ran.")
+        raise tagged(TailscaleError("ADB could not connect to the selected tailnet endpoint. Check pairing, current connection port and tailnet reachability; no fallback or disconnect ran."), "tailscale.connect_failed")
     return _check(selected, port, adb, mode)
 
 
@@ -263,7 +328,7 @@ def connect(peer: str, port: int, *, mode: str = "tls") -> dict[str, Any]:
 def pair(peer: str, port: int, code: str) -> dict[str, Any]:
     _port(port)
     if not isinstance(code, str) or not re.fullmatch(r"[0-9]{6}", code):
-        raise TailscaleError("Use the current six-digit pairing code through the hidden prompt or --code-stdin; never put it in argv.")
+        raise tagged(TailscaleError("Use the current six-digit pairing code through the hidden prompt or --code-stdin; never put it in argv."), "tailscale.pair_code_missing")
     selected = _select(peer); endpoint = _endpoint(selected, port)
     adb = dev_options._resolve_adb_path(None)
     from adapt_adb.doctor import preflight_adb_server
@@ -281,7 +346,8 @@ def pair(peer: str, port: int, code: str) -> dict[str, Any]:
             reason = "The endpoint did not complete the ADB pairing protocol (protocol/read failure)."
         else:
             reason = "Pairing failed or expired."
-        raise TailscaleError(reason + " Re-open the phone pairing dialog and use its current pairing port and code; raw output and the secret were discarded.")
+        raise tagged(TailscaleError(reason + " Re-open the phone pairing dialog and use its current pairing port and code; raw output and the secret were discarded."),
+                     "tailscale.pair_refused" if reason.startswith("The selected pairing port refused") else "tailscale.pair_failed")
     _still_selected(selected)
     return {"schema_version": 1, "status": "paired", "peer": selected, "pairing_endpoint": endpoint,
         "connection_verified": False, "note": "Pairing is host authorization, not a connection. Connect using the separate current connection port. Pairing code was not stored or returned."}
@@ -293,7 +359,7 @@ def adb_command(peer: str, port: int, args: list[str], *, mode: str = "tls") -> 
     if args and args[0] == "--":
         args = args[1:]
     if not args or args[0].startswith("-") or is_host_only_adb_command(args) or args[0] in {"connect", "disconnect", "pair", "tcpip", "usb", "devices", "start-server", "kill-server", "server", "root", "unroot", "reconnect", "attach", "detach"} or (args[0] == "forward" and "--remove-all" in args):
-        raise TailscaleError("Supply one device ADB command after --. Target, server, pairing and listener changes are managed separately.")
+        raise tagged(TailscaleError("Supply one device ADB command after --. Target, server, pairing and listener changes are managed separately."), "tailscale.adb_command_invalid")
     # Reject unsafe commands before even looking up a tailnet peer.
     validate_adb_args(["-s", "tailnet-placeholder:1", *args])
     report = check(peer, port, mode=mode)
@@ -306,44 +372,52 @@ def adb_command(peer: str, port: int, args: list[str], *, mode: str = "tls") -> 
 def disconnect(peer: str, port: int, *, yes: bool = False) -> dict[str, Any]:
     _port(port)
     if not yes:
-        raise TailscaleError("Disconnecting can stop sessions on this one transport; use --yes. No other transport is disconnected.")
+        raise tagged(TailscaleError("Disconnecting can stop sessions on this one transport; use --yes. No other transport is disconnected."), "tailscale.disconnect_needs_yes")
     selected = _select(peer); endpoint = _endpoint(selected, port)
     adb = dev_options._resolve_adb_path(None)
     from adapt_adb.doctor import preflight_adb_server
     preflight_adb_server(adb, ["disconnect", endpoint])
     result = _execute([str(adb), "disconnect", endpoint])
     if result.returncode or not (result.stdout or "").lower().startswith("disconnected "):
-        raise TailscaleError("Selected-endpoint disconnect was not confirmed; no broad disconnect was attempted.")
+        raise tagged(TailscaleError("Selected-endpoint disconnect was not confirmed; no broad disconnect was attempted."), "tailscale.disconnect_unconfirmed")
     return {"schema_version": 1, "status": "disconnected", "endpoint": endpoint, "peer": selected,
         "scope": "explicit_selected_transport_only", "phone_vpn_or_listener_changed": False}
 
 
 def worker(peer: str, *, action: str = "plan", operation: str = "inspect", device: str | None = None,
            user: str | None = None, remote_shell: str = "posix", remote_adapt: str = "adapt") -> dict[str, Any]:
-    _validate_peer(peer)
+    peer = _validate_peer(peer)
     if user is not None and not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}", user):
-        raise TailscaleError("Use a remote account name without shell syntax or @host.")
+        raise tagged(TailscaleError("Use a remote account name without shell syntax or @host."), "tailscale.worker_input_invalid")
     host = (user + "@" if user else "") + peer
     if action == "run":
         selected = _select(peer)
         host = (user + "@" if user else "") + selected["address"]
         return ssh_worker.run(host, operation=operation, device=device, remote_shell=remote_shell, remote_adapt=remote_adapt)
+    run_target_note = "worker-run resolves the peer in local Tailscale status and connects to its numeric tailnet address, so the SSH known_hosts entry must cover that address."
     if action == "mcp":
         return {**ssh_worker.mcp_config(host, devices=[device] if device else None, remote_shell=remote_shell, remote_adapt=remote_adapt),
-            "tailscale_peer_not_verified_offline": True}
+            "tailscale_peer_not_verified_offline": True, "run_target_note": run_target_note}
     if action != "plan":
-        raise TailscaleError("Unknown worker action.")
+        raise tagged(TailscaleError("Unknown worker action."), "tailscale.worker_input_invalid")
     return {**ssh_worker.plan(host, operation=operation, device=device, remote_shell=remote_shell, remote_adapt=remote_adapt),
-            "tailscale_peer_not_verified_offline": True,
+            "tailscale_peer_not_verified_offline": True, "run_target_note": run_target_note,
             "note": "Explicit SSH-worker plan over a tailnet name/address. The worker owns USB/ADB access. Existing SSH host-key and key/agent checks apply; no raw ADB-server exposure or fallback."}
 
 
 def _emit(fn, json_output: bool, **kwargs):
+    context = FailureContext.from_runtime(command=current_command())
     try:
         report = fn(**kwargs)
+        failure_id = report_failure_id(report)
     except (ValueError, dev_options.DevOptionsError, OSError, subprocess.SubprocessError) as exc:
         report = {"schema_version": 1, "status": "refused", "exit_code": 2, "error": str(exc)}
+        failure_id = classify(exc)
+    if json_output and failure_id:
+        report = attach_failure(report, failure_id, context)
     typer.echo(json.dumps(report, indent=2) if json_output else "ADAPT / TAILSCALE MODE\n" + json.dumps(report, indent=2))
+    if failure_id and not json_output:
+        emit_failure(failure_id, context) if report.get("exit_code", 0) else emit_pointer(failure_id)
     if report.get("exit_code", 0):
         raise typer.Exit(report["exit_code"])
 
@@ -395,7 +469,7 @@ def pair_command(peer: str = typer.Option(..., "--peer"), port: int = typer.Opti
         elif sys.stdin.isatty():
             code = getpass.getpass("Android pairing code: ").strip()
         else:
-            raise TailscaleError("Pairing needs a hidden terminal prompt or explicit --code-stdin; no secret argv option exists.")
+            raise tagged(TailscaleError("Pairing needs a hidden terminal prompt or explicit --code-stdin; no secret argv option exists."), "tailscale.pair_code_missing")
         return pair(peer, port, code)
     _emit(pairing, json_output)
 
@@ -413,6 +487,7 @@ def adb_command_cli(ctx: typer.Context, peer: str = typer.Option(..., "--peer"),
         code = adb_command(peer, port, list(ctx.args), mode=mode)
     except (ValueError, dev_options.DevOptionsError, OSError, subprocess.SubprocessError) as exc:
         typer.echo(str(exc), err=True)
+        emit_failure(classify(exc), FailureContext.from_runtime(command="tailscale adb"))
         raise typer.Exit(2) from exc
     raise typer.Exit(code)
 

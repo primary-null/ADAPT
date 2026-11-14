@@ -19,6 +19,7 @@ from typing import Any, Mapping
 import typer
 
 from adapt_adb.doctor import UnsafeAdbServerError, preflight_adb_server
+from adapt_adb.failure_report import FailureContext, attach_failure, classify, emit_failure
 
 
 SCHEMA_VERSION = 1
@@ -154,9 +155,13 @@ _FEATURES: tuple[dict[str, Any], ...] = (
 class AndroidSupportError(RuntimeError):
     """A classified error whose message is safe to expose without raw ADB output."""
 
-    def __init__(self, kind: str, message: str):
+    def __init__(self, kind: str, message: str, *, failure_id: str | None = None):
         super().__init__(message)
         self.kind = kind
+        if failure_id is not None:
+            # Names the specific failure where one kind covers several situations;
+            # failure_report.classify prefers it over the kind map.
+            self.failure_id = failure_id
 
 
 def resolve_adb() -> Path | None:
@@ -334,9 +339,13 @@ def _checked_adb_property(adb_path: Path, serial: str, key: str) -> str:
     except subprocess.TimeoutExpired as exc:
         raise AndroidSupportError("timeout", "ADB property inspection timed out.") from exc
     except FileNotFoundError as exc:
-        raise AndroidSupportError("missing_adb", "adb binary was not found; run 'adapt setup'.") from exc
+        raise AndroidSupportError(
+            "missing_adb", "adb binary was not found; run 'adapt setup'.", failure_id="adb.exec_failed"
+        ) from exc
     except OSError as exc:
-        raise AndroidSupportError("adb_error", "ADB property inspection could not start.") from exc
+        raise AndroidSupportError(
+            "adb_error", "ADB property inspection could not start.", failure_id="adb.exec_failed"
+        ) from exc
 
     stdout = result.stdout or ""
     stderr = result.stderr or ""
@@ -476,16 +485,21 @@ def _render_capabilities(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _emit_error(exc: AndroidSupportError, *, json_output: bool) -> None:
+def _emit_error(exc: AndroidSupportError, *, json_output: bool, command: str = "android capabilities") -> None:
+    # The first line and the JSON keys are unchanged; failure guidance is added after
+    # them (stderr in human mode, an additive `failure` key in JSON mode).
+    failure_id = classify(exc, area="android_support")
+    context = FailureContext.from_runtime(command=command)
     if json_output:
         typer.echo(
             json.dumps(
-                {"ok": False, "error": exc.kind, "message": str(exc)},
+                attach_failure({"ok": False, "error": exc.kind, "message": str(exc)}, failure_id, context),
                 sort_keys=True,
             )
         )
     else:
         typer.echo(f"Error: {exc}", err=True)
+        emit_failure(failure_id, context)
 
 
 android_app = typer.Typer(

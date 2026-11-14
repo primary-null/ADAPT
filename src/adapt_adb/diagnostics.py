@@ -17,6 +17,7 @@ import typer
 from adapt_adb import dev_options
 from adapt_adb.development import DevelopmentError, LOG_MAX_BYTES, _emit, export_logs, logs_app
 from adapt_adb.device_state import validate_target
+from adapt_adb.failure_report import classify, tagged
 from adapt_adb.progress import operation
 
 TAGS = {
@@ -82,7 +83,7 @@ _GUIDES = {
 
 def logging_guide(topic: str = "all") -> dict[str, Any]:
     if topic != "all" and topic not in _GUIDES:
-        raise DevelopmentError("Choose all, samsung, vendor, window, dex, print, wifi or app.")
+        raise tagged(DevelopmentError("Choose all, samsung, vendor, window, dex, print, wifi or app."), "logs.guide_topic_invalid")
     return {"schema_version": 1, "status": "offline_reference", "device_access": False,
             "topics": [{"topic": key, **value} for key, value in _GUIDES.items() if topic in {"all", key}],
             "ai_workflow": ["Observe device/build and select the failing subsystem", "Record original diagnostic switch states before manual changes", "Reproduce one bounded journey and capture its recent relevant logs", "Correlate timestamps with fresh UI evidence; distinguish a symptom from a verified cause", "Restore prior switch states; review sensitive data before sharing"],
@@ -109,16 +110,16 @@ def _read_logs(argv: list[str]) -> str:
             deadline = time.monotonic() + 10
             while process.poll() is None:
                 if os.fstat(stdout.fileno()).st_size > READ_MAX_BYTES or os.fstat(stderr.fileno()).st_size > STDERR_MAX_BYTES:
-                    raise DevelopmentError("Diagnostic log capture exceeded its byte budget; shorten --minutes. Captured contents were discarded.")
+                    raise tagged(DevelopmentError("Diagnostic log capture exceeded its byte budget; shorten --minutes. Captured contents were discarded."), "logs.budget_exceeded")
                 if time.monotonic() >= deadline:
-                    raise DevelopmentError("Diagnostic log capture timed out. Captured contents were discarded.")
+                    raise tagged(DevelopmentError("Diagnostic log capture timed out. Captured contents were discarded."), "logs.capture_timeout")
                 time.sleep(.02)
             stdout.seek(0); stderr.seek(0)
             data, errors = stdout.read(READ_MAX_BYTES + 1), stderr.read(STDERR_MAX_BYTES + 1)
             if len(data) > READ_MAX_BYTES or len(errors) > STDERR_MAX_BYTES:
-                raise DevelopmentError("Diagnostic log capture exceeded its byte budget; shorten --minutes.")
+                raise tagged(DevelopmentError("Diagnostic log capture exceeded its byte budget; shorten --minutes."), "logs.budget_exceeded")
             if process.returncode or re.search(rb"permission deni|securityexception|not permitted|access denied|(?:^|\n)\s*(?:error:|adb:)", errors, re.I):
-                raise DevelopmentError("Focused logcat capture failed or was denied; no broader fallback was attempted.")
+                raise tagged(DevelopmentError("Focused logcat capture failed or was denied; no broader fallback was attempted."), "logs.capture_failed")
             return data.decode("utf-8", errors="replace")
         finally:
             _stop(process)
@@ -128,23 +129,36 @@ def _read_logs(argv: list[str]) -> str:
 def capture_diagnostics(serial: str, *, topic: str, minutes: int = 2, lines: int = 200, level: str = "V") -> dict[str, Any]:
     validate_target(serial)
     if topic not in TAGS or type(minutes) is not int or not 1 <= minutes <= 10 or type(lines) is not int or not 1 <= lines <= 500 or level not in {"V", "D", "I", "W", "E", "F"}:
-        raise DevelopmentError("Choose window/dex/print, 1-10 minutes, 1-500 lines and V/D/I/W/E/F severity.")
-    adb = dev_options._resolve_adb_path(None)
-    identity = dev_options._read_identity(adb, serial)
-    clock = dev_options._run_adb(adb, serial, ["shell", "date", "+%s"])
+        raise tagged(DevelopmentError("Choose window/dex/print, 1-10 minutes, 1-500 lines and V/D/I/W/E/F severity."), "logs.args_invalid")
+    try:
+        adb = dev_options._resolve_adb_path(None)
+        identity = dev_options._read_identity(adb, serial)
+        clock = dev_options._run_adb(adb, serial, ["shell", "date", "+%s"])
+    except dev_options.DevOptionsError as exc:
+        raise tagged(DevelopmentError(str(exc)), classify(exc)) from exc
     if not re.fullmatch(r"[0-9]{9,11}", clock):
-        raise DevelopmentError("Device clock could not be read; no host-clock or whole-buffer fallback was used.")
+        raise tagged(DevelopmentError("Device clock could not be read; no host-clock or whole-buffer fallback was used."), "logs.clock_unreadable")
     since = str(int(clock) - minutes * 60) + ".000"
     argv = [str(adb), "-s", serial, "logcat", "-d", "-T", since, "-v", "threadtime", "-b", "main", "-b", "system", "-b", "crash", *[tag + ":" + level for tag in TAGS[topic]], "*:S"]
     try:
         text = _read_logs(argv)
     except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
-        raise DevelopmentError("Focused logcat capture was unavailable; captured contents were discarded.") from exc
-    if dev_options._read_identity(adb, serial) != identity:
-        raise DevelopmentError("Physical device/build/user changed during capture; captured contents were discarded.")
+        raise tagged(DevelopmentError("Focused logcat capture was unavailable; captured contents were discarded."), "adb.exec_failed" if isinstance(exc, OSError) else "logs.capture_failed") from exc
+    try:
+        current_identity = dev_options._read_identity(adb, serial)
+    except dev_options.DevOptionsError as exc:
+        raise tagged(DevelopmentError(str(exc)), classify(exc)) from exc
+    if current_identity != identity:
+        raise tagged(DevelopmentError("Physical device/build/user changed during capture; captured contents were discarded."), "logs.target_changed")
     raw = text.encode("utf-8")
     truncated = len(raw) > LOG_MAX_BYTES
-    records = [line for line in raw[-LOG_MAX_BYTES:].decode("utf-8", errors="ignore").splitlines() if not line.startswith("--------- beginning of ")]
+    if truncated:
+        tail = raw[-LOG_MAX_BYTES:]
+        nl = tail.find(b"\n")
+        tail = tail[nl + 1:] if nl != -1 else b""
+        records = [line for line in tail.decode("utf-8", errors="ignore").splitlines() if not line.startswith("--------- beginning of ")]
+    else:
+        records = [line for line in raw.decode("utf-8", errors="ignore").splitlines() if not line.startswith("--------- beginning of ")]
     truncated = truncated or len(records) > lines
     return {"schema_version": 1, "status": "captured", "serial": serial, "device": asdict(identity), "topic": topic,
             "tags": list(TAGS[topic]), "scope": "system_components_not_app_uid", "minutes": minutes,
@@ -168,6 +182,6 @@ def diagnostic_command(serial: str = typer.Option(..., "--serial", "-s"), topic:
         try:
             report = capture_diagnostics(serial, topic=topic, minutes=minutes, lines=lines, level=level)
         except dev_options.DevOptionsError as exc:
-            raise DevelopmentError(str(exc)) from exc
+            raise tagged(DevelopmentError(str(exc)), classify(exc)) from exc
         return export_logs(report, output) if output is not None else report
     _emit(capture, json_output)

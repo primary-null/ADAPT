@@ -348,6 +348,8 @@ def test_cli_setup_flags_yes_dry_run_no_path_json_and_code_3_gate(
     env_missing = _make_healthy_windows_env(tmp_path)
     env_missing.which_adb = None
     env_missing.path_executables = []
+    # No copy in setup's install folder either (a healthy one is registered, not re-downloaded).
+    env_missing.existing_paths = set()
     monkeypatch.setattr(cli_mod, "_ACTIVE_DOCTOR_ENV", env_missing)
 
     res_dry = runner.invoke(app, ["setup", "--yes", "--dry-run", "--no-path", "--json"])
@@ -481,7 +483,7 @@ def test_setup_noninteractive_requires_yes_cli(tmp_path, monkeypatch, json_outpu
     monkeypatch.setattr("sys.stderr.isatty", lambda: False)
     args = ["setup", "--force"] + (["--json"] if json_output else [])
     result = runner.invoke(app, args)
-    assert result.exit_code == 0  # Same pre-report exit code as an unconfirmed abort.
+    assert result.exit_code == 1  # Setup did not run: a healthy pre-flight 0 becomes 1.
     if json_output:
         report = json.loads(result.stdout)
         assert report["setup"]["action"] == "aborted_needs_yes"

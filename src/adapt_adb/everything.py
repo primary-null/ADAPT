@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from adapt_adb import android_support, dev_options, dex, device_state, desktop, development
 from adapt_adb.doctor import run_doctor_checks, run_setup_workflow
+from adapt_adb.failure_report import server_check_failure_id, tagged
 from adapt_adb.scrcpy_install import ScrcpyInstallError, install_scrcpy, plan_scrcpy
 from adapt_adb.tool_catalog import build_list_report
 
@@ -24,7 +25,7 @@ def _targets(devices: list[str] | None) -> list[str]:
     result = []
     for value in devices or []:
         if not isinstance(value, str) or not value or value != value.strip() or value.startswith("-") or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
-            raise EverythingError("Use complete nonblank device targets; no implicit target is selected.")
+            raise tagged(EverythingError("Use complete nonblank device targets; no implicit target is selected."), "everything.target_invalid")
         if value not in result:
             result.append(value)
     return result
@@ -96,7 +97,7 @@ def run_everything(*, yes: bool = False, dry_run: bool = False, devices: list[st
     if not yes:
         if confirm is None:
             if not sys.stdin.isatty() or not sys.stderr.isatty():
-                raise EverythingError("Non-interactive execution requires --yes. Use --dry-run to review the complete plan.")
+                raise tagged(EverythingError("Non-interactive execution requires --yes. Use --dry-run to review the complete plan."), "everything.noninteractive")
             sys.stderr.write(render_plan(plan) + "\n\nRun these supported setup and check steps? [y/N]: ")
             sys.stderr.flush()
             approved = sys.stdin.readline().strip().lower() in {"y", "yes"}
@@ -129,7 +130,7 @@ def run_everything(*, yes: bool = False, dry_run: bool = False, devices: list[st
                 result = run_setup_workflow(yes=True, force=False, no_path=no_path)
                 setup = result.get("setup", {})
                 action = setup.get("action", "unknown")
-                platform_ready = result.get("exit_code") in {0, 2} and action in {"installed", "noop_already_healthy"}
+                platform_ready = result.get("exit_code") in {0, 2} and action in {"installed", "noop_already_healthy", "path_registered", "noop_already_installed"}
                 unsafe = result.get("exit_code") == 3
                 steps.append({"step": "platform-tools", "status": "installed" if action == "installed" else "reused" if platform_ready else "blocked" if unsafe else "failed", "action": action, "report": result})
             except Exception:
@@ -188,6 +189,20 @@ def run_everything(*, yes: bool = False, dry_run: bool = False, devices: list[st
                         "reused": [s["step"] for s in steps if s["status"] == "reused"],
                         "manual_missing": [m["tool"] for m in missing_manual]},
             "note": "Completed independent steps are retained on partial failure; this batch is not an atomic rollback transaction."}
+
+
+def report_failure_id(report: dict[str, Any]) -> str | None:
+    """Guide for a batch result that is not `completed` (blocked, failed, or with manual steps)."""
+    status = report.get("status")
+    if status == "blocked":
+        # Name the specific shared-server problem when a host check recorded it.
+        for step in report.get("steps") or []:
+            checks = (step.get("report") or {}).get("checks") if isinstance(step.get("report"), dict) else None
+            server = next((c for c in checks or [] if isinstance(c, dict) and c.get("id") == "adb_server_5037"), None)
+            if server is not None and server.get("status") == "fail":
+                return server_check_failure_id(server)
+        return "everything.blocked"
+    return {"failed": "everything.step_failed", "completed_with_manual_steps": "everything.incomplete"}.get(status)
 
 
 def render_result(report: dict[str, Any]) -> str:

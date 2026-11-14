@@ -12,6 +12,8 @@ import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+# The only files allowed under adapt_adb/data/ in the wheel; each is required.
+WHEEL_DATA_FILES = ("adapt_adb/data/51-android.rules",)
 
 
 def version() -> str:
@@ -67,9 +69,12 @@ def check_dist(folder: Path, tag: str | None = None) -> list[dict]:
             raise ValueError("The installed adapt command is missing or incorrect")
         for name in ["adapt_adb/__main__.py", "adapt_adb/resources/dex_bridge/adapt-dex-bridge.jar",
                      "adapt_adb/resources/dex_bridge/build.json", info + "/licenses/LICENSE",
-                     info + "/licenses/THIRD-PARTY-NOTICES.md"]:
+                     info + "/licenses/THIRD-PARTY-NOTICES.md", *WHEEL_DATA_FILES]:
             if name not in names:
                 raise ValueError(f"Required wheel content missing: {name}")
+        stray = [n for n in names if n.startswith("adapt_adb/data/") and not n.endswith("/") and n not in WHEEL_DATA_FILES]
+        if stray:
+            raise ValueError(f"Unexpected package data file: {stray[0]}")
     with tarfile.open(source) as archive:
         for member in archive.getmembers():
             safe_name(member.name)

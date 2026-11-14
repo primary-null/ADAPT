@@ -1,14 +1,17 @@
 """ADB resolution, device enumeration, and subprocess management for ADAPT."""
 
 from adapt_adb.progress import operation
+from adapt_adb.failure_report import tagged
 
 import hashlib
 import hmac
+import http.client
 import logging
 import os
 import platform
 import re
 import shutil
+import ssl
 import stat
 import subprocess
 import sys
@@ -46,12 +49,17 @@ _PLATFORM_TOOLS_VERSION_RE = re.compile(
 )
 _MAX_PLATFORM_TOOLS_ZIP_BYTES = 256 * 1024 * 1024
 _MAX_REPOSITORY_XML_BYTES = 16 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 4096
+_MAX_MEMBER_BYTES = 256 * 1024 * 1024
+_MAX_EXPANDED_BYTES = 1024 * 1024 * 1024
 _DOWNLOAD_CHUNK_SIZE = 65536
 _HTTP_TIMEOUT_SECONDS = 30
 
 
 class AdbProbeError(RuntimeError):
     """Raised when a read-only ADB probe did not complete successfully."""
+
+    failure_id = "adb.enumeration_failed"  # failure guidance class default
 
 
 @dataclass(frozen=True)
@@ -129,6 +137,57 @@ def _candidate_meets_min_version(adb_path: Path) -> bool:
     return False
 
 
+ADB_OVERRIDE_VARS: tuple[str, ...] = ("ADAPT_ADB", "ADB_PATH")
+
+
+@dataclass(frozen=True)
+class AdbResolution:
+    """Which adb ADAPT's commands use, and where it came from.
+
+    ``source`` is ``override`` (ADAPT_ADB / ADB_PATH), ``path`` (the PATH search
+    location), ``fallback_location`` (another searched folder) or ``none``.
+    ``override_var`` names the first override variable that is set (its value is
+    never stored); ``override_missing`` is True when that value is not a file.
+    """
+
+    path: Path | None
+    source: str
+    override_var: str | None = None
+    override_missing: bool = False
+
+
+def resolve_adb_details() -> AdbResolution:
+    """Resolve the adb executable exactly as `resolve_adb` does, and report its source."""
+    override_var: str | None = None
+    override_missing = False
+    for env_var in ADB_OVERRIDE_VARS:
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            override_var = override_var or env_var
+            cand = Path(val).expanduser()
+            if cand.is_file():
+                return AdbResolution(cand.resolve(), "override", env_var, False)
+            override_missing = override_missing or env_var == override_var
+
+    valid_candidates: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+    for description, candidate in get_search_locations():
+        if candidate and candidate.is_file() and os.access(candidate, os.X_OK):
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                valid_candidates.append((resolved, "path" if description == "PATH" else "fallback_location"))
+
+    for cand, source in valid_candidates:
+        if _candidate_meets_min_version(cand):
+            return AdbResolution(cand, source, override_var, override_missing)
+
+    if valid_candidates:
+        cand, source = valid_candidates[0]
+        return AdbResolution(cand, source, override_var, override_missing)
+    return AdbResolution(None, "none", override_var, override_missing)
+
+
 def resolve_adb() -> Path | None:
     """Resolve the adb executable from known locations.
 
@@ -136,27 +195,7 @@ def resolve_adb() -> Path | None:
     whose version is >= 34.0.0; falls back to the first found executable if none meet 34.0.0.
     Never downloads and never kills server.
     """
-    for env_var in ("ADAPT_ADB", "ADB_PATH"):
-        val = os.environ.get(env_var, "").strip()
-        if val:
-            cand = Path(val).expanduser()
-            if cand.is_file():
-                return cand.resolve()
-
-    valid_candidates: list[Path] = []
-    seen: set[Path] = set()
-    for _, candidate in get_search_locations():
-        if candidate and candidate.is_file() and os.access(candidate, os.X_OK):
-            resolved = candidate.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                valid_candidates.append(resolved)
-
-    for cand in valid_candidates:
-        if _candidate_meets_min_version(cand):
-            return cand
-
-    return valid_candidates[0] if valid_candidates else None
+    return resolve_adb_details().path
 
 
 def get_adb_version(adb_path: Path) -> str | None:
@@ -244,11 +283,25 @@ def enrich_devices_long(
         item = by_serial[serial]
         item["model"] = meta.get("model", "").replace("_", " ")
         item["product"] = meta.get("product", "")
-        item["transport"] = (
-            meta.get("transport")
-            or ("local" if serial.startswith("emulator-") else "usb")
-        )
+        item["transport"] = meta.get("transport") or _transport_kind(serial)
     return result
+
+
+_NETWORK_SERIAL_RE = re.compile(r"^(?:\[[0-9A-Fa-f:.%]+\]|[^\s:]+):[0-9]{1,5}$")
+
+
+def _transport_kind(serial: str) -> str:
+    """Classify a transport from its serial: `local` (emulator), `tcp` (network) or `usb`.
+
+    `adb devices -l` does not say how a device is attached on every host, so this
+    reads the serial: a host:port endpoint or an mDNS service name (wireless
+    debugging, `adb-..._adb-tls-connect._tcp`) is a network transport.
+    """
+    if serial.startswith("emulator-"):
+        return "local"
+    if "._adb-tls-connect._tcp" in serial or "._adb._tcp" in serial or _NETWORK_SERIAL_RE.fullmatch(serial):
+        return "tcp"
+    return "usb"
 
 
 def get_connected_devices(adb_path: Path, *, server_checked: bool = False) -> list[dict[str, str]]:
@@ -504,6 +557,8 @@ def _validate_google_https_url(
 
 class GoogleRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Reject any redirect hop that leaves the configured HTTPS host allowlist."""
+
+    max_redirections = 5  # Explicit cap on redirect hops to prevent redirect loops.
 
     def __init__(self, hosts: frozenset[str]):
         super().__init__()
@@ -779,6 +834,25 @@ def _safe_extract_zip(zip_path: Path, staging_dir: Path) -> None:
     staging_resolved = staging_dir.resolve()
     with zipfile.ZipFile(zip_path, "r") as zf:
         infos = zf.infolist()
+        if len(infos) > _MAX_ARCHIVE_MEMBERS:
+            raise ValueError(
+                f"Archive member count ({len(infos)}) exceeds maximum allowed ({_MAX_ARCHIVE_MEMBERS})."
+            )
+
+        total_declared = 0
+        for member in infos:
+            if member.file_size < 0 or member.file_size > _MAX_MEMBER_BYTES:
+                raise ValueError(
+                    f"Archive member {member.filename!r} declared size ({member.file_size} bytes) "
+                    f"exceeds per-member limit ({_MAX_MEMBER_BYTES} bytes)."
+                )
+            total_declared += member.file_size
+        if total_declared > _MAX_EXPANDED_BYTES:
+            raise ValueError(
+                f"Archive total declared size ({total_declared} bytes) "
+                f"exceeds maximum allowed ({_MAX_EXPANDED_BYTES} bytes)."
+            )
+
         validated: list[tuple[zipfile.ZipInfo, list[str]]] = [
             (member, _validate_zip_member_path(member.filename, member.external_attr))
             for member in infos
@@ -789,6 +863,7 @@ def _safe_extract_zip(zip_path: Path, staging_dir: Path) -> None:
             parts[0] == "platform-tools" for parts in non_empty_parts
         )
 
+        total_extracted_bytes = 0
         for member, parts in validated:
             rel_parts = parts[1:] if strip_prefix and parts else parts
             if not rel_parts:
@@ -805,8 +880,25 @@ def _safe_extract_zip(zip_path: Path, staging_dir: Path) -> None:
                 continue
 
             dest_path.parent.mkdir(parents=True, exist_ok=True)
+            member_bytes = 0
             with zf.open(member, "r") as src_file, open(dest_path, "wb") as dst_file:
-                shutil.copyfileobj(src_file, dst_file)
+                while True:
+                    chunk = src_file.read(_DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    member_bytes += len(chunk)
+                    if member_bytes > _MAX_MEMBER_BYTES:
+                        raise ValueError(
+                            f"Archive member {member.filename!r} extracted size exceeded "
+                            f"per-member limit ({_MAX_MEMBER_BYTES} bytes)."
+                        )
+                    total_extracted_bytes += len(chunk)
+                    if total_extracted_bytes > _MAX_EXPANDED_BYTES:
+                        raise ValueError(
+                            f"Archive total extracted size exceeded limit "
+                            f"({_MAX_EXPANDED_BYTES} bytes)."
+                        )
+                    dst_file.write(chunk)
 
             if sys.platform != "win32":
                 perm_bits = (member.external_attr >> 16) & 0o777
@@ -928,23 +1020,32 @@ def download_and_extract_platform_tools(
         get_default_platform_tools_dir() if target_dir is None else Path(target_dir)
     ).expanduser().resolve()
 
-    _ensure_not_in_android_home(resolved_target)
+    try:
+        _ensure_not_in_android_home(resolved_target)
+    except ValueError as exc:
+        tagged(exc, "setup.android_home_target")
+        raise
     _validate_google_https_url(url, _ALLOWED_DOWNLOAD_HOSTS)
 
     digest_algo: str | None = None
     digest_to_verify: str | None = None
     if expected_sha256 is not None:
         digest_algo = "sha256"
-        digest_to_verify = normalize_sha256(expected_sha256)
+        try:
+            digest_to_verify = normalize_sha256(expected_sha256)
+        except ValueError as exc:
+            tagged(exc, "setup.sha256_invalid")
+            raise
     else:
         fetched = fetch_platform_tools_digest(url, manifest_url=manifest_url)
         if fetched is not None:
             digest_algo, digest_to_verify = fetched
         else:
-            raise RuntimeError(
-                "SHA-256 or SHA-1 digest unavailable for platform-tools download; "
-                "pass expected_sha256 to proceed."
-            )
+            raise tagged(RuntimeError(
+                "SHA-256 or SHA-1 digest unavailable for platform-tools download: the checksum "
+                "manifest could not be fetched (network, proxy or TLS inspection are possible reasons). "
+                "Retry, or pass --sha256 with a checksum from a source you trust."
+            ), "setup.digest_unavailable")
 
     dest_parent = resolved_target.parent
     dest_parent.mkdir(parents=True, exist_ok=True)
@@ -962,23 +1063,38 @@ def download_and_extract_platform_tools(
     )
 
     try:
-        actual_sha256, actual_sha1 = _download_to_path_with_digests(url, tmp_zip_path)
+        try:
+            actual_sha256, actual_sha1 = _download_to_path_with_digests(url, tmp_zip_path)
+        except ValueError as exc:  # size limit exceeded
+            tagged(exc, "setup.archive_unsafe")
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, ssl.SSLError) as exc:
+            tagged(exc, "setup.download_failed")
+            raise
         if digest_to_verify is not None:
             if digest_algo == "sha1":
                 if not hmac.compare_digest(actual_sha1, digest_to_verify):
-                    raise ValueError(
+                    raise tagged(ValueError(
                         f"SHA-1 checksum mismatch for {url}: "
                         f"expected {digest_to_verify}, got {actual_sha1}"
-                    )
+                    ), "setup.integrity_failed")
             else:
                 if not hmac.compare_digest(actual_sha256, digest_to_verify):
-                    raise ValueError(
+                    raise tagged(ValueError(
                         f"SHA-256 checksum mismatch for {url}: "
                         f"expected {digest_to_verify}, got {actual_sha256}"
-                    )
+                    ), "setup.integrity_failed")
 
-        _safe_extract_zip(tmp_zip_path, staging_dir)
-        _verify_staged_adb_version(staging_dir)
+        try:
+            _safe_extract_zip(tmp_zip_path, staging_dir)
+        except (ValueError, zipfile.BadZipFile) as exc:
+            tagged(exc, "setup.archive_unsafe")
+            raise
+        try:
+            _verify_staged_adb_version(staging_dir)
+        except RuntimeError as exc:
+            tagged(exc, "setup.staged_adb_invalid")
+            raise
         _atomic_swap_dir(staging_dir, resolved_target)
         return actual_sha256
     finally:

@@ -528,13 +528,16 @@ def test_setup_forwards_expected_sha256_and_supports_legacy_2arg_downloader(
     assert len(legacy_calls) == 1
 
     # Passing expected_sha256 to a 2-arg downloader that cannot verify it must fail closed
-    with pytest.raises(TypeError, match="expected_sha256"):
-        run_setup_workflow(
-            _missing_env(),
-            yes=True,
-            expected_sha256=expected_digest,
-            downloader=lambda url, dest: None,
-        )
+    report_unverifiable = run_setup_workflow(
+        _missing_env(),
+        yes=True,
+        expected_sha256=expected_digest,
+        downloader=lambda url, dest: None,
+    )
+    assert report_unverifiable["setup"]["action"] == "failed"
+    assert report_unverifiable["setup"]["downloaded"] is False
+    assert "expected_sha256" in report_unverifiable["error"]
+    assert report_unverifiable["exit_code"] != 0
 
 
 def _make_missing_adb_env(tmp_path: Path) -> DoctorEnv:

@@ -10,6 +10,7 @@ import typer
 
 from adapt_adb.development import _emit, validate_package
 from adapt_adb.device_state import validate_target
+from adapt_adb.failure_report import FailureContext, classify, emit_failure
 
 rapid_app = typer.Typer(help="Rapid ADAPT option within ADAPT: check, prepare, reproduce, capture and restore. Start with a plan.", no_args_is_help=True)
 
@@ -61,6 +62,7 @@ def plan_command(serial: str = typer.Option(..., "--serial", "-s"), package: str
         report = plan(serial, package=package, session_dir=session_dir, fast_ui=fast_ui)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
+        emit_failure(classify(exc), FailureContext.from_runtime(command="rapid plan"))
         raise typer.Exit(2) from exc
     typer.echo("ADAPT / RAPID ADAPT OPTION / TEST LOOP / PLAN ONLY")
     for step in report["steps"]:

@@ -79,6 +79,56 @@ failure or non-JSON errors produce explicit failure, never a local fallback.
 Raw SSH stderr is not copied into reports. Worker diagnostic exit codes 0–3 and
 its JSON are retained. A successful SSH command is not device-feature proof.
 
+## Failure reasons
+
+On the main branch (unreleased; 0.1.1 does not have this), when the SSH client
+itself fails (exit 255) the `ssh_failed` report keeps its existing keys and
+adds `ssh_failure_reason` and `hint`. ADAPT chooses the reason by matching well-known OpenSSH client messages in the captured stderr, then
+discards that text: only the fixed reason code and fixed sentences below are
+reported, so host names, addresses, user names and key paths never appear in a
+report. For a classified reason, `error` starts with a short specific statement
+and still ends with the original generic sentence; for `unknown` it is exactly
+the original sentence. The first matching row wins, so a changed host key is
+never reported as an unknown one and a key-file problem is not reported as plain
+authentication failure.
+
+| `ssh_failure_reason` | OpenSSH message it matches | Check next |
+| --- | --- | --- |
+| `host_key_changed` | `REMOTE HOST IDENTIFICATION HAS CHANGED`, `Offending ... key`, `Host key for ... has changed` | The stored key no longer matches: verify with the worker's administrator before altering known_hosts. |
+| `host_key_unknown` | `Host key verification failed`, `No ... host key is known` | Connect once with ssh yourself and verify the fingerprint out of band; ADAPT never accepts host keys. |
+| `name_resolution_failed` | `Could not resolve hostname` | Host name or alias, SSH config, DNS, or use the IP address. |
+| `connection_refused` | `Connection refused` | SSH server running on the selected port; firewall. |
+| `connection_timed_out` | `timed out`, `Timeout, server ... not responding` | Worker reachable, address and port right, firewall or VPN. |
+| `network_unreachable` | `No route to host`, `Network is unreachable` | This PC's network, VPN or tailnet and the route to the worker. |
+| `connection_closed` | `Connection closed by`, `Connection reset by`, `kex_exchange_identification`, `closed by remote host`, `Broken pipe` | Worker SSH server logs and access limits; proxy or jump host. |
+| `identity_file_problem` | `bad permissions`, `UNPROTECTED PRIVATE KEY FILE`, `no such identity`, `Load key "`, `Identity file ... not accessible` | The key file exists, is a valid private key and is readable only by you. |
+| `authentication_failed` | `Permission denied (...)`, `Too many authentication failures`, `No more authentication methods` | Batch mode cannot prompt for a password or passphrase: load a key in the agent or give the identity option. |
+| `unknown` | nothing above | Run the command from `adapt ssh plan` in a terminal to read ssh's own message. |
+
+Matching is best effort. Messages that OpenSSH builds from the operating system's
+error text (refused, timed out, no route, unreachable, reset, broken pipe) can be
+translated on a non-English system and then fall back to `unknown`. Exit 255 is
+also what a remote command can return, so a worker-side 255 is indistinguishable
+from an ssh failure.
+
+When the worker's reply is not one ADAPT JSON object, the `invalid_response`
+report keeps its existing `error` and adds `response_reason` and `hint`, chosen
+from the exit code, stderr and stdout, which are likewise not copied. Replies
+that exceed the size limits keep their existing, already specific `error`.
+
+| `response_reason` | Chosen when |
+| --- | --- |
+| `remote_shell_mismatch` | stderr shows a shell of the other family: PowerShell or cmd errors while `--remote-shell posix`, or a POSIX shell failing to find `powershell.exe` while `--remote-shell powershell`. |
+| `remote_adapt_not_found` | Exit 127, or stderr says `command not found`, `not found`, `is not recognized as` or `No such file or directory` for `adapt`. |
+| `empty_response` | No stdout. |
+| `not_json` | Stdout is present but is not one JSON object. |
+| `unexpected_exit_code` | Stdout is one JSON object but the exit code is outside 0-3. |
+
+Each reason code has its own failure guide (for example `ssh_failure_reason`
+`host_key_unknown` is `adapt explain ssh.host_key_unknown`). Human output prints
+it on stderr after the report; with `--json` the report gains a `failure` object
+(see [help](help.md#failure-guidance)). Existing keys are unchanged.
+
 ## MCP over SSH
 
 ```text

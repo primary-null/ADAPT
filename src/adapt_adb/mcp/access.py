@@ -45,10 +45,23 @@ class AccessPolicy:
         # presented as device-scoped when a session has a target restriction.
         return not (self.allowed_devices is not None and name == "doctor")
 
+    def default_device(self, name: str) -> str | None:
+        """Target a tool that acts on the phone uses when the call names none, else ``None``.
+
+        Only a session started with `--device` naming exactly one distinct target has such a
+        default: the operator chose it explicitly. Read-only tools never use this.
+        """
+        if name in MUTATING_TOOLS and self.allowed_devices is not None and len(set(self.allowed_devices)) == 1:
+            return self.allowed_devices[0]
+        return None
+
     def permits(self, name: str, arguments: dict[str, Any]) -> bool:
         if not self.exposes(name):
             return False
         if self.allowed_devices is not None and name in DEVICE_TOOLS:
+            if name in MUTATING_TOOLS and "device" not in arguments:
+                # No target named: the tool itself answers `need_device`; it never picks one.
+                return True
             return arguments.get("device") in self.allowed_devices
         return True
 

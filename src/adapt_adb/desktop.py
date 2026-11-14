@@ -15,6 +15,8 @@ from adapt_adb.adb import resolve_adb
 from adapt_adb.device_state import DetectionError, probe, validate_target
 from adapt_adb.dex import DexError, parse_logical_displays, resolve_scrcpy
 from adapt_adb.doctor import preflight_adb_server
+from adapt_adb.failure_report import (FailureContext, UNANSWERED_STATUSES, attach_failure, cause_failure_id, classify,
+                                     current_command, emit_failure, emit_pointer, query_failure_id, tagged)
 from adapt_adb.progress import operation
 
 desktop_app = typer.Typer(help="Inspect desktop eligibility, enable recoverable test settings, and open a separate app display.")
@@ -25,11 +27,11 @@ def _adb(serial: str) -> Path:
     validate_target(serial)
     adb = resolve_adb()
     if adb is None:
-        raise DetectionError("ADB is missing; run adapt setup.")
+        raise tagged(DetectionError("ADB is missing; run adapt setup."), "adb.not_found")
     try:
         preflight_adb_server(adb, ["-s", serial, "shell", "getprop", "ro.build.version.sdk"])
     except Exception as exc:
-        raise DetectionError("ADB server safety could not be verified; no device operation attempted.") from exc
+        raise tagged(DetectionError("ADB server safety could not be verified; no device operation attempted."), cause_failure_id(exc, "adb.server.unverified")) from exc
     return adb
 
 
@@ -55,10 +57,10 @@ def inspect_device(serial: str) -> dict[str, Any]:
 def plan(serial: str, app: str, *, size: str = "1920x1080", dpi: int = 160, view_only: bool = False) -> dict[str, Any]:
     serial = validate_target(serial)
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", app):
-        raise DetectionError("--app must be an exact Android package name, not a command or component.")
+        raise tagged(DetectionError("--app must be an exact Android package name, not a command or component."), "app.package_invalid")
     match = re.fullmatch(r"([0-9]{3,4})x([0-9]{3,4})", size)
     if not match or not all(320 <= int(v) <= 4096 for v in match.groups()) or type(dpi) is not int or not 80 <= dpi <= 640:
-        raise DetectionError("Use a 320–4096 pixel size (WIDTHxHEIGHT) and DPI 80–640.")
+        raise tagged(DetectionError("Use a 320–4096 pixel size (WIDTHxHEIGHT) and DPI 80–640."), "desktop.geometry_invalid")
     argv = ["scrcpy", "-s", serial, f"--new-display={size}/{dpi}", f"--start-app={app}", "--no-audio", "--no-vd-destroy-content", "--window-title", "ADAPT Desktop Test"]
     if view_only:
         argv.append("--no-control")
@@ -71,16 +73,18 @@ def plan(serial: str, app: str, *, size: str = "1920x1080", dpi: int = 160, view
 def start(serial: str, app: str, *, yes: bool = False, size: str = "1920x1080", dpi: int = 160, view_only: bool = False) -> dict[str, Any]:
     report = plan(serial, app, size=size, dpi=dpi, view_only=view_only)
     if not yes:
-        raise DetectionError("Starting the app/display requires explicit --yes. Review desktop plan first.")
+        raise tagged(DetectionError("Starting the app/display requires explicit --yes. Review desktop plan first."), "desktop.confirmation_required")
     adb = _adb(serial)
     sdk = probe([str(adb), "-s", serial, "shell", "getprop", "ro.build.version.sdk"])
     if sdk["status"] != "observed" or not re.fullmatch(r"[0-9]{1,3}", sdk["value"]) or not 29 <= int(sdk["value"]) <= 37:
-        raise DetectionError("An observed Android 10–17 / API 29–37 target is required for this test workflow.")
+        api_seen = sdk["status"] == "observed" and re.fullmatch(r"[0-9]{1,3}", sdk["value"])
+        raise tagged(DetectionError("An observed Android 10–17 / API 29–37 target is required for this test workflow."),
+                     "desktop.api_unsupported" if api_seen else query_failure_id(sdk["status"], "desktop.inspect_partial"))
     client = resolve_scrcpy()
     version = probe([str(client), "--version"])
     match = re.search(r"\bscrcpy\s+v?(\d+)\.(\d+)(?:\.(\d+))?\b", version["value"] or "", re.I)
     if version["status"] != "observed" or not match or tuple(int(v or 0) for v in match.groups()) < (3, 1, 0):
-        raise DetectionError("A verified scrcpy 3.1+ client is required for new displays with app-content preservation.")
+        raise tagged(DetectionError("A verified scrcpy 3.1+ client is required for new displays with app-content preservation."), "desktop.scrcpy_unverified")
     argv = [str(client), *report["argv"][1:]]
     env = os.environ.copy()
     env["ADB"] = str(adb)
@@ -88,7 +92,7 @@ def start(serial: str, app: str, *, yes: bool = False, size: str = "1920x1080", 
         child = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
     except OSError as exc:
-        raise DetectionError("The desktop test client could not start.") from exc
+        raise tagged(DetectionError("The desktop test client could not start."), "desktop.client_start_failed") from exc
     return {**report, "argv": argv, "status": "process_started", "pid": child.pid, "device_access": True,
             "stream_health": "not_verified", "note": report["note"] + " No existing mirrors, device settings, transports or ADB servers were changed."}
 
@@ -96,18 +100,42 @@ def start(serial: str, app: str, *, yes: bool = False, size: str = "1920x1080", 
 def enable(serial: str, snapshot: Path, *, yes: bool = False) -> dict[str, Any]:
     validate_target(serial)
     if not yes:
-        raise DetectionError("Enabling desktop test settings requires --yes and a new recovery snapshot.")
+        raise tagged(DetectionError("Enabling desktop test settings requires --yes and a new recovery snapshot."), "desktop.confirmation_required")
     result = dev_options.apply_profile(PROFILE, serial, snapshot)
     return {**result, "status": "settings_applied", "desktop_shell": "not_verified", "manual_reboot_may_be_required": True,
             "note": "Settings were requested, not certified supported. No reboot is performed. Restore using dev-options restore with this snapshot."}
 
 
+def report_failure_id(report: dict[str, Any]) -> tuple[str | None, bool]:
+    """(guide, is_failure) for an inspection report: partial, or observed with unanswered queries."""
+    if "advertised_features" not in report:
+        return None, False
+    displays = report.get("displays") if isinstance(report.get("displays"), dict) else {}
+    statuses = [item.get("status") for item in (report.get("settings") or {}).values() if isinstance(item, dict)]
+    statuses += [displays["status"]] if displays.get("status") in UNANSWERED_STATUSES | {"denied"} else []
+    missing = [s for s in statuses if s in UNANSWERED_STATUSES | {"denied"}]
+    if report.get("status") == "partial":
+        # The API-level query's own status is not in the report; when no later query answered
+        # either, the device did not answer at all.
+        if missing and len(missing) == len(statuses):
+            return query_failure_id(missing[0], "desktop.inspect_partial"), True
+        return "desktop.inspect_partial", True
+    return (query_failure_id(missing[0], ""), False) if missing else (None, False)
+
+
 def _emit(fn, json_output: bool, **kwargs):
+    context = FailureContext.from_runtime(command=current_command())
     try:
         report = fn(**kwargs)
     except (DetectionError, DexError, dev_options.DevOptionsError) as exc:
-        typer.echo(json.dumps({"status": "refused", "error": str(exc)}) if json_output else str(exc), err=not json_output)
+        failure_id = classify(exc)
+        typer.echo(json.dumps(attach_failure({"status": "refused", "error": str(exc)}, failure_id, context)) if json_output else str(exc), err=not json_output)
+        if not json_output:
+            emit_failure(failure_id, context)
         raise typer.Exit(2)
+    failure_id, is_failure = report_failure_id(report)
+    if json_output and failure_id:
+        report = attach_failure(report, failure_id, context)
     if json_output:
         typer.echo(json.dumps(report, indent=2))
     else:
@@ -117,6 +145,11 @@ def _emit(fn, json_output: bool, **kwargs):
         if "settings" in report:
             typer.echo("Settings: " + json.dumps(report["settings"], indent=2))
         typer.echo(str(report.get("note", "")))
+        if failure_id:
+            emit_failure(failure_id, context) if is_failure else emit_pointer(failure_id, label="Some values were not observed:")
+        elif report.get("status") == "process_started":
+            # ADAPT does not watch scrcpy after starting it; name the guide for a missing window.
+            emit_pointer("desktop.no_window", label="If no window appears:")
     if report.get("status") == "partial":
         raise typer.Exit(2)
 

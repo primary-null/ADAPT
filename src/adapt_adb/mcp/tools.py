@@ -12,6 +12,9 @@ from typing import Any
 
 import adapt_adb.adb as _adb_mod
 from adapt_adb.adb import AdbProbeError
+from adapt_adb.doctor import UnsafeAdbServerError
+from adapt_adb.failure_guide import GUIDES
+from adapt_adb.failure_report import UNSAFE_SHARED_SERVER_MESSAGE, classify, tag_payload
 from adapt_adb.mcp.access import MAX_DEVICE_LENGTH
 from adapt_adb.render.screenshot import capture_screenshot_jpeg
 from adapt_adb.render.ui_summary import UiDumpUnavailableError, capture_ui_summary
@@ -28,8 +31,37 @@ DEFAULT_MAX_STRING_LENGTH = 4096
 MAX_OUTPUT_TEXT_CHARS = 2000
 
 
-def _device_prop() -> dict[str, Any]:
-    return {"type": "string", "minLength": 1, "maxLength": MAX_DEVICE_LENGTH}
+def _device_prop(*, explicit: bool = False) -> dict[str, Any]:
+    prop: dict[str, Any] = {"type": "string", "minLength": 1, "maxLength": MAX_DEVICE_LENGTH}
+    if explicit:
+        prop["description"] = (
+            "Exact transport name from list_devices. Required for this tool unless the server "
+            "was started with --device naming exactly one target."
+        )
+    return prop
+
+
+# Appended to the description of every tool that acts on the phone (see MUTATING_TOOLS).
+ACTS_ON_PHONE_NOTE = (
+    " Acts on the phone, so `device` must be named explicitly; ADAPT never picks a device for this tool."
+)
+
+# need_device message for a tool that acts on the phone and was called without `device`.
+EXPLICIT_DEVICE_MESSAGE = (
+    "This tool acts on the phone and requires an explicit `device`; ADAPT does not pick one, even "
+    "when only one device is connected. Pass `device` with an exact transport from `devices[].device`, "
+    "or start the server with `--device SERIAL`."
+)
+# Guide ID for that case. It takes effect once the failure-guide owner adds the guide; until then
+# failure_report falls back to the generic need_device mapping (device.multiple).
+EXPLICIT_DEVICE_FAILURE_ID = "device.explicit_required"
+
+# Preferred guide ID for a refused command; see refused_command_error() for the fallback.
+REFUSED_COMMAND_FAILURE_ID = "mcp.adb_command_refused"
+
+REFUSED_COMMAND_MESSAGE = (
+    "ADAPT's safety rules refused an adb command before it ran; it was not sent to the device."
+)
 
 
 def _coordinate_prop() -> dict[str, Any]:
@@ -95,11 +127,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "tap",
-        "description": "Tap screen coordinates (x, y) on the target device.",
+        "description": "Tap screen coordinates (x, y) on the target device." + ACTS_ON_PHONE_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": _device_prop(),
+                "device": _device_prop(explicit=True),
                 "x": _coordinate_prop(),
                 "y": _coordinate_prop(),
             },
@@ -108,11 +140,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "swipe",
-        "description": "Swipe from (x1, y1) to (x2, y2) over duration_ms on the target device.",
+        "description": "Swipe from (x1, y1) to (x2, y2) over duration_ms on the target device." + ACTS_ON_PHONE_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": _device_prop(),
+                "device": _device_prop(explicit=True),
                 "x1": _coordinate_prop(),
                 "y1": _coordinate_prop(),
                 "x2": _coordinate_prop(),
@@ -124,11 +156,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "key",
-        "description": "Send a hardware/navigation key event (BACK, HOME, ENTER, APP_SWITCH, POWER, DEL).",
+        "description": "Send a hardware/navigation key event (BACK, HOME, ENTER, APP_SWITCH, POWER, DEL)." + ACTS_ON_PHONE_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": _device_prop(),
+                "device": _device_prop(explicit=True),
                 "key": {
                     "type": "string",
                     "enum": list(ALLOWED_KEYS),
@@ -139,11 +171,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "type",
-        "description": "Type text on the target device using escaped `adb shell input text`.",
+        "description": "Type text on the target device using escaped `adb shell input text`." + ACTS_ON_PHONE_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": _device_prop(),
+                "device": _device_prop(explicit=True),
                 "text": {"type": "string", "maxLength": 2000},
             },
             "required": ["text"],
@@ -151,11 +183,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "install_apk",
-        "description": "Install an APK on the target device (`-r` by default to keep app data).",
+        "description": "Install an APK on the target device (`-r` by default to keep app data)." + ACTS_ON_PHONE_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
-                "device": _device_prop(),
+                "device": _device_prop(explicit=True),
                 "apk": {"type": "string", "minLength": 1, "maxLength": 1024},
                 "reinstall": {"type": "boolean", "default": True},
                 "grant": {"type": "boolean", "default": False},
@@ -214,7 +246,7 @@ for _tool_schema in TOOL_SCHEMAS:
             _prop.setdefault("maxLength", DEFAULT_MAX_STRING_LENGTH)
 
 
-from adapt_adb.safety import ForbiddenArgv, validate_adb_args as _safety_validate_adb_args
+from adapt_adb.safety import ForbiddenArgv, SafetyError, validate_adb_args as _safety_validate_adb_args
 
 
 class ForbiddenCommandError(ForbiddenArgv):
@@ -226,7 +258,10 @@ def tool_dex_inspect(device: str, *, displays_only: bool = False) -> dict[str, A
     try:
         return list_displays(device) if displays_only else inspect_device(device)
     except DexError as exc:
-        return {"error": exc.kind, "message": "DeX inspection failed; run the targeted CLI inspection for details.", "devices": []}
+        # `error` and `message` are unchanged; the remembered guide ID makes the dispatcher's
+        # `failure` object specific to this DexError (for example device.unreachable).
+        payload = {"error": exc.kind, "message": "DeX inspection failed; run the targeted CLI inspection for details.", "devices": []}
+        return tag_payload(payload, classify(exc, area="dex"))
 
 
 def tool_android_capabilities(device: str) -> dict[str, Any]:
@@ -234,7 +269,8 @@ def tool_android_capabilities(device: str) -> dict[str, Any]:
     try:
         return inspect_capabilities(device)
     except AndroidSupportError as exc:
-        return {"error": exc.kind, "message": truncate_text(exc), "devices": []}
+        return tag_payload({"error": exc.kind, "message": truncate_text(exc), "devices": []},
+                           classify(exc, area="android_support"))
 
 
 def tool_android_versions() -> dict[str, Any]:
@@ -247,7 +283,8 @@ def tool_developer_options_inspect(device: str) -> dict[str, Any]:
     try:
         return inspect_device(device)
     except DevOptionsError as exc:
-        return {"error": exc.kind, "message": "Developer Options inspection failed; run the targeted CLI inspection for details.", "devices": []}
+        payload = {"error": exc.kind, "message": "Developer Options inspection failed; run the targeted CLI inspection for details.", "devices": []}
+        return tag_payload(payload, classify(exc, area="dev_options"))
 
 
 def tool_catalog(goal: str | None = None) -> dict[str, Any]:
@@ -265,10 +302,15 @@ def tool_development(name: str, **arguments: Any) -> dict[str, Any]:
         arguments["serial"] = arguments.pop("device")
     try:
         report = operations[name](**arguments)
+    except SafetyError:
+        raise  # the dispatcher reports the refusal without echoing the argv
     except (ValueError, dev_options.DevOptionsError) as exc:
-        return {"error": "development_inspection_failed", "message": truncate_text(exc), "devices": []}
+        # `error` and `message` are unchanged; the remembered guide ID makes the dispatcher's
+        # `failure` object specific (for example device.unanswered for a phone that did not answer).
+        return tag_payload({"error": "development_inspection_failed", "message": truncate_text(exc), "devices": []}, classify(exc))
     if report.get("status") in {"failed", "inconclusive", "partial"}:
         report = {**report, "error": "checks_failed" if report["status"] == "failed" else "incomplete_evidence"}
+        return tag_payload(report, development.report_failure_id(report))
     return report
 
 
@@ -317,6 +359,28 @@ def truncate_text(text: Any, limit: int = MAX_OUTPUT_TEXT_CHARS, *, strip: bool 
 def _adb_error_message(proc: subprocess.CompletedProcess[Any], fallback: str) -> str:
     """Bounded error text from a failed adb process (stderr, else stdout, else fallback)."""
     return truncate_text(proc.stderr or proc.stdout or fallback) or fallback
+
+
+def unsafe_server_error(exc: BaseException) -> dict[str, Any]:
+    """Fail closed for an unverified/unsafe shared ADB server; ADAPT did not contact it.
+
+    The payload is a plain error dict that also remembers the specific guide ID
+    (endpoint, listener, owner or version) for the dispatcher's `failure` object.
+    """
+    payload = {"error": "unsafe_shared_server", "message": UNSAFE_SHARED_SERVER_MESSAGE, "devices": []}
+    return tag_payload(payload, classify(exc))
+
+
+def refused_command_error() -> dict[str, Any]:
+    """Payload for an adb argv the safety guard refused (`SafetyError`, `ForbiddenArgv`, `ForbiddenCommandError`).
+
+    The refused argv, the exception text and any device text are deliberately not echoed.
+    The MCP-specific guide is used once it exists; until then the CLI guide for refused
+    arguments describes the same situation.
+    """
+    payload = {"error": "adb_command_refused", "message": REFUSED_COMMAND_MESSAGE, "devices": []}
+    guide = REFUSED_COMMAND_FAILURE_ID if REFUSED_COMMAND_FAILURE_ID in GUIDES else "input.adb_args_refused"
+    return tag_payload(payload, guide)
 
 
 def _guard_adb_command(adb_path: Path, command_args: list[str]) -> None:
@@ -443,13 +507,20 @@ def _compact_device_list(devices: list[dict[str, str]]) -> list[dict[str, str]]:
 def resolve_target_device(
     adb_path: Path,
     requested_device: str | None = None,
+    *,
+    require_explicit: bool = False,
 ) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]]]:
     """Resolve target device serial according to MCP-V1 targeting rules.
+
+    With `require_explicit=True` (tools that act on the phone) a call that names no device is
+    answered with `need_device` and the candidate list, even if only one device is ready.
 
     Returns (serial, error_dict, all_devices).
     """
     try:
         devices = list_connected_devices(adb_path)
+    except UnsafeAdbServerError as exc:
+        return None, unsafe_server_error(exc), []
     except (AdbProbeError, subprocess.TimeoutExpired, OSError, ValueError):
         return (
             None,
@@ -464,6 +535,15 @@ def resolve_target_device(
     ready = [d for d in devices if d.get("state") == "device"]
 
     req = (requested_device or "").strip()
+    if not req and require_explicit:
+        return (
+            None,
+            tag_payload(
+                {"error": "need_device", "message": EXPLICIT_DEVICE_MESSAGE, "devices": compact},
+                EXPLICIT_DEVICE_FAILURE_ID,
+            ),
+            devices,
+        )
     if req:
         matched = next((d for d in devices if d["device"] == req), None)
         if matched is None:
@@ -517,6 +597,16 @@ def resolve_target_device(
         )
 
     return ready[0]["device"], None, devices
+
+
+def resolve_action_target(
+    adb_path: Path,
+    requested_device: str | None = None,
+) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]]]:
+    """Resolve the target of a tool that acts on the phone: the device must be named explicitly."""
+    if (requested_device or "").strip():
+        return resolve_target_device(adb_path, requested_device)
+    return resolve_target_device(adb_path, None, require_explicit=True)
 
 
 def _extract_version_number(adb_path: Path) -> str | None:
@@ -601,12 +691,27 @@ def tool_doctor() -> dict[str, Any]:
 
     unsafe_server = srv_exit_code == EXIT_UNSAFE_SHARED_SERVER
     daemon = "missing_adb"
+    daemon_reason: str | None = None
 
     if unsafe_server:
+        owner = srv_details.get("owner")
+        owner_uid = srv_details.get("owner_uid")
+        owner_matches = srv_details.get("owner_matches_current_user")
+        tmp_5037_root = bool(srv_details.get("tmp_5037_owner_is_root"))
+
+        # Doctor already decided whether the owner is root/SYSTEM; do not re-derive it here.
+        is_root_or_system = tmp_5037_root or bool(srv_details.get("owner_is_root_or_system"))
+
         if srv_details.get("version_mismatch"):
             daemon = "version_mismatch"
-        else:
+        elif is_root_or_system:
             daemon = "root_owned"
+        elif owner_matches is False and (owner is not None or owner_uid is not None):
+            daemon = "foreign_owner"
+        else:
+            daemon = "unverified"
+
+        daemon_reason = srv_check.get("summary") or "ADB server 5037 is in an unsafe state."
     elif adb_path is not None:
         if (
             srv_details.get("listening")
@@ -622,6 +727,10 @@ def tool_doctor() -> dict[str, Any]:
             if srv_ver is not None and cli_ver is not None and srv_ver != cli_ver:
                 unsafe_server = True
                 daemon = "version_mismatch"
+                daemon_reason = (
+                    srv_check.get("summary")
+                    or f"Running ADB server version ({srv_details.get('server_version')}) mismatches resolved adb ({adb_version})."
+                )
 
         if not unsafe_server:
             daemon = "ok"
@@ -644,6 +753,7 @@ def tool_doctor() -> dict[str, Any]:
         "adb_version": adb_version,
         "managed": managed,
         "daemon": daemon,
+        "daemon_reason": daemon_reason,
         "os": os_name,
         "driver_hint": "Google USB / WinUSB" if is_win else "udev 51-android.rules + plugdev",
         "udev": udev_status,
@@ -660,9 +770,8 @@ def tool_setup_status() -> dict[str, Any]:
     default_dir = _adb_mod.get_default_platform_tools_dir()
     path_env = os.environ.get("PATH", "")
     path_parts = [p.strip().lower() for p in path_env.split(os.pathsep) if p.strip()]
-    in_path = str(default_dir).lower() in path_parts or (
-        adb_path is not None and str(adb_path.parent).lower() in path_parts
-    )
+    adb_dir_on_path = adb_path is not None and str(adb_path.parent).lower() in path_parts
+    in_path = str(default_dir).lower() in path_parts or adb_dir_on_path
 
     if sys.platform == "win32":
         hints = ["Google USB driver if Device Manager shows Android"]
@@ -672,17 +781,21 @@ def tool_setup_status() -> dict[str, Any]:
         ]
 
     usable = False
+    distribution_package = False
     if adb_path is not None:
-        is_debian_apt = str(adb_path).replace("\\", "/") in ("/usr/bin/adb", "/bin/adb")
+        norm_path = str(adb_path).replace("\\", "/").lower()
+        distribution_package = norm_path in ("/usr/bin/adb", "/bin/adb") or norm_path.startswith("/usr/lib/android-sdk")
         ver_str = _extract_version_number(adb_path)
         parsed = parse_platform_tools_version(f"Version {ver_str}" if ver_str else None)
-        meets_min = bool(parsed.get("meets_minimum")) or (ver_str is not None and parsed.get("version_tuple") is None)
-        usable = not is_debian_apt and meets_min
+        # A distribution-packaged adb is usable when it meets the minimum (doctor warns about its
+        # origin instead of failing); an unparseable or older version is never usable.
+        usable = bool(parsed.get("meets_minimum"))
 
     return {
         "installed": usable,
+        "distribution_package": distribution_package,
         "adb_path": str(adb_path) if adb_path else str(default_dir / ("adb.exe" if sys.platform == "win32" else "adb")),
-        "would_download": not usable,
+        "would_download": not (usable and adb_dir_on_path),
         "would_path": not in_path,
         "os_hints": hints,
     }
@@ -699,6 +812,8 @@ def tool_list_devices() -> dict[str, Any]:
         }
     try:
         devices = list_connected_devices(adb_path)
+    except UnsafeAdbServerError as exc:
+        return unsafe_server_error(exc)
     except (AdbProbeError, subprocess.TimeoutExpired, OSError, ValueError):
         return {
             "error": "adb_probe_failed",
@@ -851,6 +966,8 @@ def tool_screenshot(
             runner=guarded_runner(adb_path),
         )
         return b64_jpeg, meta
+    except (SafetyError, UnsafeAdbServerError):
+        raise  # the dispatcher reports these with their specific codes
     except Exception:
         return None, {
             "error": "screenshot_failed",
@@ -893,6 +1010,8 @@ def tool_ui_summary(device: str | None = None, *, allow_device_file: bool = True
             ),
             "devices": [],
         }
+    except (SafetyError, UnsafeAdbServerError):
+        raise  # the dispatcher reports these with their specific codes
     except Exception:
         return {
             "error": "ui_summary_failed",
@@ -911,7 +1030,7 @@ def tool_tap(x: int, y: int, device: str | None = None) -> dict[str, Any]:
             "devices": [],
         }
 
-    serial, err, _ = resolve_target_device(adb_path, device)
+    serial, err, _ = resolve_action_target(adb_path, device)
     if err is not None or serial is None:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
@@ -943,7 +1062,7 @@ def tool_swipe(
             "devices": [],
         }
 
-    serial, err, _ = resolve_target_device(adb_path, device)
+    serial, err, _ = resolve_action_target(adb_path, device)
     if err is not None or serial is None:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
@@ -985,7 +1104,7 @@ def tool_key(key: str, device: str | None = None) -> dict[str, Any]:
             "devices": [],
         }
 
-    serial, err, _ = resolve_target_device(adb_path, device)
+    serial, err, _ = resolve_action_target(adb_path, device)
     if err is not None or serial is None:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
@@ -1024,7 +1143,7 @@ def tool_type(text: str, device: str | None = None) -> dict[str, Any]:
             "devices": [],
         }
 
-    serial, err, _ = resolve_target_device(adb_path, device)
+    serial, err, _ = resolve_action_target(adb_path, device)
     if err is not None or serial is None:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
@@ -1053,7 +1172,7 @@ def tool_install_apk(
             "devices": [],
         }
 
-    serial, err, _ = resolve_target_device(adb_path, device)
+    serial, err, _ = resolve_action_target(adb_path, device)
     if err is not None or serial is None:
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 

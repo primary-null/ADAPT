@@ -713,6 +713,36 @@ def build_plan_report(
     }
 
 
+# Guide per refused status of _error_report and the install command (failure guidance).
+_STATUS_GUIDES = {"invalid_goal": "tools.goal_invalid", "invalid_tool": "tools.tool_unknown",
+                  "invalid_context": "tools.context_invalid", "unsupported_tool": "tools.install_unsupported"}
+
+
+def _failure_id(report: dict[str, object], exc: BaseException | None = None) -> str | None:
+    from adapt_adb.failure_report import classify
+    if exc is not None:
+        found = classify(exc)
+        return "scrcpy.directory_unavailable" if found == "host.os_error" else found
+    if report.get("command") == "tools plan" and report.get("status") == "incomplete":
+        return "tools.plan_incomplete"
+    return _STATUS_GUIDES.get(str(report.get("status")))
+
+
+def _emit_report(report: dict[str, object], render: Callable[[dict[str, object]], str], json_output: bool) -> None:
+    """Print a list/info/plan report as before; failure guidance follows it (stderr or a `failure` key)."""
+    from adapt_adb.failure_report import FailureContext, attach_failure, current_command, emit_failure
+    failure_id = _failure_id(report)
+    context = FailureContext.from_runtime(command=current_command())
+    if json_output:
+        _emit_json(attach_failure(report, failure_id, context) if failure_id else report)
+    elif "error" in report:
+        typer.echo(render(report), err=True)
+    else:
+        typer.echo(render(report))
+    if failure_id and not json_output:
+        emit_failure(failure_id, context)
+
+
 def _error_report(command: str, status: str, error: str) -> dict[str, object]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -827,12 +857,7 @@ def list_tools(
     """List curated tools and observe their candidates on the current PATH."""
 
     report = build_list_report(goal)
-    if json_output:
-        _emit_json(report)
-    elif "error" in report:
-        typer.echo(_render_list(report), err=True)
-    else:
-        typer.echo(_render_list(report))
+    _emit_report(report, _render_list, json_output)
     if report["exit_code"]:
         raise typer.Exit(code=int(report["exit_code"]))
 
@@ -845,12 +870,7 @@ def info_tool(
     """Show provenance, license, acquisition, and PATH observation for a tool."""
 
     report = build_info_report(tool)
-    if json_output:
-        _emit_json(report)
-    elif "error" in report:
-        typer.echo(_render_info(report), err=True)
-    else:
-        typer.echo(_render_info(report))
+    _emit_report(report, _render_info, json_output)
     if report["exit_code"]:
         raise typer.Exit(code=int(report["exit_code"]))
 
@@ -865,12 +885,7 @@ def plan_tools(
     """Explain missing tools and acquisition boundaries without changing the host."""
 
     report = build_plan_report(goal, branch=branch, device=device)
-    if json_output:
-        _emit_json(report)
-    elif "error" in report:
-        typer.echo(_render_plan(report), err=True)
-    else:
-        typer.echo(_render_plan(report))
+    _emit_report(report, _render_plan, json_output)
     if report["exit_code"]:
         raise typer.Exit(code=int(report["exit_code"]))
 
@@ -891,8 +906,10 @@ def install_tool(
     def no_json_prompt(_message: str) -> bool:
         raise ScrcpyConfirmationRequiredError("JSON installation requires --yes; use --dry-run to preview.")
 
+    failure_id = None
     if tool.strip().casefold() != "scrcpy":
         payload = {"status": "unsupported_tool", "exit_code": 2, "error": "Managed installation currently supports only scrcpy."}
+        failure_id = _failure_id(payload)
     else:
         try:
             payload = install_scrcpy(yes=yes, dry_run=dry_run, confirm=no_json_prompt if json_output and not yes else None)
@@ -900,12 +917,18 @@ def install_tool(
         except ScrcpyInstallError as exc:
             refused = isinstance(exc, (ScrcpyConfirmationRequiredError, ScrcpyInstallConflictError, UnsupportedScrcpyHostError))
             payload = {"status": "refused" if refused else "failed", "exit_code": 2 if refused else 1, "error": str(exc)}
-        except OSError:
+            failure_id = _failure_id(payload, exc)
+        except OSError as exc:
             payload = {"status": "failed", "exit_code": 1, "error": "Cannot access the managed tool directory; no existing installation was replaced."}
+            failure_id = _failure_id(payload, exc)
+    from adapt_adb.failure_report import FailureContext, attach_failure, emit_failure
+    context = FailureContext.from_runtime(command="tools install")
     if json_output:
-        _emit_json(payload)
+        _emit_json(attach_failure(payload, failure_id, context) if failure_id else payload)
     elif payload["exit_code"]:
         typer.echo(f"FAILED / {payload['error']}", err=True)
+        if failure_id:
+            emit_failure(failure_id, context)
     elif payload["status"] == "cancelled":
         typer.echo("CANCELLED / Nothing installed.")
     elif payload["status"] == "dry_run":

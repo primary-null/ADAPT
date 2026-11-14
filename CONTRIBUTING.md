@@ -6,7 +6,7 @@ By contributing you agree that your contribution is licensed under the project's
 
 ## Ground rules
 
-1. **Safety invariants stay intact.** ADAPT never runs `adb kill-server` or `sudo adb`, refuses destructive package commands, requires an exact device target, verifies the port-5037 server before talking to it, keeps outputs bounded, and writes device settings only through allowlisted, snapshotted, read-back, restorable paths. A change that weakens one needs an explicit design discussion first.
+1. **Safety invariants stay intact.** ADAPT never runs `adb kill-server` or `sudo adb`, refuses destructive package commands, requires an exact device target (the documented exceptions: `adapt adb` and the read-only MCP tools use the only ready device when none is named, and the MCP tools that act on the phone default to the target of a one-target `--device` session), verifies the port-5037 server before talking to it, keeps outputs bounded, and writes device settings only through allowlisted, snapshotted, read-back, restorable paths. A change that weakens one needs an explicit design discussion first.
 2. **Claims stay at the evidence.** Do not write that something "works", is "supported" or "certified" unless a test or recorded physical observation shows it. Prefer the project's vocabulary: *offline-tested*, *observed*, *planning*, *experimental*. Keep [known limitations](docs/known-limitations.md) current.
 3. **No private data, ever.** See [Privacy](#privacy-and-fixtures).
 4. **Machine output stays clean.** Results go to stdout; banners, tips, progress and logs go to stderr; `--json` and `adapt mcp` print nothing else on stdout.
@@ -14,7 +14,7 @@ By contributing you agree that your contribution is licensed under the project's
 
 ## Set up from a checkout
 
-Python 3.11 or newer. There is no assumed PyPI package; work from the repository.
+Python 3.11 or newer. Users install the wheel from GitHub Releases (see the [README](README.md#download-and-install)); ADAPT is not on PyPI. Contributors work from the repository.
 
 ```text
 python -m venv .venv
@@ -24,7 +24,7 @@ python -m pip install -e ".[mcp]" pytest
 python -m pytest -q
 ```
 
-The `mcp` extra (the MCP SDK and Pillow) is required to import the MCP modules. `pytest` is not a declared dependency, so install it yourself. The suite lives in `tests/` (32 test modules) and is **offline**: it must not need a phone, a network, an SSH host, Tailscale, or a real `adb`. It mocks processes and uses `typer.testing.CliRunner`. Run a focused file while iterating, for example `python -m pytest -q tests/test_dev_options.py`.
+The `mcp` extra (the MCP SDK and Pillow) is required to import the MCP modules. `pytest` is declared in the `dev` dependency group of `pyproject.toml`; `pip install --group dev` needs pip 25.1 or newer, so the command above installs it by name. The suite lives in `tests/` and is **offline**: it must not need a phone, a network, an SSH host, Tailscale, or a real `adb`. It mocks processes and uses `typer.testing.CliRunner`. Run a focused file while iterating, for example `python -m pytest -q tests/test_dev_options.py`.
 
 Check the CLI without a device: `adapt --help`, `adapt help-me --all`, `adapt android versions`, any `plan` command.
 
@@ -57,19 +57,19 @@ Use placeholders and documentation-reserved values: `SERIAL`, `PHONE_PEER`, `PAI
 2. Give every option a precise name; use `--serial/-s` for the target and `--json` for machine output; add `--yes` for side effects.
 3. Add a `HOW_TO` topic in `src/adapt_adb/help_system.py` if the command deserves a tip, with a generic example.
 4. Add tests (parsing, refusal paths, JSON stdout cleanliness, and safety boundaries) under `tests/`.
-5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (64 visible leaf commands in 13 groups at the time of writing) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
+5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (69 visible leaf commands in 13 groups on the main branch at the time of writing; `docs/ADAPT-overview.pdf` is generated from the inventory by `scripts/build_public_overview.py`) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
 
 ## Adding or changing an MCP tool
 
 1. Add its schema to `TOOL_SCHEMAS` in `src/adapt_adb/mcp/tools.py` (strict: `additionalProperties` is forced off, so list every property, with enums and bounds) and its implementation.
 2. Classify it in `src/adapt_adb/mcp/access.py`: observation vs mutating, and whether it is device-bound (`DEVICE_TOOLS`). Mutating tools must stay hidden by `--read-only`; device-bound tools must honor `--device`.
-3. Dispatch it in `src/adapt_adb/mcp/server.py`; keep errors generic and bounded.
+3. Dispatch it in `src/adapt_adb/mcp/server.py`; keep errors generic and bounded. A tool that acts on the phone must not choose a device itself: it needs an explicit `device` unless the session was started with exactly one `--device`.
 4. Extend `tests/test_mcp*.py` for the contract and access policy.
 5. Update [docs/mcp-access.md](docs/mcp-access.md) (and the 24 / 19 / 5 / 18 counts).
 
 ## Native receiver (`native/windows-receiver`)
 
-Rust 1.99.1 (pinned in `rust-toolchain.toml`). Build with `cargo build --release --locked` and test with `cargo test --locked --offline` from that directory. Keep the upstream MIT [LICENSE](native/windows-receiver/LICENSE) and update `THIRD-PARTY-NOTICES.txt` and the root [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) whenever dependencies change. Do not claim compatibility from a build or from the offline tests; hardware claims need a recorded observation with its exact scope.
+Rust 1.99.1 (pinned in `rust-toolchain.toml`). Build with `cargo build --release --locked` (or `scripts\build_receiver.ps1` from the repository root on the main branch) and test with `cargo test --locked --offline` from that directory. The receiver's `status.json` is an interface that `adapt dex receiver-status` reads; change it together with `src/adapt_adb/dex_receiver.py`. Keep the upstream MIT [LICENSE](native/windows-receiver/LICENSE) and update `THIRD-PARTY-NOTICES.txt` and the root [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) whenever dependencies change. Do not claim compatibility from a build or from the offline tests; hardware claims need a recorded observation with its exact scope.
 
 ## Documentation
 

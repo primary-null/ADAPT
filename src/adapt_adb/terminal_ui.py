@@ -12,6 +12,7 @@ from typing import Any, TextIO
 
 from adapt_adb import banner
 from adapt_adb.console import _safe
+from adapt_adb.failure_guide import GUIDES
 from adapt_adb.help_system import command_inventory, tips_enabled
 
 AREAS = (
@@ -22,9 +23,28 @@ AREAS = (
     ("Tools, ROM workflows & Give Me Everything", ("tools", "guide", "everything")),
     ("AI / MCP & SSH workers", ("mcp", "ssh")),
     ("Rapid ADAPT", ("rapid",)),
-    ("Logs, help & preferences", ("logs", "help-me", "tips")),
+    ("Logs, help & preferences", ("logs", "help-me", "explain", "tips")),
     ("All ADAPT commands", ()),
 )
+MAX_COMMON_FAILURES = 10
+FAILED_RUN_NOTE = " Its Why/Try notes are above; adapt explain lists all failures."
+
+
+def common_failures(command_path: str) -> list[str]:
+    """`COMMON FAILURES` lines for a command detail screen: guides whose commands include it.
+
+    Guides specific to this command come first (fewest listed commands), then shared ones.
+    """
+    path = command_path.removeprefix("adapt ").strip()
+    guides = sorted((guide for guide in GUIDES.values() if path in guide.commands), key=lambda g: len(g.commands))
+    if not guides:
+        return []
+    lines = ["", "COMMON FAILURES"]
+    lines += [f"{guide.id}  /  {guide.summary}" for guide in guides[:MAX_COMMON_FAILURES]]
+    if len(guides) > MAX_COMMON_FAILURES:
+        lines.append(f"...and {len(guides) - MAX_COMMON_FAILURES} more: adapt explain --list")
+    lines.append("Causes and steps for one: adapt explain ID")
+    return lines
 
 
 def _enable_vt():
@@ -45,12 +65,10 @@ def _enable_vt():
     return True, lambda: kernel.SetConsoleMode(handle, mode.value)
 
 
-def split_arguments(value: str) -> list[str]:
-    """Parse argv without evaluating a shell, preserving Windows path backslashes."""
-    if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
-        raise ValueError("Arguments cannot contain terminal control characters.")
-    if os.name != "nt":
-        return shlex.split(value)
+_ARGV_SENTINEL = "ADAPT_ARGV_END_7F3A"
+
+
+def _win_command_line_to_argv(command_line: str) -> list[str]:
     import ctypes
     from ctypes import wintypes
     shell = ctypes.WinDLL("shell32", use_last_error=True)
@@ -60,13 +78,25 @@ def split_arguments(value: str) -> list[str]:
     kernel.LocalFree.argtypes = [ctypes.c_void_p]
     kernel.LocalFree.restype = ctypes.c_void_p
     count = ctypes.c_int()
-    pointer = shell.CommandLineToArgvW("adapt " + value, ctypes.byref(count))
+    pointer = shell.CommandLineToArgvW(command_line, ctypes.byref(count))
     if not pointer:
         raise ValueError("Arguments could not be parsed. Use double quotes around paths with spaces.")
     try:
-        return [pointer[i] for i in range(1, count.value)]
+        return [pointer[i] for i in range(count.value)]
     finally:
         kernel.LocalFree(pointer)
+
+
+def split_arguments(value: str) -> list[str]:
+    """Parse argv without evaluating a shell, preserving Windows path backslashes."""
+    if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
+        raise ValueError("Arguments cannot contain terminal control characters.")
+    if os.name != "nt":
+        return shlex.split(value)
+    parsed = _win_command_line_to_argv("adapt " + value + " " + _ARGV_SENTINEL)
+    if not parsed or parsed[-1] != _ARGV_SENTINEL:
+        raise ValueError("Arguments could not be parsed. Use double quotes around paths with spaces.")
+    return parsed[1:-1]
 
 
 class Screen:
@@ -166,6 +196,7 @@ def run_console(root: Any, *, no_banner: bool = False, no_redraw: bool = False,
                     body += [f"{flags}  {description}" for flags, description in record["parameters"]]
                     if not no_tips and tips_enabled():
                         body += ["", "HOW TO"] + [line for step in record["how_to"] for line in step.splitlines()]
+                        body += common_failures(selected)
                     if selected == "adapt mcp":
                         body += ["", "Start MCP through your AI client's stdio configuration, outside this menu."]
                 if message:
@@ -186,12 +217,17 @@ def run_console(root: Any, *, no_banner: bool = False, no_redraw: bool = False,
                 elif choice in {"n", "p"}:
                     stack[-1] = (kind, selected, min(page + 1, pages - 1) if choice == "n" else max(page - 1, 0))
                 elif choice == "r" and runnable:
-                    screen.draw("RUN / " + selected, ["Enter arguments for this command, or H to return home.",
+                    screen.draw("RUN / " + selected, ["Enter arguments for this command. :b goes back, H returns home, :q exits.",
                         "Use double quotes around paths with spaces. Existing prompts and confirmations remain interactive."])
                     raw = screen.read("Arguments > ")
                     if raw is None:
                         return
-                    if raw.strip().lower() in {"h", "home"}:
+                    lowered = raw.strip().lower()
+                    if lowered in {":b", ":back"}:
+                        continue
+                    if lowered in {":q", ":quit", ":exit"}:
+                        return
+                    if lowered in {"h", "home", ":h", ":home"}:
                         stack = [("home", None, 0)]
                         continue
                     try:
@@ -214,6 +250,9 @@ def run_console(root: Any, *, no_banner: bool = False, no_redraw: bool = False,
                         try:
                             result = subprocess.run([*prefix, *selected.split()[1:], *args], check=False)
                             status = f"Command finished with exit code {result.returncode}."
+                            if result.returncode != 0:
+                                # The child inherited this terminal and printed its own guidance.
+                                status += FAILED_RUN_NOTE
                         except KeyboardInterrupt:
                             status = "Command interrupted."
                         except OSError:

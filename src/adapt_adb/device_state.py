@@ -16,6 +16,8 @@ import typer
 
 from adapt_adb.adb import get_search_locations, parse_devices_short, resolve_adb
 from adapt_adb.doctor import preflight_adb_server
+from adapt_adb.failure_report import (FailureContext, UNANSWERED_STATUSES, attach_failure, cause_failure_id, classify,
+                                     current_command, emit_failure, emit_pointer, query_failure_id, tagged)
 from adapt_adb.progress import operation
 
 detect_app = typer.Typer(help="Observe ADB/fastboot transports, root indicators, ROM and bootloader state.")
@@ -33,7 +35,7 @@ class DetectionError(ValueError):
 
 def validate_target(value: str) -> str:
     if not isinstance(value, str) or not value or value != value.strip() or value.startswith("-") or len(value) > 1024 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
-        raise DetectionError("Supply one exact nonblank serial without control characters.")
+        raise tagged(DetectionError("Supply one exact nonblank serial without control characters."), "input.serial_invalid")
     return value
 
 
@@ -82,10 +84,10 @@ def parse_fastboot_devices(text: str) -> list[dict[str, str]]:
             continue
         match = re.fullmatch(r"(.+?)\s+fastboot\s*", line)
         if not match:
-            raise DetectionError("Unrecognized fastboot device listing; presence is unknown.")
+            raise tagged(DetectionError("Unrecognized fastboot device listing; presence is unknown."), "detect.listing_malformed")
         serial = validate_target(match[1])
         if any(r["serial"] == serial for r in records):
-            raise DetectionError("Duplicate fastboot identity; listing is ambiguous.")
+            raise tagged(DetectionError("Duplicate fastboot identity; listing is ambiguous."), "detect.listing_malformed")
         records.append({"serial": serial, "state": "fastboot_transport", "mode": "unknown_until_inspected"})
     return records
 
@@ -93,7 +95,7 @@ def parse_fastboot_devices(text: str) -> list[dict[str, str]]:
 @operation("Detecting Android transports")
 def scan(*, transport: str = "all") -> dict[str, Any]:
     if transport not in {"all", "adb", "fastboot"}:
-        raise DetectionError("Transport must be all, adb or fastboot.")
+        raise tagged(DetectionError("Transport must be all, adb or fastboot."), "detect.transport_invalid")
     reports = {}
     for kind in ("adb", "fastboot"):
         if transport not in {"all", kind}:
@@ -114,7 +116,7 @@ def scan(*, transport: str = "all") -> dict[str, Any]:
             continue
         try:
             if kind == "adb" and not any(line.startswith("List of devices attached") for line in result["value"].splitlines()):
-                raise DetectionError("ADB listing header was missing; device presence is unknown.")
+                raise tagged(DetectionError("ADB listing header was missing; device presence is unknown."), "detect.listing_malformed")
             devices = parse_devices_short(result["value"]) if kind == "adb" else parse_fastboot_devices(result["value"])
             reports[kind] = {"status": "observed", "devices": devices}
         except ValueError:
@@ -175,10 +177,10 @@ def getvar(binary: Path, serial: str, key: str) -> dict[str, Any]:
 def inspect_device(serial: str, *, transport: str = "adb") -> dict[str, Any]:
     serial = validate_target(serial)
     if transport not in {"adb", "fastboot"}:
-        raise DetectionError("Inspection transport must be adb or fastboot; no automatic switching.")
+        raise tagged(DetectionError("Inspection transport must be adb or fastboot; no automatic switching."), "detect.transport_invalid")
     binary = resolve_adb() if transport == "adb" else resolve_fastboot()
     if binary is None:
-        raise DetectionError(f"{transport} is missing. Install Platform-Tools or configure its binary path.")
+        raise tagged(DetectionError(f"{transport} is missing. Install Platform-Tools or configure its binary path."), "adb.not_found" if transport == "adb" else "detect.fastboot_not_found")
     base = {"schema_version": 1, "serial": serial, "transport": transport, "mutations": []}
     if transport == "fastboot":
         data = {key: getvar(binary, serial, key) for key in ("unlocked", "is-userspace", "product")}
@@ -191,7 +193,7 @@ def inspect_device(serial: str, *, transport: str = "adb") -> dict[str, Any]:
     try:
         preflight_adb_server(binary, ["-s", serial, "shell", "id", "-u"])
     except Exception as exc:
-        raise DetectionError("ADB shared-server safety could not be verified; no device queries attempted.") from exc
+        raise tagged(DetectionError("ADB shared-server safety could not be verified; no device queries attempted."), cause_failure_id(exc, "adb.server.unverified")) from exc
     prefix = [str(binary), "-s", serial, "shell"]
     properties = {key: probe([*prefix, "getprop", key]) for key in PROPERTIES}
     uid = probe([*prefix, "id", "-u"])
@@ -213,13 +215,46 @@ def render(report: dict[str, Any]) -> str:
                        *(f"{key}: {report[key]['status']}" for key in ("root", "rom", "bootloader"))])
 
 
+_SCAN_STATUS_GUIDES = {"blocked": "detect.adb_blocked", "malformed": "detect.listing_malformed", "timeout": "detect.listing_failed",
+                       "failed": "detect.listing_failed", "unavailable": "detect.listing_failed", "denied": "detect.listing_failed"}
+
+
+def report_failure_id(report: dict[str, Any]) -> tuple[str | None, bool]:
+    """(guide, is_failure) for a returned report; is_failure is False for an observed result with gaps."""
+    if "transports" in report:
+        for kind, group in report["transports"].items():
+            status = group.get("status")
+            if status == "missing_tool":
+                return ("adb.not_found" if kind == "adb" else "detect.fastboot_not_found"), report.get("status") == "partial"
+            if status in _SCAN_STATUS_GUIDES:
+                return _SCAN_STATUS_GUIDES[status], report.get("status") == "partial"
+        return None, False
+    if report.get("transport") == "fastboot":
+        return ("detect.fastboot_partial", True) if report.get("status") == "partial" else (None, False)
+    if report.get("status") == "partial":
+        return query_failure_id((report.get("shell_identity") or {}).get("status"), "detect.inspect_partial"), True
+    # Observed, but a property query did not answer: say so without changing the exit code.
+    statuses = [item.get("status") for item in (report.get("observations") or {}).values() if isinstance(item, dict)]
+    unanswered = next((s for s in statuses if s in UNANSWERED_STATUSES | {"denied"}), None)
+    return (query_failure_id(unanswered, ""), False) if unanswered else (None, False)
+
+
 def _emit(fn, json_output: bool, **kwargs):
+    context = FailureContext.from_runtime(command=current_command())
     try:
         report = fn(**kwargs)
     except DetectionError as exc:
-        typer.echo(json.dumps({"status": "refused", "error": str(exc)}) if json_output else str(exc), err=not json_output)
+        failure_id = classify(exc)
+        typer.echo(json.dumps(attach_failure({"status": "refused", "error": str(exc)}, failure_id, context)) if json_output else str(exc), err=not json_output)
+        if not json_output:
+            emit_failure(failure_id, context)
         raise typer.Exit(2)
+    failure_id, is_failure = report_failure_id(report)
+    if json_output and failure_id:
+        report = attach_failure(report, failure_id, context)
     typer.echo(json.dumps(report, indent=2) if json_output else render(report))
+    if failure_id and not json_output:
+        emit_failure(failure_id, context) if is_failure else emit_pointer(failure_id, label="Some values were not observed:")
     if report["status"] == "partial":
         raise typer.Exit(2)
 

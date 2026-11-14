@@ -18,6 +18,8 @@ import typer
 from adapt_adb.adb import resolve_adb
 from adapt_adb.device_state import validate_target
 from adapt_adb.doctor import preflight_adb_server
+from adapt_adb.failure_report import (FailureContext, UNANSWERED_STATUSES, attach_failure, cause_failure_id, classify,
+                                     current_command, emit_failure, query_failure_id, tagged)
 from adapt_adb.progress import operation
 
 app_app = typer.Typer(help="Validate installed app identity, version and debug flags without launching it.")
@@ -33,7 +35,7 @@ class DevelopmentError(ValueError):
 
 def validate_package(package: str) -> str:
     if not isinstance(package, str) or len(package) > 255 or not PACKAGE_RE.fullmatch(package):
-        raise DevelopmentError("Use an exact Android application ID, not a component, wildcard or command.")
+        raise tagged(DevelopmentError("Use an exact Android application ID, not a component, wildcard or command."), "app.package_invalid")
     return package
 
 
@@ -42,11 +44,11 @@ class Session:
         self.serial = validate_target(serial)
         self.adb = resolve_adb()
         if self.adb is None:
-            raise DevelopmentError("ADB is missing; run adapt setup.")
+            raise tagged(DevelopmentError("ADB is missing; run adapt setup."), "adb.not_found")
         try:
             preflight_adb_server(self.adb, ["-s", serial, "shell"])
         except Exception as exc:
-            raise DevelopmentError("Shared ADB safety could not be verified; no device query was attempted.") from exc
+            raise tagged(DevelopmentError("Shared ADB safety could not be verified; no device query was attempted."), cause_failure_id(exc, "adb.server.unverified")) from exc
 
     def query(self, args: list[str], *, log_data: bool = False) -> dict[str, Any]:
         try:
@@ -103,7 +105,8 @@ def _inspect(session: Session, package: str) -> dict[str, Any]:
     user_result = session.query(["shell", "am", "get-current-user"])
     user_text = user_result["text"]
     if user_result["status"] != "observed" or not re.fullmatch(r"[0-9]{1,5}", user_text or ""):
-        raise DevelopmentError("The current Android user could not be observed; no user-0 fallback was used.")
+        # A device that did not answer is named as such, not as a user-detection problem.
+        raise tagged(DevelopmentError("The current Android user could not be observed; no user-0 fallback was used."), query_failure_id(user_result["status"], "app.user_unobserved"))
     user = int(user_text)
     listing = session.query(["shell", "pm", "list", "packages", "-U", "--user", str(user), package])
     installation, uid = "unknown", None
@@ -145,9 +148,9 @@ def validate_app(serial: str, package: str, *, expected_version_code: int | None
     validate_package(package)
     validate_target(serial)
     if expected_version_code is not None and (type(expected_version_code) is not int or not 0 <= expected_version_code <= 2**63 - 1):
-        raise DevelopmentError("Expected version code must be a nonnegative 64-bit integer.")
+        raise tagged(DevelopmentError("Expected version code must be a nonnegative 64-bit integer."), "app.expectation_invalid")
     if expected_debuggable is not None and type(expected_debuggable) is not bool:
-        raise DevelopmentError("Expected debuggable must be true or false.")
+        raise tagged(DevelopmentError("Expected debuggable must be true or false."), "app.expectation_invalid")
     report = _inspect(Session(serial), package)
     checks = [{"check": "installed_for_current_user", "expected": True,
                "observed": True if report["installation"] == "installed" else False if report["installation"] == "not_installed" else None}]
@@ -166,19 +169,21 @@ def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "
     validate_package(package)
     validate_target(serial)
     if type(lines) is not int or not 1 <= lines <= 500 or buffer not in {"main", "crash", "main,crash"} or level not in {"V", "D", "I", "W", "E", "F"}:
-        raise DevelopmentError("Use 1–500 lines, main/crash/main,crash buffers and V/D/I/W/E/F severity.")
+        raise tagged(DevelopmentError("Use 1–500 lines, main/crash/main,crash buffers and V/D/I/W/E/F severity."), "logs.args_invalid")
     session = Session(serial)
     app = _inspect(session, package)
     uid = app["package_uid"]
     if app["installation"] != "installed" or uid is None:
-        raise DevelopmentError("Installed app UID could not be observed; device-wide log fallback is disabled.")
+        raise tagged(DevelopmentError("Installed app UID could not be observed; device-wide log fallback is disabled."),
+                     "logs.app_not_installed" if app["installation"] == "not_installed" else "device.command_denied" if app["listing_status"] == "denied" else "logs.uid_unobserved")
     args = ["logcat", "-d", "-t", str(lines), "-v", "threadtime", f"--uid={uid}"]
     for item in buffer.split(","):
         args.extend(["-b", item])
     args.append(f"*:{level}")
     result = session.query(args, log_data=True)
     if result["status"] != "observed":
-        raise DevelopmentError("Log extraction failed or UID filtering is unavailable; no broader query was attempted.")
+        raise tagged(DevelopmentError("Log extraction failed or UID filtering is unavailable; no broader query was attempted."),
+                     {"timeout": "logs.capture_timeout", "unavailable": "adb.exec_failed", "denied": "device.command_denied", "too_large": "logs.budget_exceeded"}.get(result["status"], "logs.capture_failed"))
     raw = result["text"].encode("utf-8")
     truncated = len(raw) > LOG_MAX_BYTES
     text = raw[-LOG_MAX_BYTES:].decode("utf-8", errors="ignore")
@@ -189,7 +194,7 @@ def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "
     # a UID snapshot as the original app's current identity.
     after = _inspect(session, package)
     if after["installation"] != "installed" or after["package_uid"] != uid or after["android_user"] != app["android_user"]:
-        raise DevelopmentError("App UID or current user changed during capture; captured contents were discarded.")
+        raise tagged(DevelopmentError("App UID or current user changed during capture; captured contents were discarded."), "logs.target_changed")
     return {"schema_version": 1, "status": "captured", "serial": serial, "package": package, "android_user": app["android_user"],
             "uid": uid, "buffers": buffer.split(","), "minimum_level": level, "requested_lines": lines,
             "lines": records, "truncated": truncated, "max_bytes": LOG_MAX_BYTES,
@@ -207,7 +212,7 @@ def export_logs(report: dict[str, Any], path: Path) -> dict[str, Any]:
             stream.flush()
             os.fsync(stream.fileno())
     except OSError as exc:
-        raise DevelopmentError("Log export failed or the path already exists. No existing file was overwritten; a partial new file may remain after a write error.") from exc
+        raise tagged(DevelopmentError("Log export failed or the path already exists. No existing file was overwritten; a partial new file may remain after a write error."), "logs.export_failed") from exc
     return {**report, "export": {"path": str(path), "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}}
 
 
@@ -230,7 +235,7 @@ def plan_debug(serial: str, package: str, *, wait: bool = False, persistent: boo
     validate_target(serial)
     validate_package(package)
     if type(wait) is not bool or type(persistent) is not bool:
-        raise DevelopmentError("Wait and persistent choices must be boolean.")
+        raise tagged(DevelopmentError("Wait and persistent choices must be boolean."), "debug.plan_invalid")
     argv = ["adb", "-s", serial, "shell", "am", "set-debug-app"]
     if wait:
         argv.append("-w")
@@ -255,12 +260,36 @@ def build_modes() -> dict[str, Any]:
         "sources": ["https://developer.android.com/build/build-variants", "https://developer.android.com/topic/performance/app-optimization/enable-app-optimization", "https://developer.android.com/tools/retrace", "https://developer.android.com/studio/profile"]}
 
 
+def report_failure_id(report: dict[str, Any]) -> str | None:
+    """Guide for a returned report that is not a clean result (validate failed or inconclusive, debug partial)."""
+    status = report.get("status")
+    if status == "failed" and "checks" in report:
+        return "app.validation_failed"
+    if status == "inconclusive":
+        statuses = (report.get("listing_status"), (report.get("metadata") or {}).get("status"))
+        return next((query_failure_id(s, "") for s in statuses if s in UNANSWERED_STATUSES | {"denied"}), "app.validation_inconclusive")
+    if status == "partial" and isinstance(report.get("persisted_configuration"), dict):
+        config = report["persisted_configuration"]
+        statuses = (config.get("app_query_status"), config.get("wait_query_status"))
+        return next((query_failure_id(s, "") for s in statuses if s in UNANSWERED_STATUSES | {"denied"}), "debug.inspect_partial")
+    return None
+
+
 def _emit(fn, json_output: bool, **kwargs):
+    # The report and exit code are unchanged; failure guidance follows them (stderr in human
+    # mode, an additive `failure` key with --json).
     try:
         report = fn(**kwargs)
+        failure_id = report_failure_id(report)
     except ValueError as exc:
         report = {"status": "refused", "exit_code": 2, "error": str(exc)}
+        failure_id = classify(exc)
+    context = FailureContext.from_runtime(command=current_command())
+    if json_output and failure_id:
+        report = attach_failure(report, failure_id, context)
     typer.echo(json.dumps(report, indent=2) if json_output else "ADAPT / DEVELOPMENT\n" + json.dumps(report, indent=2))
+    if failure_id and not json_output:
+        emit_failure(failure_id, context)
     code = report.get("exit_code", 2 if report.get("status") == "partial" else 0)
     if code:
         raise typer.Exit(code)
@@ -271,7 +300,7 @@ def validate_command(serial: str = typer.Option(..., "--serial", "-s"), package:
     """Check current-user installation and optional version/debuggable expectations."""
     def validate():
         if expected_debuggable is not None and expected_debuggable not in {"true", "false"}:
-            raise DevelopmentError("--expect-debuggable must be true or false.")
+            raise tagged(DevelopmentError("--expect-debuggable must be true or false."), "app.expectation_invalid")
         return validate_app(serial, package, expected_version_code=expected_version_code,
                             expected_debuggable=None if expected_debuggable is None else expected_debuggable == "true")
     _emit(validate, json_output)

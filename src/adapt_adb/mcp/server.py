@@ -10,6 +10,10 @@ from copy import deepcopy
 from functools import partial
 from typing import Any
 
+from adapt_adb import __version__ as ADAPT_VERSION
+from adapt_adb import failure_report
+from adapt_adb.adb import AdbProbeError
+from adapt_adb.doctor import UnsafeAdbServerError
 from adapt_adb.mcp import tools as mcp_tools
 from adapt_adb.mcp.access import (
     AccessPolicy,
@@ -17,8 +21,10 @@ from adapt_adb.mcp.access import (
     CONTENT_TRUST,
     DEVICE_TEXT_TOOLS,
     DEVICE_TOOLS,
+    MUTATING_TOOLS,
     mark_untrusted_device_text,
 )
+from adapt_adb.safety import SafetyError
 
 
 _TOOL_SCHEMAS = {item["name"]: item["inputSchema"] for item in mcp_tools.TOOL_SCHEMAS}
@@ -75,8 +81,39 @@ def _arguments_match_schema(name: str, arguments: Any) -> bool:
     return True
 
 
-def _error_result(types: Any, error: str, message: str) -> Any:
+def _with_failure(
+    payload: dict[str, Any],
+    policy: AccessPolicy,
+    *,
+    name: str | None = None,
+    arguments: Any = None,
+    failure_id: str | None = None,
+) -> dict[str, Any]:
+    """Add the additive agent-facing `failure` object to an error payload (success is unchanged)."""
+    if not isinstance(payload, dict) or "error" not in payload:
+        return payload
+    hint = None
+    if payload["error"] == "invalid_params" and name in _TOOL_SCHEMAS:
+        required = _TOOL_SCHEMAS[name].get("required") or []
+        if required:
+            hint = "Required arguments: " + ", ".join(required) + "."
+    elif payload["error"] == "need_device" and name in MUTATING_TOOLS:
+        hint = (
+            "Pass `device` with one value from `devices[].device`, even when only one device is "
+            "listed: this tool never chooses a device itself."
+        )
+    requested = arguments.get("device") if isinstance(arguments, dict) and isinstance(arguments.get("device"), str) else None
+    failure = failure_report.mcp_failure(
+        str(payload["error"]), payload, exposes=policy.exposes, failure_id=failure_id,
+        requested_device=requested, argument_hint=hint,
+    )
+    return {**payload, "failure": failure}
+
+
+def _error_result(types: Any, error: str, message: str, failure: dict[str, Any] | None = None) -> Any:
     payload = {"error": error, "message": message, "devices": []}
+    if failure is not None:
+        payload["failure"] = failure
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload))], isError=True
     )
@@ -122,12 +159,22 @@ def get_mcp_tools(policy: AccessPolicy | None = None) -> list[Any]:
         if not policy.exposes(schema["name"]):
             continue
         inputs = deepcopy(schema["inputSchema"])
-        if policy.allowed_devices is not None and schema["name"] in DEVICE_TOOLS:
+        description = schema["description"]
+        # A one-device `--device` session lets tools that act on the phone omit `device`.
+        implicit = policy.default_device(schema["name"])
+        restricted = policy.allowed_devices is not None and schema["name"] in DEVICE_TOOLS
+        if (restricted or schema["name"] in MUTATING_TOOLS) and implicit is None:
             inputs.setdefault("required", [])
             if "device" not in inputs["required"]:
                 inputs["required"].append("device")
+        if restricted:
             inputs["properties"]["device"]["enum"] = list(policy.allowed_devices)
-        tools.append(types.Tool(name=schema["name"], description=schema["description"], inputSchema=inputs))
+        if implicit is not None:
+            description += (
+                " This session was started with a single --device, so `device` may be omitted "
+                "and then means that target."
+            )
+        tools.append(types.Tool(name=schema["name"], description=description, inputSchema=inputs))
     return tools
 
 
@@ -135,16 +182,22 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
     """Execute a named ADAPT MCP tool and return `mcp.types.CallToolResult`."""
     _, types, _ = _require_mcp_sdk()
     policy = policy or AccessPolicy()
+    def refused(error: str, message: str) -> Any:
+        failure = _with_failure({"error": error}, policy, name=name)["failure"]
+        return _error_result(types, error, message, failure)
+
     if name not in _TOOL_SCHEMAS:
-        return _error_result(types, "unknown_tool", "Unknown ADAPT tool.")
+        return refused("unknown_tool", "Unknown ADAPT tool.")
     raw_args: Any = {} if arguments is None else arguments
     if not _arguments_match_schema(name, raw_args):
-        return _error_result(
-            types, "invalid_params", "Arguments do not match tool schema."
-        )
+        return refused("invalid_params", "Arguments do not match tool schema.")
     args = dict(raw_args)
+    default_device = policy.default_device(name)
+    if default_device is not None and "device" not in args:
+        # The operator named exactly one target with --device: that is an explicit choice.
+        args["device"] = default_device
     if not policy.permits(name, args):
-        return _error_result(types, "access_denied", "This tool or target is not allowed in this MCP session.")
+        return refused("access_denied", "This tool or target is not allowed in this MCP session.")
 
     try:
         if name == "doctor":
@@ -175,8 +228,10 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
                 max_dimension=int(args.get("max_dimension", 1024)),
                 quality=int(args.get("quality", 80)),
             )
+            screenshot_failure_id = getattr(meta_or_err, "failure_id", None)
             meta_or_err = policy.filter_result(meta_or_err)
             if b64_jpeg is None:
+                meta_or_err = _with_failure(meta_or_err, policy, name=name, arguments=args, failure_id=screenshot_failure_id)
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text=json.dumps(meta_or_err))],
                     isError=True,
@@ -282,10 +337,23 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
                 "message": f"Unknown tool: {name}",
                 "devices": [],
             }
+    except UnsafeAdbServerError as exc:
+        # Fail closed before the generic handler: the shared server was not contacted.
+        payload = mcp_tools.unsafe_server_error(exc)
+    except SafetyError:
+        # The safety guard refused an adb argv (ForbiddenCommandError is a ForbiddenArgv, a SafetyError).
+        # Neither the argv nor the exception text is returned.
+        payload = mcp_tools.refused_command_error()
     except subprocess.TimeoutExpired:
         payload = {
             "error": "adb_timeout",
             "message": "ADB operation timed out.",
+            "devices": [],
+        }
+    except AdbProbeError:
+        payload = {
+            "error": "adb_probe_failed",
+            "message": "ADB device enumeration failed; target state is unknown.",
             "devices": [],
         }
     except OSError:
@@ -301,7 +369,9 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
             "devices": [],
         }
 
+    refined_failure_id = getattr(payload, "failure_id", None)
     payload = policy.filter_result(payload)
+    payload = _with_failure(payload, policy, name=name, arguments=args, failure_id=refined_failure_id)
     is_err = "error" in payload
     if not is_err and name in DEVICE_TEXT_TOOLS:
         payload = mark_untrusted_device_text(payload)
@@ -370,13 +440,18 @@ def create_server(policy: AccessPolicy | None = None) -> Any:
     try:
         server = mcp_server_mod.Server(
             "adapt",
-            version="0.1.0",
+            version=ADAPT_VERSION,
             on_list_tools=_on_list_tools,
             on_call_tool=_on_call_tool,
         )
     except TypeError:
         # Fallback for older mcp 1.x Server decorator API
         server = mcp_server_mod.Server("adapt")
+        try:
+            # The 1.x constructor may not take these keywords; the announced version is an attribute.
+            server.version = ADAPT_VERSION
+        except AttributeError:
+            pass
         if hasattr(server, "list_tools"):
 
             @server.list_tools()

@@ -1,7 +1,7 @@
 # `adapt doctor` and `adapt setup` Contract
 
 **Version:** `1.0`  
-**Applies to:** `adapt` (`adapt-adb`, v1 Python 3.11+ / `uv`) on **Windows 11** and **Debian** (stable/testing).
+**Applies to:** `adapt` (`adapt-adb`, v1 Python 3.11+ / `uv`) on **Windows 11** and **Debian** (stable/testing). Other Linux distributions are reported as `linux` and get distribution-neutral remediation. macOS is detected and reported as `macos`, but it is **not a supported host** (see §3.3 and §5.1).
 
 This document defines the machine-checkable behavioral, diagnostic, bootstrap, safety, and exit-code contract for `adapt doctor` and `adapt setup`. Implementations and automated test suites MUST conform to every invariant in this specification.
 
@@ -27,7 +27,7 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
 | Precedence | Exit Code | Name | Condition | Action Permitted |
 |---|---|---|---|---|
 | 1 (Highest) | `3` | `UNSAFE_SHARED_SERVER` | Port `5037` (or `/tmp/5037`) is bound by `root`/`SYSTEM` (not current user), **OR** the running ADB server's version mismatches the resolved `adb` binary version. | **Report only. Do NOT run `adb kill-server`, kill processes, or spawn a conflicting server.** |
-| 2 | `1` | `MISSING_TOOLCHAIN` | `adb` binary is missing, unexecutable, `< 34.0.0` (e.g., Debian `apt` `1:29.0.6`), not on `PATH`, or shadowed on `PATH` by an incompatible/`< 34.0.0` `adb`. | Report missing/outdated toolchain; `adapt setup` may install user-scope `platform-tools` (unless blocked by code `3`). |
+| 2 | `1` | `MISSING_TOOLCHAIN` | `adb` binary is missing, unexecutable, `< 34.0.0` (e.g., Debian `apt` `1:29.0.6`), not on `PATH` while ADAPT's commands have no usable `>= 34.0.0` copy either, or shadowed on `PATH` by an incompatible/`< 34.0.0` `adb`. (When `PATH` has no `adb` but the copy ADAPT's commands use is `>= 34.0.0`, `adb_path` and `path_config` are `warn` with exit `0`; see §3.2.) | Report missing/outdated toolchain; `adapt setup` may install user-scope `platform-tools` (unless blocked by code `3`). |
 | 3 | `2` | `DEVICE_UNAUTHORIZED_OR_NO_PERMISSIONS` | Toolchain is valid (`>= 34.0.0`) and server state is safe, **AND** at least one connected device reports `unauthorized` or `no permissions`, **OR** a blocking host USB permission/driver error exists (Windows PnP Android device with `Problem != CM_PROB_NONE`, or Debian missing `udev` rule / `plugdev` on headless SSH session). | Report device/permission blocker and safe remediation steps; never wipe `adbkey` or run `sudo adb`. |
 | 4 (Lowest) | `0` | `OK` | Toolchain is valid (`>= 34.0.0`, Google origin preferred/verified), `PATH` resolves cleanly, `ANDROID_HOME` (if present) is intact/untouched, port `5037` is safe (idle or same-user matching server), host USB prerequisites pass, and all `0+` connected devices are ready (`device`, etc., with zero `unauthorized` or `no permissions`). | Proceed normally. Note: `0` connected devices is `0` (`OK`) when host prerequisites pass. |
 
@@ -44,14 +44,14 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
 
 | Check ID | Host OS | Failure Exit Code | Summary |
 |---|---|---|---|
-| `adb_path` | Windows, Debian | `1` | Locate `adb` on `PATH` and in known user-scope / SDK fallback locations. |
-| `adb_version` | Windows, Debian | `1` | Parse `adb version`; require `platform-tools` version `>= 34.0.0`. |
-| `adb_origin` | Windows, Debian | `1` (if `< 34` or Debian `apt`), `warn` if unverified | Classify binary origin: Google official (`source.properties` / user-scope dir) vs. Debian `apt` (`/usr/bin/adb` / `dpkg -S`) vs. unknown. |
-| `path_config` | Windows, Debian | `1` (if missing from `PATH` or shadowed by `< 34`) | Verify `PATH` resolution and detect shadowing by secondary `adb` binaries. |
+| `adb_path` | Windows, Linux | `1`; `warn` when only the copy ADAPT's commands use is found and it is `>= 34.0.0` | Locate `adb` on `PATH`, determine the `adb` ADAPT's commands use, and scan known user-scope / SDK fallback locations. |
+| `adb_version` | Windows, Linux | `1` | Parse `adb version`; require `platform-tools` version `>= 34.0.0`. |
+| `adb_origin` | Windows, Linux | `1` (if `< 34`), `warn` if unverified or distribution-packaged `>= 34` | Classify binary origin: Google official (`source.properties` / user-scope dir) vs. distribution package (`debian_apt`: `/usr/bin/adb` / `dpkg -S`) vs. unknown. |
+| `path_config` | Windows, Linux | `1` (if missing from `PATH` with no usable command copy, or shadowed by `< 34`); `warn` when missing from `PATH` but the command copy is `>= 34` | Verify `PATH` resolution and detect shadowing by secondary `adb` binaries. |
 | `android_home` | Windows, Debian | `warn` (never mutates) | Inspect `ANDROID_HOME` and `ANDROID_SDK_ROOT` if set; guarantee present-but-untouched invariant. |
-| `windows_pnp` | Windows only (`skip` on Debian) | `2` (on PnP problem device) | Inspect Windows PnP `USBDevice` / `AndroidDevice` status; provide safe driver hints. |
-| `debian_usb_permissions` | Debian only (`skip` on Windows) | `2` (on missing rules/group blocking access; `warn` if advisory) | Inspect `udev` rules (`/etc/udev/rules.d/` / `/lib/udev/rules.d/`), `plugdev` group, and `systemd-logind` seat status. |
-| `adb_server_5037` | Windows, Debian | `3` | Verify port `5037` (and `/tmp/5037` on Debian) is not owned by `root` and running server version matches client `adb` without killing. |
+| `windows_pnp` | Windows only (`skip` on Debian) | `2` (on Android-related PnP problem device; `warn` for other USB problem devices) | Inspect Windows PnP `USBDevice` / `AndroidDevice` status; provide safe driver hints. |
+| `debian_usb_permissions` | Debian and other Linux (`skip` on Windows and macOS) | `2` (on missing rules/group blocking access; `warn` if advisory) | Inspect Android-specific `udev` rules (`/etc/udev/rules.d/` / `/lib/udev/rules.d/`), the groups those rules grant (`plugdev` / `adbusers`), and `systemd-logind` seat status. |
+| `adb_server_5037` | Windows, Debian | `3` | Verify every listener on port `5037` (and `/tmp/5037` on Debian) belongs to one process owned by the current user, not `root`, and that the running server version matches client `adb` without killing. |
 | `devices_state` | Windows, Debian | `2` (on `unauthorized` / `no permissions`) | Run `adb devices -l` (only if `adb >= 34.0.0` and `adb_server_5037` is safe); report per-state counts. |
 
 ---
@@ -61,14 +61,19 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
 #### 1. `adb_path`
 - **Probe:**
   - Resolve the active `adb` executable via `PATH` (`shutil.which("adb")`).
+  - Determine the **command adb**: the `adb` every other ADAPT command uses (`adb.resolve_adb()`). It is the file named by `ADAPT_ADB` or `ADB_PATH` when that names an existing file, otherwise the first copy reporting `>= 34.0.0` among `PATH`, `$ANDROID_HOME/platform-tools`, the user-scope install folders (`%LOCALAPPDATA%\Android\platform-tools`, `%LOCALAPPDATA%\Android\Sdk\platform-tools` on Windows; `~/.local/share/android/platform-tools` on Linux), otherwise the first copy found. Its source is reported as `override`, `path`, `fallback_location` or `none`.
   - Also scan known user-scope and standard locations without modifying them:
     - **Windows 11:** `%LOCALAPPDATA%\Android\platform-tools\adb.exe`, `%USERPROFILE%\.android\platform-tools\adb.exe`, `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`, and `%ANDROID_HOME%\platform-tools\adb.exe` (if set).
     - **Debian:** `~/.local/share/android/platform-tools/adb`, `~/.android/platform-tools/adb`, `/usr/bin/adb`, and `$ANDROID_HOME/platform-tools/adb` (if set).
 - **Pass:** An executable `adb` is resolved on `PATH`.
-- **Fail (`exit_code: 1`):** No `adb` binary found on `PATH` (details record any fallback copies found off-`PATH`).
+- **Warn (`exit_code: 0`):**
+  - `PATH` has no `adb`, but the command adb exists and reports `>= 34.0.0`. The summary names that copy, says in general terms where it came from (the override variable, `PATH`, or a folder ADAPT searches outside `PATH`), that ADAPT's commands use it, and that tools looking on `PATH` will not find it. Remediation: add its folder to `PATH`, or run `adapt setup` to register ADAPT's user-scope copy (setup downloads only when no healthy copy is installed, §5.1).
+  - `adb` is on `PATH`, but `ADAPT_ADB` / `ADB_PATH` is set to something that is not an existing file. ADAPT's commands ignore such an override; the summary says so and names the variable (never its value).
+- **Fail (`exit_code: 1`):** No `adb` binary found on `PATH`, and the command adb is absent, `< 34.0.0` or reports no version (details record any fallback copies found off-`PATH`). A set override that names no existing file is reported in the summary.
+- **Details:** in addition to `resolved_adb` and `fallbacks_found`: `command_adb`, `command_adb_source`, `override_variable` (the first set override variable name, or `null`) and `override_points_to_file` (`null` when no override is set).
 
 #### 2. `adb_version`
-- **Probe:** Execute `<resolved_adb> version` with a bounded timeout (default `5s`).
+- **Probe:** Execute `<resolved_adb> version` with a bounded timeout (default `5s`). `<resolved_adb>` is the first `adb` on `PATH`; when `PATH` has none, it is the command adb (§3.2.1), and the summary says that this copy is not on `PATH`. `adb_version` and `adb_origin` fail as "missing" only when neither exists.
   - Parse both the ADB protocol/binary line (`Android Debug Bridge version X.Y.Z`) and the platform-tools version line (`Version MM.m.p-...`).
 - **Pass:** Parsed `Version` satisfies `tuple >= (34, 0, 0)`. (Version `>= 34.0.0` is required for modern USB descriptors, Openscreen mDNS, and Android 11+ TLS wireless pairing `adb pair`).
 - **Fail (`exit_code: 1`):** `adb version` fails, cannot be parsed, or reports `< 34.0.0` (such as Debian 12 Bookworm's `1:29.0.6-13`).
@@ -82,9 +87,10 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
   - **Windows 11:**
     - Check `<dir>\source.properties` (`Pkg.Revision`), official user-scope paths (`%LOCALAPPDATA%\Android\platform-tools`, `%USERPROFILE%\.android\platform-tools`, `%LOCALAPPDATA%\Android\Sdk\platform-tools`), or verified package manager shims (`winget` `Google.PlatformTools` / `scoop`) -> classify as `google_official`.
     - Otherwise classify as `unknown` (e.g., third-party emulator bundle).
+  - **Other Linux:** the `/usr/bin/adb` path rule also applies, so a distribution-packaged `adb` is classified `debian_apt` there too; summaries then say "the Linux distribution" rather than Debian `apt`.
 - **Pass:** `origin == "google_official"` and version `>= 34.0.0`.
-- **Warn:** `origin == "unknown"` but version `>= 34.0.0`.
-- **Fail (`exit_code: 1`):** `origin == "debian_apt"` (Debian `apt` `adb` lags 5+ years behind official platform-tools and breaks TLS wireless pairing/mDNS) or `origin == "unknown"` with version `< 34.0.0`.
+- **Warn (`exit_code: 0`):** `origin == "unknown"` but version `>= 34.0.0`, **or** `origin == "debian_apt"` with version `>= 34.0.0` (newer distributions ship `>= 34`; the summary says the copy meets the minimum but is the distribution's package, not verified Google platform-tools). Such a copy is usable: `path_config` may pass, `adapt setup` treats it as healthy, and `devices_state` runs.
+- **Fail (`exit_code: 1`):** `origin == "debian_apt"` with version `< 34.0.0` (for example Debian 12's `1:29.0.6`, which breaks TLS wireless pairing/mDNS) or `origin == "unknown"` with version `< 34.0.0`.
 
 #### 4. `path_config`
 - **Probe:**
@@ -92,8 +98,10 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
   - Inspect user-scope `PATH` configuration:
     - **Windows 11:** `HKCU\Environment\Path` (read-only via `winreg`).
     - **Debian:** Current `PATH` and user shell profiles (`~/.profile`, `~/.bashrc`, `~/.zshrc`).
-- **Pass:** First `adb` on `PATH` is a valid `>= 34.0.0` binary and no conflicting older `adb` shadows it. (If multiple `adb` copies exist after the active one, emit a `warn` listing the shadowed paths).
-- **Fail (`exit_code: 1`):** No `adb` on `PATH`, or the first `adb` on `PATH` is `< 34.0.0` / broken even if a newer copy exists later on `PATH` or off-`PATH`.
+- **Pass:** First `adb` on `PATH` is a valid `>= 34.0.0` binary (whatever its origin) and no conflicting older `adb` shadows it. (If multiple `adb` copies exist after the active one, emit a `warn` listing the shadowed paths).
+- **Warn (`exit_code: 0`):** No `adb` on `PATH`, but the command adb (§3.2.1) reports `>= 34.0.0`; same remediation as `adb_path`.
+- **Fail (`exit_code: 1`):** No `adb` on `PATH` and no usable command adb, or the first `adb` on `PATH` is `< 34.0.0` / broken even if a newer copy exists later on `PATH` or off-`PATH`.
+- **Details:** `path_executables`, `shadowed_executables`, `command_adb`, `command_adb_source`.
 
 #### 5. `android_home` (Present-but-Untouched)
 - **Probe:**
@@ -106,49 +114,66 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
 #### 6. `windows_pnp` (Windows 11 Only)
 - **Probe:** Read-only query of Plug and Play devices via PowerShell / WMI / `pnputil`:
   - `Get-PnpDevice -Class "USBDevice", "AndroidDevice"` (or `pnputil /enum-devices /class AndroidDevice` and USB composite ADB interfaces matching `VID_*&PID_*&MI_*` / status != `OK`).
-  - Check `Problem` code (`CM_PROB_NONE` vs non-zero error codes such as Code 52 unsigned driver block or unbound `SAMSUNG_Android` composite interface).
-- **Pass:** All detected Android/ADB PnP devices report `CM_PROB_NONE` / `OK` (or no Android PnP devices currently attached).
-- **Fail (`exit_code: 2`):** One or more Android/ADB PnP devices report a driver problem (`Problem != CM_PROB_NONE` / `Status == Error`).
+  - Check `Problem` code (`CM_PROB_NONE` vs non-zero error codes such as Code 52 unsigned driver block or unbound `SAMSUNG_Android` composite interface). `pnputil` output is read from `Problem Code:`, or from `Problem:` when `Problem Code:` is absent.
+  - Collection stays broad so that no problem device becomes invisible: classes `USBDevice` / `AndroidDevice` / `AndroidUsbDeviceClass`, Android/ADB friendly names, and any `USB\VID_*` device with a problem. The PowerShell and `pnputil` paths MUST apply the same relevance rule.
+  - A device that reports a problem is **confirmed Android-related** when its class is `AndroidDevice` or `AndroidUsbDeviceClass`, **OR** its friendly name matches Android/ADB/Pixel/Fastboot/Bootloader/Samsung mobile USB names, **OR** its instance id carries a `VID_xxxx` from a short heuristic list of Android phone and chipset vendors (for example Google `18D1`, Samsung `04E8`, Xiaomi `2717`, Qualcomm `05C6`, MediaTek `0E8D`). Membership in the generic `USBDevice` class alone does not confirm it.
+- **Pass:** No detected PnP device reports a problem (or no Android PnP devices currently attached).
+- **Fail (`exit_code: 2`):** One or more confirmed Android-related PnP devices report a driver problem (`Problem != CM_PROB_NONE` / `Status == Error`). They are listed in `details.problem_devices`; any other USB problem devices are still listed in `details.other_usb_problem_devices`.
+- **Warn (`exit_code: 0`):** Only devices that are not confirmed Android-related report a problem. They are listed in `details.other_usb_problem_devices`, `details.problem_devices` is empty, the summary states that no Android USB driver problem was detected, and the remediation asks the user to check Device Manager if their phone is among them.
+- **Details:** Whenever the probe is available, `details` MUST contain `inspected_count`, `probe_available`, `problem_devices` and `other_usb_problem_devices` (an empty list when none). Instance ids are redacted with the serial-redaction rule.
 - **Remediation Hints (Safe Only):**
   - **Google Pixel / Android Dev Devices:** Official Google USB Driver (`android_winusb.inf` from `developer.android.com/studio/run/win-usb`, installed via `pnputil /add-driver android_winusb.inf /install`) or native WinUSB (WCID / MS OS 2.0).
   - **OEM Devices (e.g., Samsung Galaxy):** Official OEM USB driver (`developer.android.com/studio/run/oem-usb`, e.g., Samsung Mobile USB Composite Driver) rather than forcing WinUSB onto the USB composite parent.
   - MUST NOT mention or invoke Zadig or `bcdedit /set testsigning on`.
 
-#### 7. `debian_usb_permissions` (Debian Only)
+#### 7. `debian_usb_permissions` (Debian and Other Linux)
 - **Probe:**
-  - **Udev Rules:** Search `/etc/udev/rules.d/` (e.g., `51-android.rules`) and `/lib/udev/rules.d/` (including `android-sdk-platform-tools-common` rules) for Android USB / ADB interface rules (`bInterfaceClass=="ff"`, `bInterfaceSubClass=="42"`, `bInterfaceProtocol=="01"`, or vendor `idVendor` rules containing `TAG+="uaccess"` or `GROUP="plugdev"` / `GROUP="adbusers"`).
-  - **Group Membership:** Check `os.getgroups()` / `grp` for `plugdev` (and note `adbusers` if applicable).
-  - **Logind Seat:** Query `loginctl` / `$XDG_SESSION_ID` to determine if the current session is attached to an active local seat (`uaccess` applies) or is a headless/SSH session (`plugdev` group membership is strictly required because `uaccess` does not apply over SSH).
-- **Pass:** Udev rules are present **AND** (user has an active local `logind` seat with `uaccess` rule **OR** user belongs to `plugdev`).
+  - **Udev Rules:** Search `/etc/udev/rules.d/` (e.g., `51-android.rules`), `/lib/udev/rules.d/` (including `android-sdk-platform-tools-common` rules) and `/usr/lib/udev/rules.d/`. Directories that resolve to the same path are read once, and a file in `/etc/udev/rules.d/` overrides a same-named file in a later directory.
+  - **Android-relevant rule files:** Comment lines (first non-blank character `#`) are ignored. A rule file is Android-relevant only if its file name contains `android` (case-insensitive), **OR** it matches the ADB USB interface (`ATTR{bInterfaceClass}=="ff"` together with `ATTR{bInterfaceSubClass}=="42"`, or an `ID_USB_INTERFACES` value containing `:ff42`), **OR** it references `adb_user`, **OR** it references `ID_DEBUG_APPLIANCE` (newer systemd grants `uaccess` to ADB/fastboot devices through that property). A bare `idVendor` or `bInterfaceClass` occurrence MUST NOT qualify, so stock files such as `69-libmtp.rules` or `70-uaccess.rules` do not count.
+  - `has_uaccess_tag`, `has_plugdev_rule` (`plugdev`) and `has_adbusers_rule` (`adbusers`) are derived only from Android-relevant files, ignoring comment lines.
+  - **Group Membership:** Check `os.getgroups()` plus the effective GID `os.getegid()` against `grp` for `plugdev` and `adbusers`.
+  - **Effective group access:** Membership only counts when an Android-relevant rule grants that group: `plugdev` membership with a `plugdev` rule, or `adbusers` membership with an `adbusers` rule. Membership alone does not grant access. `details` reports `has_adbusers_rule` and `effective_group_access` in addition to the existing keys.
+  - **Logind Seat:** Query `loginctl` / `$XDG_SESSION_ID` to determine if the current session is attached to an active local seat (`uaccess` applies) or is a headless/SSH session (effective group access is strictly required because `uaccess` does not apply over SSH).
+- **Pass:** Android-relevant udev rules are present **AND** (user has an active local `logind` seat with a `uaccess` rule **OR** user has effective group access). Rule text shows how access is configured; it is not proof that a connected device is accessible.
 - **Fail (`exit_code: 2`):**
-  - Udev rules for Android/ADB are completely missing, **OR**
-  - Session is headless/SSH (no local seat) and user is not in `plugdev` (or rules lack `TAG+="uaccess"` on a local seat without `plugdev`).
-  - *(Note: If local seat + `uaccess` works but `plugdev` is absent, emit `warn` advisory for future SSH usage rather than failing.)*
+  - Android-relevant udev rules are completely missing, **OR**
+  - Session is headless/SSH (no local seat) and user has no effective group access, **OR**
+  - Rules lack `TAG+="uaccess"` and user has no effective group access.
+  - *(Note: If local seat + `uaccess` works but there is no effective group access, emit `warn` advisory for future SSH usage rather than failing.)*
 - **Remediation Hints (Printed Only, Never Auto-Executed with `sudo adb`):**
-  - Recommend `sudo apt install android-sdk-platform-tools-common` or installing `/etc/udev/rules.d/51-android.rules` with:
+  - ADAPT ships `51-android.rules` as package data (`adapt_adb/data/51-android.rules`, byte-identical to `packaging/linux/51-android.rules`). One resolver (`adapt_adb.hints.find_udev_rules_file`) locates it; every printed instruction (this remediation, the `udev` Next action, `adapt setup`'s Next steps) uses its resolved absolute path, as `sudo cp <path> /etc/udev/rules.d/51-android.rules`. Only if no copy can be found is the rule line below printed instead.
+  - **Debian:** recommend `sudo apt install android-sdk-platform-tools-common` or copying ADAPT's rules file. The rule is:
     ```udev
     SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="ff", ATTR{bInterfaceSubClass}=="42", ATTR{bInterfaceProtocol}=="01", TAG+="uaccess", GROUP="plugdev", MODE="0660"
     ```
+  - **Other Linux (`host.os == "linux"`):** remediation MUST NOT prescribe `apt` packages or assume a `plugdev` group exists. It names the distribution's own Android udev rules package or ADAPT's rules file, and says that for SSH/headless sessions the user joins the group the rules grant, whose name (like the package name) differs between distributions.
   - Reload command: `sudo udevadm control --reload-rules && sudo udevadm trigger`
-  - Group command: `sudo usermod -aG plugdev $USER` (followed by re-login).
+  - Group command (Debian): `sudo usermod -aG plugdev $USER`. Every instruction that changes group membership says it takes effect after logging out and back in. The interactive `udev` Next action adds the user to `plugdev` on Debian, and elsewhere only when a `plugdev` group exists.
 
 #### 8. `adb_server_5037` (Shared-Server Ownership & Version Parity)
 - **Probe (Non-Destructive, No Client Auto-Kill):**
   - Inspect OS socket/process state for `127.0.0.1:5037` (and UNIX socket `/tmp/5037` on Debian):
     - **Debian:** Inspect `/tmp/5037` `stat` UID/owner if present, and inspect any process listening on `127.0.0.1:5037` (`ss -ltnp` / `/proc/net/tcp` + `/proc/<pid>/status` UID + `realpath(/proc/<pid>/exe)`).
+      - Every row of both `/proc/net/tcp` and `/proc/net/tcp6` MUST be scanned without early exit. Every `LISTEN` row on port `5037` counts, whatever its bind address (fail closed, as on Windows).
+      - Ownership is evaluated over all listener rows: any row owned by `root` (while the current effective UID is not `0`) marks the listener as root-owned, and any row owned by another UID marks it as foreign. The reported owner is the most concerning listener (`root` first, then another user, otherwise the current user).
+      - Listener rows with more than one distinct UID, or whose socket inodes resolve to more than one distinct PID (including every `pid=` match from the `ss -ltnp` fallback), MUST be reported as multiple listener owners (an inspection failure). One process holding both an IPv4 and an IPv6 socket is a normal dual-stack server, not multiple owners.
+      - A server is verifiable only when every listener row is attributed to one single PID owned by the current user. If some listener inodes resolve to a PID and others do not, or a listener table cannot be read or contains a malformed row, the probe MUST fail closed as an inspection failure rather than report idle or verified.
     - **Windows 11:** Inspect TCP listener on `127.0.0.1:5037` (`Get-NetTCPConnection -LocalPort 5037 -State Listen` -> owning PID -> process owner & executable `Path`).
   - Also inspect `~/.android/adbkey` (Debian) / `%USERPROFILE%\.android\adbkey` (Windows) existence and owner (warn if owned by `root` on Debian; **never delete or regenerate**).
   - If a server process is listening on `5037`:
     1. Check owner UID/user: on Debian, fail immediately if owner is `root` (`uid == 0`) or a different user than current effective user; on Windows, fail if owned by `NT AUTHORITY\SYSTEM` or a different user account when inaccessible.
     2. Check version parity **without** sending commands from a mismatched `adb` client binary: run `<server_process_exe> version` on the running server's own binary path and compare its `Version` against `<resolved_adb> version`. (If the running server binary cannot be queried or its `Version` differs from `<resolved_adb> version`, fail!)
+  - **Which client `adb`:** for this check (and for `devices_state`), `<resolved_adb>` is the **command adb** (§3.2.1): the copy ADAPT's own commands use and verify in their pre-flight. When no command adb resolves, it is the `PATH` `adb`. The server's executable is queried only when it is that same file. A server that ADAPT's commands started from an `ADAPT_ADB` override or a fallback folder is therefore verified, not called unsafe. `details` add `client_adb` and `client_adb_source` (`override`, `path`, `fallback_location` or `none`); `client_version` is that copy's version.
+  - **macOS:** ADAPT has no listener probe for macOS; it does not read Linux `/proc` state there. The check fails closed (`exit_code: 3`) with a summary saying macOS is not a supported host and the server state is unverified.
 - **Pass:** Either no process is listening on `5037` (idle), **OR** the running server is owned by the current user **AND** its binary version matches `<resolved_adb>`.
 - **Fail (`exit_code: 3`):**
   - Port `5037` or `/tmp/5037` is owned by `root` / another user, **OR**
+  - More than one listener owner is present on port `5037`, or listener inspection fails, **OR**
   - Running server version mismatches `<resolved_adb>` version.
 - **Strict Rule:** `adapt doctor` and `adapt setup` MUST report the conflicting PID, owner, and version mismatch and exit `3`. They MUST NOT invoke `adb kill-server` or terminate the running server.
 
 #### 9. `devices_state` (`adb devices -l`)
-- **Precondition:** Run **ONLY** if `adb_version` passed (`>= 34.0.0`) AND `adb_server_5037` passed (same user, no version mismatch). If `adb_server_5037` failed, set `devices_state` status to `skip` (to avoid `adb` client auto-killing a mismatched shared server).
+- **Precondition:** Run **ONLY** if the command adb used by `adb_server_5037` reports `>= 34.0.0` (whatever its origin, including a distribution package) AND `adb_server_5037` passed (same user, no version mismatch). If `adb_server_5037` failed, set `devices_state` status to `skip` (to avoid `adb` client auto-killing a mismatched shared server). The listing runs with that same command adb.
 - **Probe:** Run `<resolved_adb> devices -l` with a bounded timeout (default `10s`). Parse each device line into state categories:
   - `device` (ready)
   - `unauthorized` (RSA prompt pending/dismissed on device)
@@ -161,6 +186,12 @@ Exit codes are strictly ordered by precedence. When multiple failures exist simu
 - **Serial Hygiene:** `adapt doctor` MUST NOT write raw hardware serial numbers, device IPs, or host usernames into repository files or persistent logs. In JSON/console output, report state counts and redacted/hashed or alias-mapped identifiers (`device_count_by_state`, optional `--show-serials` only for interactive local stdout if explicitly requested, never persisted to disk).
 - **Pass:** Zero devices in `unauthorized` or `no permissions` (0 connected devices is valid and passes). (Emit `warn` if any device is `offline`).
 - **Fail (`exit_code: 2`):** One or more devices are in `unauthorized` or `no permissions`.
+
+### 3.3 Host Platform and Privilege
+
+- **`host.os`:** `windows`; `debian` for the Debian family (the `ID` or `ID_LIKE` field of `/etc/os-release` names `debian` or `ubuntu`, or, without readable os-release data, `/etc/debian_version` exists); `linux` for any other Linux; `macos` for macOS. `host.supported` is `true` for `windows`, `debian` and `linux` and `false` otherwise.
+- **Unsupported host (macOS):** `adapt doctor` still reports the generic `adb` checks, skips `debian_usb_permissions` and `windows_pnp` as not applicable, fails `adb_server_5037` closed (§3.2.8) and says in human output that the platform is unsupported. `adapt setup` refuses (§5.1 step 0).
+- **Root / Administrator:** `host.uid_is_root` reports an effective UID of `0` (POSIX); `host.elevated` reports an elevated Windows session. Human doctor output (both renderers) then starts with a warning line: as root, that any `adb` server ADAPT starts runs as root and can leave root-owned files (`~/.android/adbkey`, `/tmp/5037`) that later block normal use, so ADAPT should run as the normal user without `sudo`; when elevated, that an elevated `adb` server cannot be shared with tools in non-elevated sessions. Separately, every command that can start or talk to `adb` (`doctor`, `setup`, `devices`, `adb`, `pair`, `connect`, `everything` and the device command groups) prints the same warning once on `stderr` in human mode. It never appears with `--json`, never prompts and never changes an exit code.
 
 ---
 
@@ -180,10 +211,12 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
       "type": "object",
       "required": ["os", "arch", "uid_is_root"],
       "properties": {
-        "os": { "type": "string", "enum": ["windows", "debian", "linux"] },
+        "os": { "type": "string", "enum": ["windows", "debian", "linux", "macos"] },
         "arch": { "type": "string" },
         "uid_is_root": { "type": "boolean" },
-        "seat": { "type": ["string", "null"], "enum": ["local", "headless", null] }
+        "seat": { "type": ["string", "null"], "enum": ["local", "headless", null] },
+        "elevated": { "type": "boolean", "description": "Elevated (Administrator) Windows session; false elsewhere." },
+        "supported": { "type": "boolean", "description": "false for hosts ADAPT does not support (macOS)." }
       }
     },
     "exit_code": { "type": "integer", "enum": [0, 1, 2, 3] },
@@ -195,10 +228,14 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
       "type": "object",
       "required": ["adb_path", "platform_tools_version", "origin", "android_home_present"],
       "properties": {
-        "adb_path": { "type": ["string", "null"] },
-        "platform_tools_version": { "type": ["string", "null"] },
-        "origin": { "type": "string", "enum": ["google_official", "debian_apt", "unknown", "none"] },
-        "android_home_present": { "type": "boolean" }
+        "adb_path": { "type": ["string", "null"], "description": "First adb on PATH." },
+        "platform_tools_version": { "type": ["string", "null"], "description": "Version of the PATH adb." },
+        "origin": { "type": "string", "enum": ["google_official", "debian_apt", "unknown", "none"], "description": "Origin of the PATH adb." },
+        "android_home_present": { "type": "boolean" },
+        "command_adb_path": { "type": ["string", "null"], "description": "The adb ADAPT's commands use (§3.2.1)." },
+        "command_adb_source": { "type": "string", "enum": ["override", "path", "fallback_location", "none"] },
+        "command_adb_version": { "type": ["string", "null"] },
+        "command_adb_origin": { "type": "string", "enum": ["google_official", "debian_apt", "unknown", "none"] }
       }
     },
     "checks": {
@@ -225,7 +262,11 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
           "exit_code": { "type": "integer", "enum": [0, 1, 2, 3] },
           "summary": { "type": "string" },
           "details": { "type": "object" },
-          "remediation": { "type": ["string", "null"] }
+          "remediation": { "type": ["string", "null"] },
+          "failure_id": {
+            "type": ["string", "null"],
+            "description": "Failure-guide ID of the branch this check took (for example `adb.too_old`, `host.udev_missing`, `device.unauthorized`); null when the check passed or was skipped. `adapt explain ID` shows the guide. Every doctor and setup report sets it on every check."
+          }
         }
       }
     },
@@ -245,6 +286,48 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
           }
         }
       }
+    },
+    "setup": {
+      "description": "Present only for `adapt setup`.",
+      "type": "object",
+      "required": ["action", "dry_run", "no_path", "target_dir", "url", "downloaded", "path_updated"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "installed",
+            "noop_already_healthy",
+            "path_registered",
+            "noop_already_installed",
+            "dry_run",
+            "aborted_unsafe_server",
+            "aborted_needs_yes",
+            "aborted_unconfirmed",
+            "unsupported_architecture",
+            "unsupported_platform",
+            "failed"
+          ]
+        },
+        "reused_existing": { "type": "boolean", "description": "Present (true) when setup reused a healthy copy in its own install folder instead of downloading (§5.1 step 2b)." },
+        "would_download": { "type": "boolean", "description": "dry_run only." },
+        "would_update_path": { "type": "boolean", "description": "dry_run only." },
+        "dry_run": { "type": "boolean" },
+        "no_path": { "type": "boolean" },
+        "target_dir": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "downloaded": { "type": "boolean" },
+        "path_updated": { "type": "boolean" },
+        "error": { "type": "string" }
+      }
+    },
+    "error": {
+      "description": "Present for setup actions `failed`, `unsupported_architecture` and `unsupported_platform`; same text as `setup.error`.",
+      "type": "string"
+    },
+    "failure": {
+      "description": "Setup reports only. Present when setup.action is `failed`, `unsupported_architecture`, `unsupported_platform` or `aborted_*`: the failure guidance object (see docs/help.md, Failure guidance). `adapt doctor` reports never carry it; the checks are the diagnosis.",
+      "type": "object",
+      "required": ["schema", "id", "summary", "certainty", "causes", "recommendations", "avoid", "help_topic", "docs", "explain", "context_unknown"]
     }
   }
 }
@@ -259,6 +342,8 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 | `2` | `"device_unauthorized_or_no_permissions"` |
 | `3` | `"unsafe_shared_server"` |
 
+The one exception is `adapt setup` when setup did not do what was asked (see §5.3): `status` still describes host health, but a healthy host's `exit_code` becomes `1`, so `"status": "ok"` can appear with `"exit_code": 1`.
+
 ---
 
 ## 5. What `adapt setup` May Do
@@ -266,9 +351,12 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 `adapt setup` automates **user-scope** ADB provisioning without administrative privileges (`sudo` / UAC) and without disturbing existing shared servers or SDKs.
 
 ### 5.1 Pre-Flight Gate
+0. On a host that is not Windows or Linux (`host.supported == false`, i.e. macOS), `adapt setup` stops with action `unsupported_platform` and an error naming the platform, before the gates below. Nothing is downloaded or changed, even with `--dry-run`. `target_dir` and `url` are `null`; the report shape and exit code follow `unsupported_architecture` (not-done rule, so an unverifiable listener still yields `3`). No later step could act on such a host, so deciding this first changes no safety outcome.
 1. Run `adb_server_5037` check **first**. If port `5037` is owned by `root`/another user or has a running server mismatch, `adapt setup` MUST abort immediately with exit code `3` and MUST NOT kill the server.
-2. Check if a valid Google `adb >= 34.0.0` is already installed and first on `PATH` (unless `--force` is passed to repair/re-install into user scope). If already healthy, `adapt setup` exits `0` without downloading.
-3. Before a mutating download/unpack, `adapt setup` prompts on `stderr` for confirmation unless `--yes`/`-y` is passed. When ADAPT cannot show a prompt (input or error output is not a terminal), `adapt setup` stops before changing anything unless `--yes` is given.
+2. Check if a valid `adb >= 34.0.0` is already installed and first on `PATH` (unless `--force` is passed to repair/re-install into user scope): `adb_path`, `adb_version`, `adb_origin` and `path_config` all have exit code `0` **and** `PATH` has an `adb`. A distribution-packaged `adb >= 34.0.0` counts as healthy (its origin is a `warn`). If already healthy, `adapt setup` exits with the pre-flight code without downloading (`noop_already_healthy`). A usable copy that is only off `PATH` is not "healthy" here; step 2b applies.
+   - **2b. Existing healthy copy, PATH registration missing:** if setup's own install folder (the target directory, honouring `--isolated`) already holds an `adb` that exists, starts and reports `>= 34.0.0`, and is classified `google_official`, and the first `adb` on `PATH` is not that copy, setup does **not** download again (unless `--force`). It registers that folder on `PATH` instead, with the same mechanism as §5.2 step 4: action `path_registered`, `downloaded: false`, `path_updated: true`, `reused_existing: true`, followed by the post-setup doctor run. With `--dry-run` the action is `dry_run` with `would_download: false` and `would_update_path` reflecting `--no-path`. With `--no-path` nothing is changed: action `noop_already_installed`. A `PATH` change is a user-profile change, so it needs the same confirmation as a download (step 4): without `--yes` and without a terminal, `aborted_needs_yes`; a declined prompt, `aborted_unconfirmed`. If the `PATH` update itself fails, the action is `failed` with `reused_existing: true` and the error `Could not add <dir> to your user PATH.`
+3. On Debian/Linux hosts, check the host architecture. The official Linux platform-tools archive contains x86_64 binaries only, so on any other architecture (for example `aarch64`) `adapt setup` stops with action `unsupported_architecture` and an error naming the detected architecture. Nothing is downloaded, even with `--dry-run`. Windows hosts are not gated.
+4. Before a mutating download/unpack, or a `PATH`-only registration (step 2b), `adapt setup` prompts on `stderr` for confirmation unless `--yes`/`-y` is passed. When ADAPT cannot show a prompt (input or error output is not a terminal), `adapt setup` stops before changing anything unless `--yes` is given.
 
 ### 5.2 Allowed Actions
 1. **Download Official Google Platform-Tools Zip (HTTPS Only):**
@@ -294,6 +382,37 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 5. **Post-Setup Verification & Safe OS Hints:**
    - Re-run `adapt doctor` checks and return the resulting exit code (`0`, `1`, `2`, or `3`).
    - Print safe, copy-pasteable OS instructions if `windows_pnp` (`pnputil` / Google USB INF / OEM driver page) or `debian_usb_permissions` (`udev` rules / `plugdev` group) need attention.
+
+### 5.3 Setup Outcomes and Exit Codes
+`setup.action` reports what happened:
+
+| `setup.action` | Meaning | Exit code |
+|---|---|---|
+| `installed` | Downloaded, unpacked and (unless `--no-path`) put on `PATH`. | Post-setup doctor exit code. |
+| `noop_already_healthy` | Toolchain already healthy; nothing downloaded. | Pre-flight exit code. |
+| `path_registered` | Healthy copy already in setup's install folder; its folder was put on `PATH`; nothing downloaded (§5.1 step 2b). | Post-setup doctor exit code. |
+| `noop_already_installed` | Healthy copy already in setup's install folder, but `--no-path` was given; nothing changed. | Pre-flight exit code. |
+| `dry_run` | `--dry-run`; reports `would_download` / `would_update_path`. | Pre-flight exit code. |
+| `aborted_unsafe_server` | Port `5037` gate failed (§5.1 step 1). | `3`. |
+| `aborted_needs_yes` | No terminal to confirm and no `--yes`. | Not-done rule. |
+| `aborted_unconfirmed` | User declined the confirmation prompt. | Not-done rule. |
+| `unsupported_architecture` | Non-x86_64 Debian/Linux host (§5.1 step 3). | Not-done rule. |
+| `unsupported_platform` | Host is not Windows or Linux, e.g. macOS (§5.1 step 0). | Not-done rule. |
+| `failed` | Download, verification or unpack raised an error. | Not-done rule. |
+
+**Not-done rule:** when setup did not do what was asked, a pre-flight exit code of `0` becomes `1`; a non-zero pre-flight exit code (`1`, `2` or `3`) is kept, following the normal precedence. `status` is not changed and keeps describing host health. The process exit code always equals the report's `exit_code`.
+
+For `failed`, `unsupported_architecture` and `unsupported_platform`, the report carries the error text in both `setup.error` and a top-level `error`. With `--json`, stdout is still the full report described in §4. Human output prints `Error: <message>` on `stderr` and exits without printing the doctor report or the next-actions menu.
+
+**Failure guidance.** For `failed`, `unsupported_architecture`, `unsupported_platform` and every `aborted_*` action, `--json` adds a top-level `failure` object (additive; existing keys are unchanged). Its `id` names the situation, for example `setup.digest_unavailable`, `setup.download_failed`, `setup.integrity_failed`, `setup.needs_confirmation`, `setup.declined`, `setup.unsupported_arch`, `setup.unsupported_platform`, `setup.path_update_failed` (a `failed` step 2b registration) or, for `aborted_unsafe_server`, the `failure_id` of the `adb_server_5037` check (an `adb.server.*` guide, or `host.unsupported_platform`). When `adapt setup --json` itself raises before producing a report, the error payload `{"schema_version": "1", "command": "setup", "exit_code": 1, "status": "missing_toolchain", "error": ...}` gains the same `failure` key. Human output keeps its first error line and adds the guidance on `stderr` after it; `adapt explain ID` shows the full guide. A successful install that updated `PATH` adds one line telling you to reopen terminals that were already open.
+
+Human setup output for `path_registered` and `noop_already_installed` says that healthy platform-tools are already installed in the target directory and that nothing was downloaded; `path_registered` also prints the reopen-terminals line. A step 2b dry run prints `[DRY-RUN] Would not download: healthy platform-tools are already installed.` instead of the download URL. The non-interactive `Next:` steps on Linux print the resolved rules-file path (§3.2.7) and the log-out note.
+
+In plain human doctor output, when `PATH` has no `adb` but the command adb exists, the `ADB Path:` line reads `Not on PATH (ADAPT commands use <path>)`, the `ADB Version:` and `Origin:` lines describe that copy (the JSON `toolchain.platform_tools_version` and `origin` keep describing the `PATH` adb), and the closing hint suggests `adapt setup` to put platform-tools on `PATH`; "download and install" is suggested only when no usable copy exists. Host notes (§3.3) appear right after the `OS:` line.
+
+Human doctor output (both the plain and the terminal renderer) ends with `Run 'adapt doctor --fix' to see how to fix the items above.` when a check is `fail` or `warn` and has remediation text, and `--fix` was not given. The JSON report is unchanged.
+
+**Failure IDs and the single source of remediation text.** Every check in a doctor or setup report carries `failure_id` (§4): the failure-guide ID of the branch it took, or `null` for `pass` and `skip`. Distinct failing branches of one check have distinct IDs; for example `adb_server_5037` uses `adb.server.endpoint_unverified`, `host.unsupported_platform`, `adb.server.probe_failed`, `adb.server.foreign_owner`, `adb.server.version_mismatch`, `adb.server.unverified` and, for its warning, `adb.adbkey_root_owned`. The `remediation` text of each branch now lives in the failure-guide registry (`adapt_adb/failure_guide.py`, `doctor_remediation`); `run_doctor_checks` reads it from there and fills in values such as ADAPT's rules-file path. The text itself is unchanged. In the terminal renderer, each `fail` or `warn` check with an ID is followed by one line `More: adapt explain ID`. The plain renderer (redirected output) adds one line before the `--fix` pointer, `More: adapt explain FIRST_ID  |  also: OTHER_IDS`, and with `--fix` each remediation line ends with `(adapt explain ID)`. `ADAPT_FAILURE_GUIDANCE=off` removes these pointers.
 
 ---
 

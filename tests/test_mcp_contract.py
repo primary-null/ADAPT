@@ -242,7 +242,7 @@ def test_install_apk_uses_dash_r_by_default(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    res = dispatch_tool_call("install_apk", {"apk": "/tmp/build/app-debug.apk"})
+    res = dispatch_tool_call("install_apk", {"apk": "/tmp/build/app-debug.apk", "device": "SERIAL_A"})
     assert res.is_error is False
     assert json.loads(res.content[0].text) == {
         "ok": True,
@@ -250,7 +250,9 @@ def test_install_apk_uses_dash_r_by_default(monkeypatch: pytest.MonkeyPatch) -> 
         "reinstall": True,
     }
 
-    res_grant = dispatch_tool_call("install_apk", {"apk": "/tmp/build/app-debug.apk", "grant": True})
+    res_grant = dispatch_tool_call(
+        "install_apk", {"apk": "/tmp/build/app-debug.apk", "grant": True, "device": "SERIAL_A"}
+    )
     assert res_grant.is_error is False
 
     install_calls = [c for c in recorded_calls if "install" in c]
@@ -317,6 +319,7 @@ def test_doctor_returns_compact_mcp_v1_schema(monkeypatch: pytest.MonkeyPatch) -
         "adb_version",
         "managed",
         "daemon",
+        "daemon_reason",
         "os",
         "driver_hint",
         "udev",
@@ -327,6 +330,7 @@ def test_doctor_returns_compact_mcp_v1_schema(monkeypatch: pytest.MonkeyPatch) -
     assert "checks" not in payload
     assert payload["adb_version"] == "35.0.2"
     assert payload["daemon"] == "ok"
+    assert payload["daemon_reason"] is None
     assert payload["os"] == "linux"
     assert payload["udev"] == "present"
     assert payload["plugdev"] is True

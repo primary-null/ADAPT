@@ -1,5 +1,6 @@
 #[cfg(windows)]
 pub mod advertise;
+pub mod audio;
 pub mod input;
 #[cfg(windows)]
 pub mod media;

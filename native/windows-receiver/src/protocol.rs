@@ -67,8 +67,10 @@ pub struct RtspFramer {
 }
 
 impl RtspFramer {
+    /// True while the buffer holds part of a message. Stray line breaks between
+    /// messages are not part of one (see `next_message`).
     pub fn has_buffered_bytes(&self) -> bool {
-        !self.bytes.is_empty()
+        self.bytes.iter().any(|b| !matches!(b, b'\r' | b'\n'))
     }
 
     pub fn push(&mut self, data: &[u8]) -> Result<()> {
@@ -79,6 +81,13 @@ impl RtspFramer {
         Ok(())
     }
     pub fn next_message(&mut self) -> Result<Option<RtspMessage>> {
+        // RFC 2326 section 4.1: empty lines where a start line is expected are
+        // ignored. Some sources end a body with a line break the Content-Length
+        // does not count; left in place it would corrupt the next message.
+        let blank = self.bytes.iter().take_while(|b| matches!(b, b'\r' | b'\n')).count();
+        if blank > 0 {
+            self.bytes.drain(..blank);
+        }
         let Some(end) = self.bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
             return Ok(None);
         };
@@ -379,5 +388,199 @@ mod tests {
         assert_eq!(reorder.flush(24), (vec![vec![14]], 1));
         reorder.push(2, u16::MAX, &[1], 30);
         assert_eq!(reorder.push(2, 0, &[2], 31).0, vec![vec![2]]);
+    }
+
+    fn rtp(sequence: u16, ssrc: u32, payload: &[u8]) -> Vec<u8> {
+        let mut packet = vec![0x80, 33];
+        packet.extend_from_slice(&sequence.to_be_bytes());
+        packet.extend_from_slice(&[0; 4]);
+        packet.extend_from_slice(&ssrc.to_be_bytes());
+        packet.extend_from_slice(payload);
+        packet
+    }
+
+    fn ts_payload(fill: u8) -> Vec<u8> {
+        let mut packet = vec![fill; 188];
+        packet[0] = 0x47;
+        packet
+    }
+
+    #[test]
+    fn rtp_header_options_are_skipped_exactly() {
+        let ts = ts_payload(1);
+        let plain = rtp(7, 0xdead_beef, &ts);
+        let (ssrc, sequence, payload) = rtp_payload(&plain).unwrap();
+        assert_eq!((ssrc, sequence, payload), (0xdead_beef, 7, &ts[..]));
+        // Two CSRCs, a one-word extension and two bytes of padding together.
+        let mut packet = rtp(9, 5, &[]);
+        packet[0] = 0x80 | 0x20 | 0x10 | 2;
+        packet.extend_from_slice(&[0; 8]);
+        packet.extend_from_slice(&[0xbe, 0xde, 0, 1, 9, 9, 9, 9]);
+        packet.extend_from_slice(&ts_payload(2));
+        packet.extend_from_slice(&[0, 2]);
+        let (_, _, payload) = rtp_payload(&packet).unwrap();
+        assert_eq!(payload, &ts_payload(2)[..]);
+        let double = [ts_payload(3), ts_payload(4)].concat();
+        assert_eq!(rtp_payload(&rtp(1, 1, &double)).unwrap().2, &double[..]);
+    }
+
+    #[test]
+    fn hostile_rtp_packets_are_rejected_without_panicking() {
+        let ts = ts_payload(1);
+        let good = rtp(1, 1, &ts);
+        for cut in 0..good.len() {
+            // Any strict prefix is either too short or not whole TS packets.
+            assert!(rtp_payload(&good[..cut]).is_none(), "prefix {cut}");
+        }
+        let mut bad = good.clone();
+        bad[0] = 0x40; // version 1
+        assert!(rtp_payload(&bad).is_none());
+        let mut bad = good.clone();
+        bad[1] = 96; // dynamic payload type, not MP2T
+        assert!(rtp_payload(&bad).is_none());
+        let mut bad = good.clone();
+        bad[0] = 0x8f; // 15 CSRCs that are not there
+        assert!(rtp_payload(&bad[..40]).is_none());
+        let mut bad = good[..12].to_vec();
+        bad[0] = 0x90; // extension announcing 65535 words
+        bad.extend_from_slice(&[0, 0, 0xff, 0xff]);
+        bad.extend_from_slice(&ts);
+        assert!(rtp_payload(&bad).is_none());
+        let mut bad = good.clone();
+        bad[0] |= 0x10; // extension header cut off
+        assert!(rtp_payload(&bad[..14]).is_none());
+        let mut padded = rtp(1, 1, &ts);
+        padded[0] |= 0x20;
+        padded.push(0); // zero padding length is invalid
+        assert!(rtp_payload(&padded).is_none());
+        *padded.last_mut().unwrap() = 255; // more padding than payload
+        assert!(rtp_payload(&padded).is_none());
+        assert!(rtp_payload(&rtp(1, 1, &[])).is_none(), "no payload");
+        assert!(rtp_payload(&rtp(1, 1, &ts[..187])).is_none(), "not a whole packet");
+        let mut unsynced = ts_payload(1);
+        unsynced[0] = 0x46;
+        assert!(rtp_payload(&rtp(1, 1, &unsynced)).is_none());
+    }
+
+    #[test]
+    fn reorder_keeps_order_across_the_sequence_wrap() {
+        let mut reorder = RtpReorder::default();
+        assert_eq!(reorder.push(9, 65534, &[1], 0).0, vec![vec![1]]);
+        assert!(reorder.push(9, 0, &[3], 1).0.is_empty());
+        assert!(reorder.push(9, 1, &[4], 2).0.is_empty());
+        assert_eq!(reorder.push(9, 65535, &[2], 3).0, vec![vec![2], vec![3], vec![4]]);
+        assert_eq!(reorder.push(9, 2, &[5], 4).0, vec![vec![5]]);
+    }
+
+    #[test]
+    fn duplicates_and_late_packets_are_never_replayed() {
+        let mut reorder = RtpReorder::default();
+        reorder.push(1, 10, &[10], 0);
+        reorder.push(1, 12, &[12], 1);
+        reorder.push(1, 12, &[99], 2); // duplicate of a held packet keeps the first copy
+        assert_eq!(reorder.push(1, 11, &[11], 3).0, vec![vec![11], vec![12]]);
+        for late in [12u16, 11, 10, 9, 1, 65000, 40000] {
+            assert!(reorder.push(1, late, &[0], 4).0.is_empty(), "late {late}");
+        }
+        assert!(reorder.pending.is_empty());
+        assert_eq!(reorder.push(1, 13, &[13], 5).0, vec![vec![13]]);
+    }
+
+    #[test]
+    fn skipping_a_gap_across_the_wrap_reports_its_size() {
+        let mut reorder = RtpReorder::default();
+        reorder.push(1, 65530, &[0], 0);
+        assert!(reorder.push(1, 3, &[3], 1).0.is_empty());
+        assert_eq!(reorder.flush(30), (vec![vec![3]], 8));
+        assert_eq!(reorder.push(1, 4, &[4], 31).0, vec![vec![4]]);
+        // A late packet from inside the skipped gap stays dropped.
+        assert!(reorder.push(1, 65535, &[9], 32).0.is_empty());
+    }
+
+    #[test]
+    fn reorder_holds_a_bounded_number_of_packets() {
+        let mut reorder = RtpReorder::default();
+        reorder.push(1, 0, &[0], 0);
+        for i in 0..2000u16 {
+            reorder.push(1, 2 + i * 2, &[0; 1400], u64::from(i));
+            assert!(reorder.pending.len() <= 64);
+        }
+    }
+
+    #[test]
+    fn stray_line_breaks_between_rtsp_messages_are_ignored() {
+        let mut framer = RtspFramer::default();
+        // A body followed by a line break that Content-Length does not count.
+        framer
+            .push(b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 2\r\n\r\nab\r\n")
+            .unwrap();
+        assert_eq!(framer.next_message().unwrap().unwrap().body, "ab");
+        assert!(!framer.has_buffered_bytes(), "a lone line break is not a partial message");
+        assert!(framer.next_message().unwrap().is_none());
+        // Blank lines in front of the next start line are skipped, even split up.
+        framer.push(b"\r\n\r").unwrap();
+        assert!(!framer.has_buffered_bytes());
+        framer.push(b"\n\r\nGET_PARAMETER rtsp://x/wfd1.0 RTSP/1.0\r\nCSeq: 2\r\n\r\n").unwrap();
+        assert!(framer.has_buffered_bytes());
+        let message = framer.next_message().unwrap().unwrap();
+        assert_eq!((message.method(), message.sequence().unwrap()), ("GET_PARAMETER", 2));
+        assert!(!framer.has_buffered_bytes());
+    }
+
+    #[test]
+    fn rtsp_framer_rejects_oversized_and_malformed_messages() {
+        let mut framer = RtspFramer::default();
+        framer.push(&vec![b'a'; 98304]).unwrap();
+        assert!(framer.push(b"a").is_err(), "an endless header must hit the size limit");
+        assert!(framer.next_message().unwrap().is_none());
+        for head in [
+            "RTSP/1.0 200 OK\r\nContent-Length: 65537\r\n\r\n",
+            "RTSP/1.0 200 OK\r\nContent-Length: -1\r\n\r\n",
+            "RTSP/1.0 200 OK\r\nContent-Length: ten\r\n\r\n",
+            "RTSP/1.0 200 OK\r\nContent-Length: 99999999999999999999999\r\n\r\n",
+            "RTSP/1.0 200 OK\r\nno colon here\r\n\r\n",
+        ] {
+            let mut framer = RtspFramer::default();
+            framer.push(head.as_bytes()).unwrap();
+            assert!(framer.next_message().is_err(), "{head:?}");
+        }
+        let mut framer = RtspFramer::default();
+        framer.push(b"RTSP/1.0 200 OK\r\nCSeq: \xff\r\n\r\n").unwrap();
+        assert!(framer.next_message().is_err(), "header bytes must be UTF-8");
+        let mut framer = RtspFramer::default();
+        framer.push(b"RTSP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n\xff\xfe").unwrap();
+        assert!(framer.next_message().is_err(), "body bytes must be UTF-8");
+        // The largest allowed body is waited for, not rejected.
+        let mut framer = RtspFramer::default();
+        framer.push(b"RTSP/1.0 200 OK\r\nContent-Length: 65536\r\n\r\nxy").unwrap();
+        assert!(framer.next_message().unwrap().is_none());
+        assert!(framer.has_buffered_bytes());
+    }
+
+    #[test]
+    fn rtsp_messages_split_across_reads_and_pipelined() {
+        let one = rtsp("OPTIONS * RTSP/1.0", 1, "", "");
+        let two = rtsp("SET_PARAMETER rtsp://x RTSP/1.0", 2, "a: b\r\n", "");
+        let mut framer = RtspFramer::default();
+        framer.push(format!("{one}{two}").as_bytes()).unwrap();
+        assert_eq!(framer.next_message().unwrap().unwrap().sequence().unwrap(), 1);
+        let second = framer.next_message().unwrap().unwrap();
+        assert_eq!((second.sequence().unwrap(), second.body.as_str()), (2, "a: b\r\n"));
+        assert!(framer.next_message().unwrap().is_none());
+    }
+
+    #[test]
+    fn only_cea_formats_are_advertised_and_accepted() {
+        use crate::settings::Quality;
+        for quality in [Quality::FullHd60, Quality::FullHd30, Quality::Hd60] {
+            let fields: Vec<_> = quality.formats().split_whitespace().collect();
+            let mask = |index: usize| u32::from_str_radix(fields[index], 16).unwrap();
+            assert_ne!(mask(4), 0, "{quality:?} offers CEA modes");
+            assert_eq!((mask(5), mask(6)), (0, 0), "{quality:?} offers no VESA or handheld modes");
+        }
+        assert!(VideoMode::from_wfd("00 00 02 10 00000000 00000001 00000000").is_err());
+        assert!(VideoMode::from_wfd("00 00 02 10 00000100 00000000 00000001").is_err());
+        assert!(VideoMode::from_wfd("00 00 02 10 00000180 00000000 00000000").is_err());
+        assert!(VideoMode::from_wfd("00 00 02 10 00000100").is_err());
     }
 }

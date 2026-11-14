@@ -279,13 +279,17 @@ impl NativeVideo {
                     self.device
                         .CreateTexture2D(&desc, None, Some(&mut self.upload))?;
                 }
+                let upload = self
+                    .upload
+                    .clone()
+                    .context("Windows did not return an upload texture")?;
                 let mut data = ptr::null_mut();
                 let mut length = 0;
                 buffer.Lock(&mut data, None, Some(&mut length))?;
                 let result = (|| -> Result<()> {
                     layout.check_length(length)?;
                     self.context.UpdateSubresource(
-                        self.upload.as_ref().unwrap(),
+                        &upload,
                         0,
                         None,
                         data.cast(),
@@ -296,7 +300,7 @@ impl NativeVideo {
                 })();
                 buffer.Unlock()?;
                 result?;
-                (self.upload.as_ref().unwrap().clone(), 0)
+                (upload, 0)
             };
             let mut input = None;
             self.video_device.CreateVideoProcessorInputView(

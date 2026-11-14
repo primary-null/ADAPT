@@ -1,4 +1,6 @@
-use crate::adapt_trace::Stage;
+use crate::adapt_trace::{
+    fail, idr_request_due, settle, tag, OrFail, ReasonCode, RejectLog, Rejection, Scope, SessionEnd, Stage,
+};
 use crate::{
     advertise::Advertisement,
     media::NativeVideo,
@@ -7,7 +9,7 @@ use crate::{
     settings::Quality,
     transport_stream::TransportStream,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::{
     io::{Read, Write},
@@ -46,28 +48,32 @@ impl Drop for Apartment {
 }
 
 pub fn start(state: Arc<AppState>) -> thread::JoinHandle<()> {
+    // The window checks for stop.request once a second; a file left by an
+    // earlier run would close this one at once. This runs before the first check.
+    if crate::settings::data_dir().is_ok_and(|directory| crate::settings::clear_stale_stop_request(&directory)) {
+        state.log("Removed a stale stop.request left by an earlier run");
+    }
     thread::spawn(move || {
         let result = run(&state);
+        state.advertising.store(false, Ordering::Release);
         if let Err(error) = result {
             state.log(format!("Receiver stopped: {error:#}"));
             if state.running.load(Ordering::Acquire) {
+                state.record_error(Scope::Receiver, &error);
                 state.set_phase(Phase::Error(error.to_string()));
             }
         }
+        state.write_status();
     })
 }
 
 fn run(state: &Arc<AppState>) -> Result<()> {
     // Admission is open by default: any phone may connect. A name or peer ID
     // restricts it only when the operator sets one.
-    if let Ok(expected) = std::env::var("ADAPT_DEX_EXPECTED_NAME") {
-        if expected.len() > 256 || expected.chars().any(char::is_control) {
-            bail!("ADAPT_DEX_EXPECTED_NAME must be at most 256 characters with no control characters");
-        }
-    }
-    let _apartment = Apartment::new()?;
-    let guard=TcpListener::bind(("0.0.0.0",7236))
-        .context("Another wireless-display receiver is using this PC. Close Windows Wireless Display or the earlier test app, then reopen DeXDesk.")?;
+    let policy = AdmissionPolicy::from_env()?;
+    state.set_admission(policy.name.as_deref(), policy.id.as_deref());
+    let _apartment = Apartment::new().or_fail(ReasonCode::WifiDirectInitFailed)?;
+    let guard=TcpListener::bind(("0.0.0.0",7236)).map_err(bind_failure)?;
     guard.set_nonblocking(true)?;
     let (sender, requests) = mpsc::sync_channel(1);
     let mut advertisement = Advertisement::new(state.clone())?;
@@ -81,11 +87,7 @@ fn run(state: &Arc<AppState>) -> Result<()> {
                     callback_state.log("Windows delivered an empty Wi-Fi Direct request");
                     return Ok(());
                 };
-                if callback_state
-                    .session_active
-                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_err()
-                {
+                if !callback_state.claim_session() {
                     callback_state.log(
                         "Ignored another connection request while a phone is already connected",
                     );
@@ -112,8 +114,9 @@ fn run(state: &Arc<AppState>) -> Result<()> {
                 }
                 Ok(())
             },
-        ))?;
+        )).or_fail(ReasonCode::WifiDirectInitFailed)?;
     advertisement.start()?;
+    state.advertising.store(true, Ordering::Release);
     state.stage(Stage::Advertising);
     state.set_phase(Phase::Ready);
     while state.running.load(Ordering::Acquire) {
@@ -122,7 +125,8 @@ fn run(state: &Arc<AppState>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(error) => return Err(error.into()),
         };
-        let result = connect_phone(state, &guard, request);
+        let result = connect_phone(state, &guard, &policy, request);
+        record_outcome(state, &result);
         state.adapt_trace.lock().unwrap().end_attempt();
         state.session_active.store(false, Ordering::Release);
         state.live.store(false, Ordering::Release);
@@ -134,7 +138,7 @@ fn run(state: &Arc<AppState>) -> Result<()> {
             break;
         }
         match result {
-            Ok(()) => state.set_phase(Phase::Ready),
+            Ok(_) => state.set_phase(Phase::Ready),
             Err(error) => {
                 state.log(format!("Connection ended: {error:#}"));
                 state.set_phase(Phase::Error(format!(
@@ -150,36 +154,51 @@ fn run(state: &Arc<AppState>) -> Result<()> {
 fn connect_phone(
     state: &Arc<AppState>,
     guard: &TcpListener,
+    policy: &AdmissionPolicy,
     request: WiFiDirectConnectionRequest,
-) -> Result<()> {
-    let information = request.DeviceInformation()?;
-    let name = information.Name()?.to_string();
-    let id = information.Id()?.to_string();
-    let expected = std::env::var("ADAPT_DEX_EXPECTED_NAME").ok();
-    let expected_id = std::env::var("ADAPT_DEX_EXPECTED_ID").ok();
-    if !peer_matches(expected.as_deref(), expected_id.as_deref(), &name, &id) {
+) -> Result<SessionEnd> {
+    drain_stale_connections(state, guard);
+    let connect_failed = ReasonCode::WifiDirectConnectFailed;
+    let information = request.DeviceInformation().or_fail(connect_failed)?;
+    let name = information.Name().or_fail(connect_failed)?.to_string();
+    let id = information.Id().or_fail(connect_failed)?.to_string();
+    let decision = policy.decide(&name, &id);
+    state.note_peer(&name, &id, decision == Admission::Admitted);
+    let peer = state.privacy.peer_label(&name, &id);
+    if decision != Admission::Admitted {
         state.stage(Stage::PeerRejected);
-        state.log("ADAPT rejected a transmitter that does not match the configured phone name or peer ID");
-        return Ok(());
+        state.log(format!("ADAPT rejected a transmitter ({peer}) that does not match the configured phone name or peer ID"));
+        return Ok(SessionEnd::Rejected(if decision == Admission::RejectedId {
+            ReasonCode::PeerRejectedId
+        } else {
+            ReasonCode::PeerRejectedName
+        }));
     }
     state.stage(Stage::PeerAdmitted);
-    state.log(format!("ADAPT admitted selected transmitter: name={name:?} id={id:?}"));
-    state.set_phase(Phase::Connecting(information.Name()?.to_string()));
-    let parameters = WiFiDirectConnectionParameters::new()?;
-    parameters.SetGroupOwnerIntent(15)?;
-    let operation = WiFiDirectDevice::FromIdAsync2(&information.Id()?, &parameters)?;
+    state.log(format!("ADAPT admitted selected transmitter: {peer}"));
+    state.set_phase(Phase::Connecting(name.clone()));
+    let parameters = WiFiDirectConnectionParameters::new().or_fail(connect_failed)?;
+    parameters.SetGroupOwnerIntent(15).or_fail(connect_failed)?;
+    let operation = WiFiDirectDevice::FromIdAsync2(&information.Id().or_fail(connect_failed)?, &parameters).or_fail(connect_failed)?;
     let deadline = Instant::now() + Duration::from_secs(20);
-    while operation.Status()? == AsyncStatus::Started {
-        if stopping(state) || Instant::now() > deadline {
-            operation.Cancel()?;
-            bail!("The Wi-Fi Direct connection was cancelled or timed out");
+    while operation.Status().or_fail(connect_failed)? == AsyncStatus::Started {
+        let cancelled = stopping(state);
+        if cancelled || Instant::now() > deadline {
+            operation.Cancel().or_fail(connect_failed)?;
+            return Err(interrupted_or(
+                cancelled,
+                ReasonCode::WifiDirectConnectTimeout,
+                "The Wi-Fi Direct connection was cancelled",
+                "The Wi-Fi Direct connection timed out",
+            ));
         }
         thread::sleep(Duration::from_millis(30));
     }
     let device = operation
         .GetResults()
-        .context("Windows could not connect to the phone")?;
-    let result = (|| -> Result<()> {
+        .context("Windows could not connect to the phone")
+        .or_fail(connect_failed)?;
+    let result = (|| -> Result<SessionEnd> {
         let endpoints = device.GetConnectionEndpointPairs()?;
         let mut peer = None;
         for endpoint in endpoints {
@@ -198,10 +217,10 @@ fn connect_phone(
                 break;
             }
         }
-        let (local, remote) =
-            peer.context("Windows did not provide IPv4 Wi-Fi Direct endpoints")?;
+        let (local, remote) = peer
+            .ok_or_else(|| fail(ReasonCode::NoIpv4Endpoint, "Windows did not provide IPv4 Wi-Fi Direct endpoints"))?;
         state.stage(Stage::WifiDirectGroup);
-        state.log(format!("Wi-Fi Direct connected: {local} <-> {remote}"));
+        state.log(format!("Wi-Fi Direct connected: {}", state.privacy.link_label(local, remote)));
         let stream = match tcp(local, remote, 7236) {
             Ok(stream) => stream,
             Err(error) => {
@@ -209,22 +228,35 @@ fn connect_phone(
                     "Phone RTSP dial failed ({error}); waiting for an inbound session"
                 ));
                 let deadline = Instant::now() + Duration::from_secs(5);
+                let mut rejected = RejectLog::default();
                 loop {
-                    if stopping(state) || Instant::now() > deadline {
-                        bail!("The phone did not start a Miracast session");
+                    let cancelled = stopping(state);
+                    if cancelled || Instant::now() > deadline {
+                        return Err(interrupted_or(
+                            cancelled,
+                            ReasonCode::RtspConnectFailed,
+                            "The Wi-Fi Direct connection was stopped before the phone started a Miracast session",
+                            "The phone did not start a Miracast session",
+                        ));
                     }
                     match guard.accept(){
                         Ok((stream,address)) if address.ip()==remote=>break stream,
-                        Ok(_)=>state.log("Rejected an RTSP connection from outside the connected Wi-Fi Direct peer"),
+                        Ok(_)=>match rejected.note() {
+                            Rejection::Report=>state.log("Rejected an RTSP connection from outside the connected Wi-Fi Direct peer"),
+                            Rejection::FirstSuppressed=>state.log("More RTSP connections from outside the Wi-Fi Direct peer were rejected; they are no longer logged one by one"),
+                            Rejection::Quiet=>{}
+                        },
                         Err(error) if error.kind()==std::io::ErrorKind::WouldBlock=>thread::sleep(Duration::from_millis(30)),
-                        Err(error)=>return Err(error.into()),
+                        Err(error)=>return Err(tag(error.into(), ReasonCode::RtspConnectFailed)),
                     }
                 }
             }
         };
         state.stage(Stage::RtspConnected);
-        session(state, stream, local, remote)
-    })();
+        // An error inside the session that nothing classified is internal, not a
+        // Wi-Fi Direct connection failure.
+        session(state, stream, local, remote).map_err(|error| tag(error, ReasonCode::InternalError))
+    })().or_fail(connect_failed);
     if let Err(error) = device.Close() {
         state.log(format!("Could not close the Wi-Fi Direct device: {error}"));
     }
@@ -284,7 +316,7 @@ fn udp_pair(local: IpAddr, state: &AppState) -> Result<(UdpSocket, UdpSocket)> {
             Err(error) => return Err(error.into()),
         }
     }
-    bail!("Windows could not reserve an RTP/RTCP port pair")
+    Err(fail(ReasonCode::RtpPortUnavailable, "Windows could not reserve an RTP/RTCP port pair"))
 }
 
 fn capabilities(request: &str, port: u16, quality: Quality) -> String {
@@ -319,6 +351,7 @@ fn write(stream: &mut TcpStream, message: String) -> Result<()> {
     stream
         .write_all(message.as_bytes())
         .context("Miracast control connection failed")
+        .or_fail(ReasonCode::ControlConnectionFailed)
 }
 
 fn session(
@@ -326,9 +359,9 @@ fn session(
     mut stream: TcpStream,
     local: IpAddr,
     remote: IpAddr,
-) -> Result<()> {
-    configure_tcp(&stream)?;
-    let (rtp, rtcp) = udp_pair(local, state)?;
+) -> Result<SessionEnd> {
+    configure_tcp(&stream).or_fail(ReasonCode::ControlConnectionFailed)?;
+    let (rtp, rtcp) = udp_pair(local, state).or_fail(ReasonCode::RtpPortUnavailable)?;
     let rtp_port = rtp.local_addr()?.port();
     let mut udp = Some((rtp, rtcp));
     let life = Arc::new(AtomicBool::new(true));
@@ -345,7 +378,7 @@ fn session(
     let mut options = false;
     let mut framer = RtspFramer::default();
     let mut bytes = [0u8; 8192];
-    let mut last_recover = Instant::now() - Duration::from_secs(2);
+    let mut last_recover: Option<Instant> = None;
     let quality = state.settings.lock().unwrap().quality;
     let started = Instant::now();
     let mut first_frame = false;
@@ -357,7 +390,7 @@ fn session(
         quality.label()
     ));
 
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<SessionEnd> {
         while !stopping(state) && life.load(Ordering::Acquire) {
             let frames = state.frames.load(Ordering::Acquire);
             first_frame |= frames > 0;
@@ -368,7 +401,7 @@ fn session(
             }
             check_deadlines(now, started, first_frame, last_message, partial_since)?;
             if recover.load(Ordering::Acquire)
-                && last_recover.elapsed() > Duration::from_secs(1)
+                && idr_request_due(last_recover, now)
                 && !session_id.is_empty()
             {
                 recover.store(false, Ordering::Release);
@@ -382,12 +415,12 @@ fn session(
                         &format!("Session: {session_id}\r\n"),
                     ),
                 )?;
-                last_recover = Instant::now();
+                last_recover = Some(Instant::now());
             }
             match stream.read(&mut bytes) {
-                Ok(0) => break,
+                Ok(0) => return Ok(SessionEnd::PeerDisconnected),
                 Ok(count) => {
-                    framer.push(&bytes[..count])?;
+                    framer.push(&bytes[..count]).or_fail(ReasonCode::RtspProtocolError)?;
                     partial_since.get_or_insert_with(Instant::now);
                 }
                 Err(error)
@@ -398,23 +431,24 @@ fn session(
                 {
                     continue
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(tag(error.into(), ReasonCode::ControlConnectionFailed)),
             }
-            while let Some(message) = framer.next_message()? {
+            while let Some(message) = framer.next_message().or_fail(ReasonCode::RtspProtocolError)? {
                 last_message = Instant::now();
                 partial_since = if framer.has_buffered_bytes() { Some(last_message) } else { None };
-                let received = message.sequence()?;
+                let received = message.sequence().or_fail(ReasonCode::RtspProtocolError)?;
                 if message.response() {
                     let answers_sent_request = received != 0 && received <= sequence;
                     if answers_sent_request && !successful_response(&message.start) {
-                        bail!("The phone rejected a control request: {}", message.start);
+                        return Err(fail(ReasonCode::RtspRequestRejected, format!("The phone rejected a control request: {}", message.start)));
                     }
                     let Some(response) = playback.consume(received) else { continue };
                     if response == PlaybackResponse::Setup {
                         session_id = message
                             .headers
                             .get("session")
-                            .context("Missing Miracast session identifier")?
+                            .context("Missing Miracast session identifier")
+                            .or_fail(ReasonCode::RtspProtocolError)?
                             .split(';')
                             .next()
                             .unwrap_or("")
@@ -432,13 +466,13 @@ fn session(
                         )?;
                     } else if response == PlaybackResponse::Play {
                         if input_thread.is_some() || input_stream.is_some() {
-                            bail!("The phone attempted to start a second input channel");
+                            return Err(fail(ReasonCode::RtspProtocolError, "The phone attempted to start a second input channel"));
                         }
                         state.stage(Stage::PlaybackAccepted);
-                        let selected = mode.context("The phone did not select a video format")?;
+                        let selected = mode.context("The phone did not select a video format").or_fail(ReasonCode::RtspProtocolError)?;
                         let (port, pointer, keyboard) = protocol::input_capability(&uibc);
                         if port == 0 || !pointer || !keyboard {
-                            bail!("This phone did not allow the required mouse/keyboard input channel");
+                            return Err(fail(ReasonCode::InputChannelUnavailable, "This phone did not allow the required mouse/keyboard input channel"));
                         }
                         sequence += 1;
                         write(
@@ -450,15 +484,16 @@ fn session(
                                 &format!("Session: {session_id}\r\n"),
                             ),
                         )?;
-                        let mut input = tcp(local, remote, port)?;
-                        input.write_all(&protocol::keyboard_descriptor())?;
+                        let mut input = tcp(local, remote, port).or_fail(ReasonCode::InputChannelFailed)?;
+                        input.write_all(&protocol::keyboard_descriptor()).or_fail(ReasonCode::InputChannelFailed)?;
                         state.stage(Stage::InputChannelConnected);
                         let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(512);
                         *state.input.lock().unwrap() = Some(sender);
-                        input_stream = Some(input.try_clone()?);
+                        input_stream = Some(input.try_clone().or_fail(ReasonCode::InputChannelFailed)?);
                         let worker_state = state.clone();
                         let worker_life = life.clone();
                         input_thread = Some(thread::spawn(move || {
+                            let mut outcome: Result<()> = Ok(());
                             while worker_life.load(Ordering::Acquire) && !stopping(&worker_state) {
                                 match receiver.recv_timeout(Duration::from_millis(100)) {
                                     Ok(packet) => {
@@ -466,6 +501,7 @@ fn session(
                                             worker_state
                                                 .log(format!("Input connection failed: {error}"));
                                             worker_life.store(false, Ordering::Release);
+                                            outcome = Err(fail(ReasonCode::InputChannelFailed, format!("Input connection failed: {error}")));
                                             break;
                                         }
                                     }
@@ -474,6 +510,7 @@ fn session(
                                 }
                             }
                             let _ = input.shutdown(Shutdown::Both);
+                            outcome
                         }));
                         state.log(format!("Session ready: {}x{} at {} FPS, generic pointer and native HID keyboard",selected.width,selected.height,selected.fps));
                         recover.store(true, Ordering::Release);
@@ -513,11 +550,12 @@ fn session(
                     "SET_PARAMETER" => {
                         let parameters = protocol::parameters(&message.body);
                         if let Some(value) = parameters.get("wfd_video_formats") {
-                            let selected = VideoMode::from_wfd(value)?;
+                            let selected = VideoMode::from_wfd(value).or_fail(ReasonCode::UnsupportedVideoFormat)?;
                             if mode.is_some_and(|old| old != selected) {
-                                bail!(
-                                    "The phone changed video mode; reconnect to apply the new mode"
-                                );
+                                return Err(fail(
+                                    ReasonCode::UnsupportedVideoFormat,
+                                    "The phone changed video mode; reconnect to apply the new mode",
+                                ));
                             }
                             mode = Some(selected);
                             state.stage(Stage::VideoNegotiated);
@@ -545,7 +583,8 @@ fn session(
                             url = value
                                 .split_whitespace()
                                 .next()
-                                .context("Empty phone presentation URL")?
+                                .context("Empty phone presentation URL")
+                                .or_fail(ReasonCode::RtspProtocolError)?
                                 .to_owned();
                         }
                         write(
@@ -555,11 +594,11 @@ fn session(
                         match parameters.get("wfd_trigger_method").map(String::as_str) {
                             Some("SETUP") => {
                                 sequence += 1;
-                                playback.begin_setup(sequence)?;
+                                playback.begin_setup(sequence).or_fail(ReasonCode::RtspProtocolError)?;
                                 write(&mut stream,protocol::rtsp(&format!("SETUP {url} RTSP/1.0"),sequence,"",
                                     &format!("Transport: RTP/AVP/UDP;unicast;client_port={rtp_port}-{}\r\n",rtp_port+1)))?;
                             }
-                            Some("TEARDOWN") => return Ok(()),
+                            Some("TEARDOWN") => return Ok(SessionEnd::PeerTeardown),
                             _ => {}
                         }
                     }
@@ -568,7 +607,7 @@ fn session(
                             &mut stream,
                             protocol::rtsp("RTSP/1.0 200 OK", received, "", ""),
                         )?;
-                        return Ok(());
+                        return Ok(SessionEnd::PeerTeardown);
                     }
                     _ => write(
                         &mut stream,
@@ -577,7 +616,7 @@ fn session(
                 }
             }
         }
-        Ok(())
+        Ok(SessionEnd::Stopped)
     })();
     life.store(false, Ordering::Release);
     *state.input.lock().unwrap() = None;
@@ -585,19 +624,17 @@ fn session(
         let _ = input.shutdown(Shutdown::Both);
     }
     let _ = stream.shutdown(Shutdown::Both);
-    if let Some(worker) = input_thread {
-        if worker.join().is_err() {
-            state.log("Input worker stopped unexpectedly");
-        }
+    let input_outcome = input_thread.map(|worker| {
+        worker.join().unwrap_or_else(|_| Err(fail(ReasonCode::InternalError, "Input worker stopped unexpectedly")))
+    });
+    let video_outcome = video_thread.map(|worker| {
+        worker.join().unwrap_or_else(|_| Err(fail(ReasonCode::InternalError, "Windows video worker stopped unexpectedly")))
+    });
+    let (outcome, dropped) = settle(result, video_outcome.into_iter().chain(input_outcome).collect());
+    for error in dropped {
+        state.log(format!("Another error ended the session as well: {error}"));
     }
-    if let Some(worker) = video_thread {
-        match worker.join() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => return Err(error),
-            Err(_) => bail!("Windows video worker stopped unexpectedly"),
-        }
-    }
-    result
+    outcome
 }
 
 fn video_worker(
@@ -611,9 +648,9 @@ fn video_worker(
 ) -> thread::JoinHandle<Result<()>> {
     thread::spawn(move || {
         let result = (|| -> Result<()> {
-            let _apartment = Apartment::new()?;
+            let _apartment = Apartment::new().or_fail(ReasonCode::DecoderInitFailed)?;
             let window = HWND(state.video_hwnd.load(Ordering::Acquire) as *mut _);
-            let mut video = NativeVideo::new(window, mode)?;
+            let mut video = NativeVideo::new(window, mode).or_fail(ReasonCode::DecoderInitFailed)?;
             *state.backend.lock().unwrap() = if video.hardware {
                 "Windows H.264 / DXGI / Direct3D 11"
             } else {
@@ -621,6 +658,7 @@ fn video_worker(
             }
             .into();
             let mut demux = TransportStream::default();
+            let mut audio = crate::audio::for_session(&state, &mut demux); // AUDIO HOOK 1/2 (None unless enabled)
             let mut reorder = RtpReorder::default();
             let mut packet = [0u8; 65536];
             let started = Instant::now();
@@ -648,7 +686,7 @@ fn video_worker(
                     {
                         reorder.flush(started.elapsed().as_millis() as u64)
                     }
-                    Err(error) => return Err(error.into()),
+                    Err(error) => return Err(tag(error.into(), ReasonCode::MediaStreamError)),
                 };
                 if batch.1 > 0 {
                     state.log(format!(
@@ -659,8 +697,8 @@ fn video_worker(
                     recover.store(true, Ordering::Release);
                 }
                 for payload in batch.0 {
-                    for picture in demux.push(&payload)? {
-                        let count = video.push(&picture.bytes, picture.discontinuity)?;
+                    for picture in demux.push(&payload).or_fail(ReasonCode::MediaStreamError)? {
+                        let count = video.push(&picture.bytes, picture.discontinuity).or_fail(ReasonCode::DecoderFailed)?;
                         state.frames.store(count, Ordering::Release);
                         if count > 0 && !state.live.swap(true, Ordering::AcqRel) {
                             state.stage(Stage::FirstFrameDecoded);
@@ -669,6 +707,7 @@ fn video_worker(
                         }
                     }
                 }
+                if let Some(audio) = audio.as_mut() { audio.pump(&mut demux); } // AUDIO HOOK 2/2
                 let mut control = [0u8; 1500];
                 // Count every datagram, including foreign traffic, against the budget.
                 for _ in 0..32 {
@@ -700,6 +739,130 @@ fn peer_matches(expected: Option<&str>, expected_id: Option<&str>, name: &str, i
     allows(expected, name) && allows(expected_id, id)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum Admission {
+    Admitted,
+    RejectedName,
+    RejectedId,
+}
+
+// A phone that fails both filters is reported as failing the name filter.
+fn admission(expected: Option<&str>, expected_id: Option<&str>, name: &str, id: &str) -> Admission {
+    if !peer_matches(expected, None, name, id) {
+        Admission::RejectedName
+    } else if !peer_matches(None, expected_id, name, id) {
+        Admission::RejectedId
+    } else {
+        Admission::Admitted
+    }
+}
+
+// The optional filters, read and checked once at startup. A filter that is set
+// but cannot be used is a startup error: silently ignoring it would turn a
+// restricted receiver into an open one.
+struct AdmissionPolicy {
+    name: Option<String>,
+    id: Option<String>,
+}
+
+impl AdmissionPolicy {
+    fn from_env() -> Result<Self> {
+        Self::from_values(std::env::var_os("ADAPT_DEX_EXPECTED_NAME"), std::env::var_os("ADAPT_DEX_EXPECTED_ID"))
+    }
+    fn from_values(name: Option<std::ffi::OsString>, id: Option<std::ffi::OsString>) -> Result<Self> {
+        Ok(Self {
+            name: filter_value("ADAPT_DEX_EXPECTED_NAME", name, 256)?,
+            id: filter_value("ADAPT_DEX_EXPECTED_ID", id, 1024)?,
+        })
+    }
+    fn decide(&self, name: &str, id: &str) -> Admission {
+        admission(self.name.as_deref(), self.id.as_deref(), name, id)
+    }
+}
+
+fn filter_value(variable: &str, value: Option<std::ffi::OsString>, limit: usize) -> Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let Ok(value) = value.into_string() else {
+        return Err(fail(
+            ReasonCode::InvalidConfiguration,
+            format!("{variable} is not valid Unicode, so it cannot restrict admission; fix or unset it"),
+        ));
+    };
+    if value.len() > limit || value.chars().any(char::is_control) {
+        return Err(fail(
+            ReasonCode::InvalidConfiguration,
+            format!("{variable} must be at most {limit} characters with no control characters"),
+        ));
+    }
+    Ok(Some(value))
+}
+
+fn control_port_failure(kind: std::io::ErrorKind) -> ReasonCode {
+    match kind {
+        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied => ReasonCode::PortInUse,
+        _ => ReasonCode::InternalError,
+    }
+}
+
+fn bind_failure(error: std::io::Error) -> anyhow::Error {
+    let code = control_port_failure(error.kind());
+    let message = if code == ReasonCode::PortInUse {
+        "Another wireless-display receiver is using this PC. Close Windows Wireless Display or the earlier test app, then reopen DeXDesk."
+    } else {
+        "Windows could not listen on TCP port 7236 for the Miracast session"
+    };
+    tag(anyhow::Error::from(error).context(message), code)
+}
+
+// A stop request wins over the failure it interrupted: cancelling is not an error.
+fn interrupted_or(cancelled: bool, code: ReasonCode, cancelled_text: &'static str, failed_text: &'static str) -> anyhow::Error {
+    if cancelled {
+        fail(ReasonCode::UserStopped, cancelled_text)
+    } else {
+        fail(code, failed_text)
+    }
+}
+
+// The guard listener is only polled while a session is being set up. A connection
+// that reached it earlier (a phone that dialled in as well as being dialled, or
+// any host that can reach port 7236) is still queued by the OS and would
+// otherwise be taken for the next session's control connection. Called before
+// the Wi-Fi Direct group is formed, so no connection of the new session can be
+// in the queue yet.
+fn drain_stale_connections(state: &AppState, guard: &TcpListener) {
+    let mut closed = 0u32;
+    while closed < 256 && guard.accept().is_ok() {
+        closed += 1;
+    }
+    if closed > 0 {
+        state.log(format!("Closed {closed} unclaimed connection(s) that were queued on TCP 7236 before this attempt"));
+    }
+}
+
+fn end_text(code: ReasonCode) -> &'static str {
+    match code {
+        ReasonCode::UserStopped => "The session was stopped from this PC",
+        ReasonCode::InputChannelFailed => "The mouse/keyboard channel failed and the session was ended",
+        ReasonCode::PeerTeardown => "The phone ended the session with TEARDOWN",
+        ReasonCode::PeerDisconnected => "The phone closed the control connection without TEARDOWN",
+        ReasonCode::PeerRejectedName => "The phone's name does not match ADAPT_DEX_EXPECTED_NAME",
+        ReasonCode::PeerRejectedId => "The phone's peer ID does not match ADAPT_DEX_EXPECTED_ID",
+        other => other.as_str(),
+    }
+}
+
+// Write how the attempt ended to the log and to status.json. It runs before the
+// attempt is closed so the recorded stage and attempt number are its own.
+fn record_outcome(state: &AppState, result: &Result<SessionEnd>) {
+    match result {
+        Ok(end) => {
+            let code = end.reason(state.take_stop_reason());
+            state.record_end(code, Scope::Session, end_text(code));
+        }
+        Err(error) => state.record_error(Scope::Session, error),
+    }
+}
+
 // Allow slow group/decoder startup, a bounded partial message, and at least
 // four typical WFD keep-alive intervals (GET_PARAMETER is about every 30s).
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(90);
@@ -708,13 +871,13 @@ const CONTROL_IDLE_LIMIT: Duration = Duration::from_secs(150);
 
 fn check_deadlines(now: Instant, started: Instant, first_frame: bool, last_message: Instant, partial_since: Option<Instant>) -> Result<()> {
     if !first_frame && now.duration_since(started) >= HANDSHAKE_LIMIT {
-        bail!("Miracast handshake timed out before the first decoded frame");
+        return Err(fail(ReasonCode::HandshakeTimeout, "Miracast handshake timed out before the first decoded frame"));
     }
     if partial_since.is_some_and(|since| now.duration_since(since) >= PARTIAL_MESSAGE_LIMIT) {
-        bail!("Timed out completing a partial RTSP message");
+        return Err(fail(ReasonCode::PartialMessageTimeout, "Timed out completing a partial RTSP message"));
     }
     if first_frame && now.duration_since(last_message) >= CONTROL_IDLE_LIMIT {
-        bail!("Miracast control connection idle timeout");
+        return Err(fail(ReasonCode::ControlIdleTimeout, "Miracast control connection idle timeout"));
     }
     Ok(())
 }
@@ -732,7 +895,7 @@ enum PlaybackResponse { Setup, Play }
 impl PlaybackRequests {
     fn begin_setup(&mut self, sequence: u32) -> Result<()> {
         if self.setup_started {
-            bail!("The phone requested SETUP more than once");
+            return Err(fail(ReasonCode::RtspProtocolError, "The phone requested SETUP more than once"));
         }
         self.setup_started = true;
         self.setup = Some(sequence);
@@ -754,6 +917,119 @@ impl PlaybackRequests {
 
 fn successful_response(start: &str) -> bool {
     start.starts_with("RTSP/1.0 200 ")
+}
+
+#[cfg(test)]
+mod adapt_failure_tests {
+    use super::*;
+    use crate::adapt_trace::classify;
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+
+    fn code_of(result: Result<()>) -> ReasonCode {
+        classify(&result.unwrap_err())
+    }
+
+    #[test]
+    fn the_admission_decision_names_the_filter_that_refused_the_phone() {
+        assert_eq!(admission(None, None, "any", "any"), Admission::Admitted);
+        assert_eq!(admission(Some("a"), Some("i"), "a", "i"), Admission::Admitted);
+        assert_eq!(admission(Some("a"), None, "b", "i"), Admission::RejectedName);
+        assert_eq!(admission(None, Some("i"), "a", "j"), Admission::RejectedId);
+        assert_eq!(admission(Some("a"), Some("i"), "a", "j"), Admission::RejectedId);
+        assert_eq!(admission(Some("a"), Some("i"), "b", "j"), Admission::RejectedName, "name is checked first");
+        assert_eq!(admission(Some(""), Some(""), "x", "y"), Admission::Admitted, "empty restricts nothing");
+    }
+
+    #[test]
+    fn unset_filters_keep_admission_open() {
+        let policy = AdmissionPolicy::from_values(None, None).unwrap();
+        assert_eq!(policy.decide("any phone", "any id"), Admission::Admitted);
+        let policy = AdmissionPolicy::from_values(Some("".into()), Some("".into())).unwrap();
+        assert_eq!(policy.decide("any phone", "any id"), Admission::Admitted);
+        let policy = AdmissionPolicy::from_values(Some("Phone".into()), Some("id-1".into())).unwrap();
+        assert_eq!(policy.decide("Phone", "id-1"), Admission::Admitted);
+        assert_eq!(policy.decide("Other", "id-1"), Admission::RejectedName);
+        assert_eq!(policy.decide("Phone", "id-2"), Admission::RejectedId);
+    }
+
+    #[test]
+    fn a_filter_that_cannot_be_read_is_an_error_not_an_open_door() {
+        // A Windows environment value may hold an unpaired surrogate, which is not
+        // valid Unicode. Reading it with `env::var(..).ok()` used to give None and
+        // silently disable the restriction.
+        let not_unicode = OsString::from_wide(&[0x0050, 0xD800, 0x0051]);
+        let name = AdmissionPolicy::from_values(Some(not_unicode.clone()), None);
+        assert_eq!(classify(&name.err().unwrap()), ReasonCode::InvalidConfiguration);
+        let id = AdmissionPolicy::from_values(None, Some(not_unicode));
+        let error = id.err().unwrap();
+        assert_eq!(classify(&error), ReasonCode::InvalidConfiguration);
+        assert!(error.to_string().contains("ADAPT_DEX_EXPECTED_ID"));
+    }
+
+    #[test]
+    fn filter_values_are_bounded_and_free_of_control_characters() {
+        assert!(filter_value("V", Some("x".repeat(256).into()), 256).is_ok());
+        assert_eq!(code_of(filter_value("V", Some("x".repeat(257).into()), 256).map(drop)), ReasonCode::InvalidConfiguration);
+        assert_eq!(code_of(filter_value("V", Some("a\nb".into()), 256).map(drop)), ReasonCode::InvalidConfiguration);
+        assert_eq!(code_of(AdmissionPolicy::from_values(Some("a\u{7}".into()), None).map(drop)), ReasonCode::InvalidConfiguration);
+        assert_eq!(code_of(AdmissionPolicy::from_values(None, Some("x".repeat(1025).into())).map(drop)), ReasonCode::InvalidConfiguration);
+        assert_eq!(filter_value("V", None, 256).unwrap(), None);
+        assert_eq!(filter_value("V", Some("Galaxy".into()), 256).unwrap().as_deref(), Some("Galaxy"));
+    }
+
+    #[test]
+    fn a_busy_control_port_is_told_apart_from_other_bind_failures() {
+        use std::io::ErrorKind::*;
+        assert_eq!(control_port_failure(AddrInUse), ReasonCode::PortInUse);
+        assert_eq!(control_port_failure(PermissionDenied), ReasonCode::PortInUse);
+        assert_eq!(control_port_failure(AddrNotAvailable), ReasonCode::InternalError);
+        let busy = bind_failure(std::io::Error::from(AddrInUse));
+        assert_eq!(classify(&busy), ReasonCode::PortInUse);
+        assert!(busy.to_string().starts_with("Another wireless-display receiver"));
+        let other = bind_failure(std::io::Error::from(AddrNotAvailable));
+        assert_eq!(classify(&other), ReasonCode::InternalError);
+        assert!(!other.to_string().starts_with("Another wireless-display receiver"));
+    }
+
+    #[test]
+    fn deadline_failures_carry_their_own_codes() {
+        let start = Instant::now();
+        let code = |now, first, last, partial| code_of(check_deadlines(now, start, first, last, partial));
+        assert_eq!(code(start + HANDSHAKE_LIMIT, false, start + HANDSHAKE_LIMIT, None), ReasonCode::HandshakeTimeout);
+        assert_eq!(code(start + PARTIAL_MESSAGE_LIMIT, false, start, Some(start)), ReasonCode::PartialMessageTimeout);
+        assert_eq!(code(start + CONTROL_IDLE_LIMIT, true, start, None), ReasonCode::ControlIdleTimeout);
+        // The handshake limit is reported before a partial message, and a partial
+        // message before an idle control connection.
+        assert_eq!(code(start + HANDSHAKE_LIMIT, false, start, Some(start)), ReasonCode::HandshakeTimeout);
+        assert_eq!(code(start + CONTROL_IDLE_LIMIT, true, start, Some(start)), ReasonCode::PartialMessageTimeout);
+        // A "last message" or partial start that lies after `now` does not panic or fire.
+        assert!(check_deadlines(start, start, true, start + Duration::from_secs(500), Some(start + Duration::from_secs(500))).is_ok());
+    }
+
+    #[test]
+    fn a_repeated_setup_request_is_a_protocol_error() {
+        let mut pending = PlaybackRequests::default();
+        pending.begin_setup(1).unwrap();
+        assert_eq!(code_of(pending.begin_setup(2)), ReasonCode::RtspProtocolError);
+    }
+
+    #[test]
+    fn a_stop_request_beats_the_timeout_it_interrupted() {
+        let stopped = interrupted_or(true, ReasonCode::WifiDirectConnectTimeout, "cancelled", "timed out");
+        assert_eq!(classify(&stopped), ReasonCode::UserStopped);
+        assert_eq!(stopped.to_string(), "cancelled");
+        let timed_out = interrupted_or(false, ReasonCode::WifiDirectConnectTimeout, "cancelled", "timed out");
+        assert_eq!(classify(&timed_out), ReasonCode::WifiDirectConnectTimeout);
+        assert_eq!(timed_out.to_string(), "timed out");
+    }
+
+    #[test]
+    fn every_session_end_has_a_readable_text() {
+        for code in ReasonCode::ALL {
+            assert!(!end_text(*code).is_empty());
+        }
+        assert_eq!(end_text(ReasonCode::PeerTeardown), "The phone ended the session with TEARDOWN");
+    }
 }
 
 #[cfg(test)]

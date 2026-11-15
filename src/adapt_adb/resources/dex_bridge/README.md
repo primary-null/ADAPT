@@ -33,7 +33,7 @@ The loopback interoperability approach is informed by the public
 (upstream MIT). Those projects' claims are not ADAPT hardware acceptance.
 Samsung framework classes are accessed on the device rather than redistributed.
 
-Live Fold3 Android 13 testing found the API present but denied by
+Live testing on an Android 13 Samsung device found the API present but denied by
 `CONFIGURE_WIFI_DISPLAY`. The helper does not grant permissions, request root,
 change SELinux or bypass the denial. See [DeX for PC](../../../../docs/dex-pc.md)
 for recorded limitations.

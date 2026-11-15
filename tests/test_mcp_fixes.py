@@ -30,10 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ONE_READY = (
     "List of devices attached\n"
-    "SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
+    "SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
 )
 TWO_READY = ONE_READY + (
-    "SERIAL_B\tdevice usb:1-2 product:tangorpro model:Pixel_Tablet device:tangorpro transport_id:2\n"
+    "SERIAL_B\tdevice usb:1-2 product:example_tab model:Example_Tablet device:example_tab transport_id:2\n"
 )
 NONE_READY = "List of devices attached\nSERIAL_A\tunauthorized usb:1-1 transport_id:1\n"
 

@@ -59,18 +59,18 @@ def test_f1_type_posix_quotes_one_remote_argument() -> None:
 
 
 def test_f2_tab_identity_preserves_spaced_mdns_and_enriches_exactly() -> None:
-    serial = "adb-Pixel 8 Pro-device._adb-tls-connect._tcp"
+    serial = "adb-Example Phone-device._adb-tls-connect._tcp"
     short = f"List of devices attached\n{serial}\tdevice\nemulator-5554\toffline\n"
     long = (
         "List of devices attached\n"
-        f"{serial}\tdevice product:husky model:Pixel_8_Pro transport_id:7\n"
+        f"{serial}\tdevice product:example model:Example_Phone transport_id:7\n"
         "emulator-5554\toffline transport_id:2\n"
     )
     identities = parse_devices_short(short)
     assert identities[0] == {"serial": serial, "state": "device"}
     enriched = enrich_devices_long(identities, long)
     assert enriched[0]["serial"] == serial
-    assert enriched[0]["model"] == "Pixel 8 Pro"
+    assert enriched[0]["model"] == "Example Phone"
 
 
 def test_f2_malformed_whitespace_listing_fails() -> None:
@@ -81,8 +81,8 @@ def test_f2_malformed_whitespace_listing_fails() -> None:
 def test_f3_global_parser_keeps_operands_opaque_and_normalizes_aliases() -> None:
     assert split_adb_prefix(["logcat", "-d", "-s", "MyTag"]).serial is None
     assert split_adb_prefix(["shell", "echo", "-something"]).serial is None
-    parsed = split_adb_prefix(["--serial=Pixel 8 Pro", "shell", "getprop"])
-    assert parsed.prefix == ["-s", "Pixel 8 Pro"]
+    parsed = split_adb_prefix(["--serial=Example Phone", "shell", "getprop"])
+    assert parsed.prefix == ["-s", "Example Phone"]
     assert parsed.command == ["shell", "getprop"]
     for argv in (
         ["-s"],

@@ -24,6 +24,8 @@ python -m pip install -e ".[mcp]" pytest
 python -m pytest -q
 ```
 
+Pushes to `main` and pull requests run this test suite on Linux and Windows (GitHub Actions, `.github/workflows/ci.yml`).
+
 The `mcp` extra (the MCP SDK and Pillow) is required to import the MCP modules. `pytest` is declared in the `dev` dependency group of `pyproject.toml`; `pip install --group dev` needs pip 25.1 or newer, so the command above installs it by name. The suite lives in `tests/` and is **offline**: it must not need a phone, a network, an SSH host, Tailscale, or a real `adb`. It mocks processes and uses `typer.testing.CliRunner`. Run a focused file while iterating, for example `python -m pytest -q tests/test_dev_options.py`.
 
 Check the CLI without a device: `adapt --help`, `adapt help-me --all`, `adapt android versions`, any `plan` command.

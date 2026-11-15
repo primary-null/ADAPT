@@ -223,7 +223,7 @@ def test_android_version_boundaries_are_explicit(sdk: str, expected: str):
 
 
 def test_exact_spaced_mdns_serial_is_one_argv_element_every_time():
-    serial = "adb-Fold 3 (2)._adb-tls-connect._tcp"
+    serial = "adb-Example Phone (2)._adb-tls-connect._tcp"
     fake = FakeRunner()
     report = inspect(fake, serial=serial)
 
@@ -232,7 +232,7 @@ def test_exact_spaced_mdns_serial_is_one_argv_element_every_time():
 
 
 def test_plan_uses_existing_displays_exact_serial_no_virtual_display_or_ports():
-    serial = "adb-Fold 3 (2)._adb-tls-connect._tcp"
+    serial = "adb-Example Phone (2)._adb-tls-connect._tcp"
     fake = FakeRunner()
     plan = dex.plan_dual_mirror(
         serial,

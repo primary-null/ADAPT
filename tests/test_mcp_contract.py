@@ -31,13 +31,13 @@ def _stub_server_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
 
 TWO_DEVICES_OUTPUT = (
     "List of devices attached\n"
-    "SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
-    "SERIAL_B\tdevice usb:1-2 product:tangorpro model:Pixel_Tablet device:tangorpro transport_id:2\n"
+    "SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
+    "SERIAL_B\tdevice usb:1-2 product:example_tab model:Example_Tablet device:example_tab transport_id:2\n"
 )
 
 ONE_DEVICE_OUTPUT = (
     "List of devices attached\n"
-    "SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
+    "SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
 )
 
 
@@ -85,8 +85,8 @@ def test_two_devices_without_serial_returns_need_device(
     payload = json.loads(res.content[0].text)
     assert payload["error"] == "need_device"
     assert payload["devices"] == [
-        {"device": "SERIAL_A", "model": "Pixel 7", "state": "device"},
-        {"device": "SERIAL_B", "model": "Pixel Tablet", "state": "device"},
+        {"device": "SERIAL_A", "model": "Example Phone", "state": "device"},
+        {"device": "SERIAL_B", "model": "Example Tablet", "state": "device"},
     ]
     # Short identity is authoritative; long output only enriches metadata.
     assert len(recorded_calls) == 2
@@ -308,7 +308,7 @@ def test_doctor_returns_compact_mcp_v1_schema(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("adapt_adb.doctor.run_doctor_checks", fake_run_doctor_checks)
     monkeypatch.setattr(
         "adapt_adb.mcp.tools.list_connected_devices",
-        lambda p: [{"device": "SERIAL_A", "state": "device", "model": "Pixel 7"}],
+        lambda p: [{"device": "SERIAL_A", "state": "device", "model": "Example Phone"}],
     )
 
     res = dispatch_tool_call("doctor", {})
@@ -334,7 +334,7 @@ def test_doctor_returns_compact_mcp_v1_schema(monkeypatch: pytest.MonkeyPatch) -
     assert payload["os"] == "linux"
     assert payload["udev"] == "present"
     assert payload["plugdev"] is True
-    assert payload["devices"] == [{"device": "SERIAL_A", "model": "Pixel 7", "state": "device"}]
+    assert payload["devices"] == [{"device": "SERIAL_A", "model": "Example Phone", "state": "device"}]
 
 
 def test_mcp_stdout_has_no_banner_text(monkeypatch: pytest.MonkeyPatch) -> None:

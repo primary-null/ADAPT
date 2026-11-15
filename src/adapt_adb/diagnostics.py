@@ -56,7 +56,7 @@ _GUIDES = {
         "title": "Samsung DeX and wireless display connection diagnostics",
         "purpose": "Distinguish Wi-Fi Direct provisioning, wireless display transport and Samsung desktop activation.",
         "capture": "adapt logs diagnostic -s SERIAL --topic dex --minutes 2 --output dex.json",
-        "boundary": "Tag coverage is best-effort and was observed on the tested Fold3 firmware. No pairing, display activation or receiver reset occurs. A Wi-Fi provisioning error is not proof of an RTSP or scrcpy failure.",
+        "boundary": "Tag coverage is best-effort and was observed on one tested Samsung firmware. No pairing, display activation or receiver reset occurs. A Wi-Fi provisioning error is not proof of an RTSP or scrcpy failure.",
         "sources": ["https://developer.android.com/tools/logcat"],
     },
     "print": {

@@ -186,7 +186,7 @@ def test_inspection_with_all_adb_and_host_probes_mocked_for_api_29_through_37(
 
 
 def test_inspection_preserves_spaced_mdns_target_and_never_enumerates(monkeypatch):
-    serial = "adb-ABC123-My Pixel 9._adb-tls-connect._tcp"
+    serial = "adb-ABC123-My Phone._adb-tls-connect._tcp"
     fake_run, calls = _fake_getprops(serial)
     gate_calls: list[tuple[Path, list[str]]] = []
     monkeypatch.setattr(android_support, "_run_process", fake_run)

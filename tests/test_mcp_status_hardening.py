@@ -17,7 +17,7 @@ def _stub_server_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
 
 SAMPLE_DEVICES_ONE = (
     "List of devices attached\n"
-    "SERIAL_A               device usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
+    "SERIAL_A               device usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
 )
 
 
@@ -197,7 +197,7 @@ def test_doctor_healthy_daemon(tmp_path, monkeypatch):
     doc = tool_doctor()
     assert doc["daemon"] == "ok"
     assert doc["daemon_reason"] is None
-    assert doc["devices"] == [{"device": "SERIAL_A", "model": "Pixel 7", "state": "device"}]
+    assert doc["devices"] == [{"device": "SERIAL_A", "model": "Example Phone", "state": "device"}]
 
 
 # ==============================================================================

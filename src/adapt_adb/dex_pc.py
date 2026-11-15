@@ -275,7 +275,7 @@ def _attach_display_evidence(observed: dict[str, Any], display: int) -> str | No
     external = [d for d in state["displays"] if d["type"] != 1]
     if len(external) == 1 and external[0]["id"] == display and external[0]["type"] in {2, 3}:
         return "sole_physical_or_wireless_display"
-    # Live Fold3/API 33: Samsung's system-owned Desktop compositor is distinct
+    # Live Samsung device, API 33: Samsung's system-owned Desktop compositor is distinct
     # from its Wi-Fi sink display. IDs are dynamic; an overlay is not equivalent.
     if observed.get("api") != 33 or state.get("wifi_state") != 2 or len(external) != 2:
         return None

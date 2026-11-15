@@ -163,7 +163,7 @@ def test_wsl_build_plan_is_qualified_not_native_linux_certified():
     report = build_plan_report(
         "lineage-build",
         branch="lineage-22.2",
-        device="panther",
+        device="example",
         host=WSL,
         which=_which({}),
     )
@@ -203,7 +203,7 @@ def test_lineage_supplied_context_stays_user_supplied_and_unverified():
     report = build_plan_report(
         "lineage-build",
         branch="lineage-22.2",
-        device="panther",
+        device="example",
         host=LINUX,
         which=_which({}),
     )
@@ -211,7 +211,7 @@ def test_lineage_supplied_context_stays_user_supplied_and_unverified():
     assert report["status"] == "explain_only"
     assert report["exit_code"] == 0
     assert context["status"] == "user_supplied_unverified"
-    assert context["official_url"] == "https://wiki.lineageos.org/devices/panther/build/"
+    assert context["official_url"] == "https://wiki.lineageos.org/devices/example/build/"
     assert "not checked" in context["verification"]
 
 
@@ -230,7 +230,7 @@ def test_invalid_context_fails_closed():
     report = build_plan_report(
         "lineage-build",
         branch="lineage-22.2; remove-things",
-        device="panther",
+        device="example",
         host=LINUX,
         which=_which({}),
     )
@@ -302,7 +302,7 @@ def test_cli_lineage_json_incomplete_vs_supplied_unverified():
 
     supplied = runner.invoke(
         tools_app,
-        ["plan", "lineage-build", "--branch", "lineage-22.2", "--device", "panther", "--json"],
+        ["plan", "lineage-build", "--branch", "lineage-22.2", "--device", "example", "--json"],
     )
     assert supplied.exit_code == 0
     assert supplied.stderr == ""

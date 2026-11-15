@@ -405,7 +405,7 @@ def test_windows_pnp_healthy_pass_includes_empty_other_list(tmp_path: Path) -> N
     [
         ("USB\\VID_046D&PID_0825\\X", "USB Video Device", "AndroidDevice", True),
         ("USB\\VID_046D&PID_0825\\X", "USB Video Device", "AndroidUsbDeviceClass", True),
-        ("USB\\VID_ABCD&PID_0001\\X", "Pixel 8", "USB", True),
+        ("USB\\VID_ABCD&PID_0001\\X", "Pixel Phone", "USB", True),
         ("USB\\VID_2717&PID_FF48\\X", "USB Composite Device", "USB", True),
         ("USB\\VID_0e8d&PID_201C\\X", "MT65xx Preloader", "Ports", True),
         ("USB\\VID_046D&PID_0825\\X", "USB Video Device", "USBDevice", False),

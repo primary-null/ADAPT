@@ -64,13 +64,13 @@ def _make_synthetic_png(width: int = 1600, height: int = 2400) -> bytes:
 
 SAMPLE_DEVICES_TWO = (
     "List of devices attached\n"
-    "SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
-    "SERIAL_B\tdevice usb:1-2 product:tangorpro model:Pixel_Tablet device:tangorpro transport_id:2\n"
+    "SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
+    "SERIAL_B\tdevice usb:1-2 product:example_tab model:Example_Tablet device:example_tab transport_id:2\n"
 )
 
 SAMPLE_DEVICES_ONE = (
     "List of devices attached\n"
-    "SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7 device:panther transport_id:1\n"
+    "SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone device:example transport_id:1\n"
 )
 
 SAMPLE_UI_XML = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
@@ -158,7 +158,7 @@ def test_mcp_registered_tools_and_client_session(monkeypatch):
             assert not res.is_error
             data = json.loads(res.content[0].text)
             assert data["devices"][0]["device"] == "SERIAL_A"
-            assert data["devices"][0]["model"] == "Pixel 7"
+            assert data["devices"][0]["model"] == "Example Phone"
 
     anyio.run(_exercise)
 
@@ -180,9 +180,9 @@ def test_list_devices_and_targeting_error_when_two_devices(monkeypatch):
     listed = tool_list_devices()
     assert len(listed["devices"]) == 2
     assert listed["devices"][0]["device"] == "SERIAL_A"
-    assert listed["devices"][0]["model"] == "Pixel 7"
+    assert listed["devices"][0]["model"] == "Example Phone"
     assert listed["devices"][1]["device"] == "SERIAL_B"
-    assert listed["devices"][1]["model"] == "Pixel Tablet"
+    assert listed["devices"][1]["model"] == "Example Tablet"
 
     # Omitting `device` on a device-targeted tool returns `need_device` with both devices listed
     res = dispatch_tool_call("device_info", {})
@@ -345,7 +345,7 @@ def test_input_and_install_tools_always_pass_dash_s(monkeypatch):
         if "devices" in argv:
             return subprocess.CompletedProcess(argv, 0, stdout=SAMPLE_DEVICES_ONE, stderr="")
         if "ro.product.model" in argv:
-            return subprocess.CompletedProcess(argv, 0, stdout="Pixel 7\n", stderr="")
+            return subprocess.CompletedProcess(argv, 0, stdout="Example Phone\n", stderr="")
         if "ro.build.version.sdk" in argv:
             return subprocess.CompletedProcess(argv, 0, stdout="34\n", stderr="")
         if "ro.build.version.release" in argv:
@@ -401,7 +401,7 @@ def test_fake_adb_script_integration(tmp_path, monkeypatch):
             ")\r\n"
             "if \"%1\"==\"devices\" (\r\n"
             "  echo List of devices attached\r\n"
-                "  echo SERIAL_A\tdevice usb:1-1 product:panther model:Pixel_7\r\n"
+                "  echo SERIAL_A\tdevice usb:1-1 product:example model:Example_Phone\r\n"
             "  exit /b 0\r\n"
             ")\r\n"
             "exit /b 0\r\n",
@@ -418,7 +418,7 @@ def test_fake_adb_script_integration(tmp_path, monkeypatch):
             "fi\n"
             'if [ "$1" = "devices" ]; then\n'
             '  echo "List of devices attached"\n'
-                '  printf "SERIAL_A\\tdevice usb:1-1 product:panther model:Pixel_7\\n"\n'
+                '  printf "SERIAL_A\\tdevice usb:1-1 product:example model:Example_Phone\\n"\n'
             "  exit 0\n"
             "fi\n"
             "exit 0\n",
@@ -441,7 +441,7 @@ def test_fake_adb_script_integration(tmp_path, monkeypatch):
     doc = tool_doctor()
     assert doc["adb_version"] == "35.0.2"
     assert doc["daemon"] == "ok"
-    assert doc["devices"] == [{"device": "SERIAL_A", "model": "Pixel 7", "state": "device"}]
+    assert doc["devices"] == [{"device": "SERIAL_A", "model": "Example Phone", "state": "device"}]
 
     status = tool_setup_status()
     assert status["installed"] is True

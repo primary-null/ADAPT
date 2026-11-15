@@ -333,7 +333,7 @@ def test_device_lock_refuses_overlapping_transaction(monkeypatch, tmp_path):
 
 
 def test_mdns_serial_remains_one_exact_target_argument(monkeypatch):
-    serial = "adb-Fold 3 (2)._adb-tls-connect._tcp"
+    serial = "adb-Example Phone (2)._adb-tls-connect._tcp"
     calls = []
 
     def run(args, timeout):

@@ -3111,13 +3111,19 @@ def _setup_toolchain_usable(report: dict[str, Any]) -> bool:
 def _apply_setup_exit_rule(report: dict[str, Any]) -> dict[str, Any]:
     """Setup exits 0 when its own work succeeded and the toolchain checks pass.
 
-    Other doctor findings (USB permissions, device state, the shared server) stay in
-    the report, with the doctor's own result in `doctor_status` / `doctor_exit_code`.
+    Other doctor findings (USB permissions, device state) stay in the report, with the
+    doctor's own result in `doctor_status` / `doctor_exit_code`. An unsafe shared
+    server keeps exit 3: the next plain `adb` command could restart a server that
+    other sessions are using, so a script must not read that as success.
     Dry runs, aborts and failures keep their existing exit codes.
     """
     _record_doctor_outcome(report)
     action = (report.get("setup") or {}).get("action")
-    if action in _SETUP_DONE_ACTIONS and _setup_toolchain_usable(report):
+    if (
+        action in _SETUP_DONE_ACTIONS
+        and _setup_toolchain_usable(report)
+        and report["doctor_exit_code"] != EXIT_UNSAFE_SHARED_SERVER
+    ):
         report["exit_code"] = EXIT_OK
     return report
 

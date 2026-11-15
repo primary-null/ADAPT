@@ -355,7 +355,7 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 | `2` | `"device_unauthorized_or_no_permissions"` |
 | `3` | `"unsafe_shared_server"` |
 
-`adapt setup` is the one exception (see §5.3): `status` and `doctor_exit_code` always follow this table, but `exit_code` is setup's own. When setup did not do what was asked, a healthy host's `exit_code` becomes `1`, so `"status": "ok"` can appear with `"exit_code": 1`. When setup succeeded and the toolchain checks pass, `exit_code` is `0` even if other findings remain, so for example `"status": "device_unauthorized_or_no_permissions"` can appear with `"exit_code": 0` and `"doctor_exit_code": 2`.
+`adapt setup` is the one exception (see §5.3): `status` and `doctor_exit_code` always follow this table, but `exit_code` is setup's own. When setup did not do what was asked, a healthy host's `exit_code` becomes `1`, so `"status": "ok"` can appear with `"exit_code": 1`. When setup succeeded and the toolchain checks pass, `exit_code` is `0` even if USB-permission or device findings remain (an unsafe shared server still gives `3`), so for example `"status": "device_unauthorized_or_no_permissions"` can appear with `"exit_code": 0` and `"doctor_exit_code": 2`.
 
 ---
 
@@ -393,7 +393,7 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
    - **Windows 11:** Read and update `HKCU\Environment\Path` via `winreg` (idempotent; no duplicate entries), broadcast `WM_SETTINGCHANGE`, and update the current process environment. If an older `adb.exe` exists in another user `PATH` entry, place the user-scope `platform-tools` directory ahead of it in user `PATH` (or warn if a system `HKLM` `PATH` entry shadows it). **Never** write to `HKLM`.
    - **Debian:** Idempotently add a managed block to `~/.profile` prepending `$HOME/.local/share/android/platform-tools` (or selected isolated dir) to `PATH` so it takes precedence over `/usr/bin/adb` if Debian `apt` `adb` is installed. ADAPT does not edit `.bashrc`, `.zshrc`, `/etc/environment` or `/etc/profile`.
 5. **Post-Setup Verification & Safe OS Hints:**
-   - Re-run `adapt doctor` checks, report them (with the resulting code in `doctor_exit_code`) and exit by the §5.3 success rule: `0` when the toolchain checks pass, otherwise the doctor's code.
+   - Re-run `adapt doctor` checks, report them (with the resulting code in `doctor_exit_code`) and exit by the §5.3 success rule: `0` when the toolchain checks pass and the shared server is not reported unsafe, otherwise the doctor's code.
    - Print safe, copy-pasteable OS instructions if `windows_pnp` (`pnputil` / Google USB INF / OEM driver page) or `debian_usb_permissions` (`udev` rules / `plugdev` group) need attention.
 
 ### 5.3 Setup Outcomes and Exit Codes
@@ -413,7 +413,7 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 | `unsupported_platform` | Host is not Windows or Linux, e.g. macOS (§5.1 step 0). | Not-done rule. |
 | `failed` | Download, verification or unpack raised an error. | Not-done rule. |
 
-**Success rule:** when setup did what was asked (or nothing was needed) and the toolchain checks (`adb_path`, `adb_version`, `adb_origin`, `path_config`) all have exit code `0`, setup exits `0`. Remaining findings that are not about the toolchain (USB permissions or drivers, device state, the shared server on port `5037`) are still reported in the checks, in the human doctor report and `Next:` steps, and in `status` / `doctor_status` / `doctor_exit_code`, but they do not change setup's exit code. When the toolchain checks still fail afterwards, setup exits with the doctor's code (normally `1`). In an interactive terminal, setup exits with this code after the `Next:` menu closes.
+**Success rule:** when setup did what was asked (or nothing was needed) and the toolchain checks (`adb_path`, `adb_version`, `adb_origin`, `path_config`) all have exit code `0`, setup exits `0`. Remaining findings that are not about the toolchain (USB permissions or drivers, device state) are still reported in the checks, in the human doctor report and `Next:` steps, and in `status` / `doctor_status` / `doctor_exit_code`, but they do not change setup's exit code. The shared server on port `5037` is the exception: when the doctor run after setup reports it unsafe (for example the newly installed `adb` no longer matches the version of a server this user still has running), setup exits `3`, because the next plain `adb` command could restart that server. When the toolchain checks still fail afterwards, setup exits with the doctor's code (normally `1`). In an interactive terminal, setup exits with this code after the `Next:` menu closes.
 
 **Not-done rule:** when setup did not do what was asked, a pre-flight exit code of `0` becomes `1`; a non-zero pre-flight exit code (`1`, `2` or `3`) is kept, following the normal precedence. `status` is not changed and keeps describing host health. Every setup report carries the doctor run's own result in `doctor_status` and `doctor_exit_code`. The process exit code always equals the report's `exit_code`; the human doctor report printed by setup shows the doctor's own status line (`Status: <status> (exit code <doctor_exit_code>)`).
 

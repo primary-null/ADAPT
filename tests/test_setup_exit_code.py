@@ -147,6 +147,24 @@ def test_unsafe_server_abort_still_exits_3(tmp_path):
     assert report["exit_code"] == EXIT_UNSAFE_SHARED_SERVER
 
 
+def test_install_that_no_longer_matches_a_running_server_still_exits_3(tmp_path):
+    # Before setup the adb and the running server are the same version, so the pre-flight
+    # passes. A forced reinstall then brings a newer adb than the server the user still runs.
+    env = _healthy_windows(tmp_path)
+    adb_exe = env.which_adb
+    env.server_state = Server5037State(listening=True, owner="dev", server_exe=adb_exe, server_version_raw=V35)
+
+    def newer_adb(url, dest):
+        env.version_outputs[adb_exe] = "Android Debug Bridge version 1.0.41\nVersion 37.0.1-14910828\n"
+
+    report = run_setup_workflow(env, force=True, yes=True, downloader=newer_adb)
+    assert report["setup"]["action"] == "installed"
+    assert report["doctor_exit_code"] == EXIT_UNSAFE_SHARED_SERVER
+    assert report["exit_code"] == EXIT_UNSAFE_SHARED_SERVER
+    server = next(c for c in report["checks"] if c["id"] == "adb_server_5037")
+    assert server["failure_id"] == "adb.server.version_mismatch"
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_human_install_exits_0_and_still_prints_report_and_next_steps(tmp_path, monkeypatch):

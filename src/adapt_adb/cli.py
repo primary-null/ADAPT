@@ -1002,9 +1002,11 @@ def setup(
                 typer.echo("PATH updated for new terminals: reopen any terminal that was already open (including this one) before running adb or adapt there.")
 
         typer.echo("")
-        typer.echo(render_doctor_human(report, show_fix=False))
+        # The report shows the doctor's own status line; setup's exit code is report["exit_code"].
+        doctor_view = {**report, "exit_code": report.get("doctor_exit_code", report["exit_code"])}
+        typer.echo(render_doctor_human(doctor_view, show_fix=False))
         if _is_interactive_session():
-            report = _run_next_menu(report, show_fix=False)
+            _run_next_menu(doctor_view, show_fix=False)
         else:
             typer.echo("")
             typer.echo("Next:")

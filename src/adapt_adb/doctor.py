@@ -3083,8 +3083,42 @@ def _mark_setup_not_done(report: dict[str, Any]) -> dict[str, Any]:
     A healthy pre-flight (exit 0) becomes EXIT_MISSING_TOOLCHAIN; an existing
     non-zero code is kept. `status` keeps describing host health.
     """
+    _record_doctor_outcome(report)
     if report["exit_code"] == EXIT_OK:
         report["exit_code"] = EXIT_MISSING_TOOLCHAIN
+    return report
+
+
+# Setup outcomes in which setup did what was asked (or nothing was needed).
+_SETUP_DONE_ACTIONS = frozenset({"installed", "path_registered", "noop_already_healthy", "noop_already_installed"})
+_SETUP_TOOLCHAIN_CHECK_IDS = ("adb_path", "adb_version", "adb_origin", "path_config")
+
+
+def _record_doctor_outcome(report: dict[str, Any]) -> None:
+    """Keep the doctor run's own status and exit code before setup adjusts `exit_code`."""
+    report.setdefault("doctor_exit_code", report["exit_code"])
+    report.setdefault("doctor_status", report["status"])
+
+
+def _setup_toolchain_usable(report: dict[str, Any]) -> bool:
+    """True when every toolchain check in the report has exit code 0."""
+    checks = [c for c in report.get("checks") or [] if c.get("id") in _SETUP_TOOLCHAIN_CHECK_IDS]
+    return bool(checks) and any(c.get("id") == "adb_version" for c in checks) and all(
+        c.get("exit_code") == EXIT_OK for c in checks
+    )
+
+
+def _apply_setup_exit_rule(report: dict[str, Any]) -> dict[str, Any]:
+    """Setup exits 0 when its own work succeeded and the toolchain checks pass.
+
+    Other doctor findings (USB permissions, device state, the shared server) stay in
+    the report, with the doctor's own result in `doctor_status` / `doctor_exit_code`.
+    Dry runs, aborts and failures keep their existing exit codes.
+    """
+    _record_doctor_outcome(report)
+    action = (report.get("setup") or {}).get("action")
+    if action in _SETUP_DONE_ACTIONS and _setup_toolchain_usable(report):
+        report["exit_code"] = EXIT_OK
     return report
 
 
@@ -3100,6 +3134,24 @@ def run_setup_workflow(
     downloader: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Execute the `adapt setup` user-scope bootstrap contract."""
+    return _apply_setup_exit_rule(_run_setup_steps(
+        env, force=force, dry_run=dry_run, no_path=no_path, yes=yes, isolated=isolated,
+        expected_sha256=expected_sha256, downloader=downloader,
+    ))
+
+
+def _run_setup_steps(
+    env: DoctorEnv | None = None,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    no_path: bool = False,
+    yes: bool = False,
+    isolated: bool = False,
+    expected_sha256: str | None = None,
+    downloader: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Run the setup steps; `exit_code` follows the doctor run and the not-done rule here."""
     pre_report = run_doctor_checks(env, command_name="setup")
     host_os = pre_report["host"]["os"]
     home = _get_home_dir(env)

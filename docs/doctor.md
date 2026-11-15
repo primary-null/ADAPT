@@ -22,7 +22,7 @@ When `--json` is omitted, TTY stdout sessions (`sys.stdout.isatty()`) render sty
 
 ## 2. Exit Code Contract
 
-Exit codes are strictly ordered by precedence. When multiple failures exist simultaneously, `adapt doctor` (and `adapt setup` pre-flight/post-flight) MUST return the highest-precedence non-zero code according to the table below:
+Exit codes are strictly ordered by precedence. When multiple failures exist simultaneously, `adapt doctor` (and the doctor runs inside `adapt setup`, reported in setup's `doctor_exit_code`; setup's own exit code follows §5.3) MUST return the highest-precedence non-zero code according to the table below:
 
 | Precedence | Exit Code | Name | Condition | Action Permitted |
 |---|---|---|---|---|
@@ -325,6 +325,14 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
         "error": { "type": "string" }
       }
     },
+    "doctor_exit_code": {
+      "description": "Setup reports only: the exit code of the doctor run the report describes (pre-flight, or post-setup after `installed`/`path_registered`), before setup's own exit rule (§5.3). `exit_code` is setup's exit code.",
+      "type": "integer", "enum": [0, 1, 2, 3]
+    },
+    "doctor_status": {
+      "description": "Setup reports only: the doctor run's status; equal to `status`.",
+      "type": "string"
+    },
     "error": {
       "description": "Present for setup actions `failed`, `unsupported_architecture` and `unsupported_platform`; same text as `setup.error`.",
       "type": "string"
@@ -347,7 +355,7 @@ When `--json` is passed to `adapt doctor` (or `adapt setup`), `stdout` MUST emit
 | `2` | `"device_unauthorized_or_no_permissions"` |
 | `3` | `"unsafe_shared_server"` |
 
-The one exception is `adapt setup` when setup did not do what was asked (see §5.3): `status` still describes host health, but a healthy host's `exit_code` becomes `1`, so `"status": "ok"` can appear with `"exit_code": 1`.
+`adapt setup` is the one exception (see §5.3): `status` and `doctor_exit_code` always follow this table, but `exit_code` is setup's own. When setup did not do what was asked, a healthy host's `exit_code` becomes `1`, so `"status": "ok"` can appear with `"exit_code": 1`. When setup succeeded and the toolchain checks pass, `exit_code` is `0` even if other findings remain, so for example `"status": "device_unauthorized_or_no_permissions"` can appear with `"exit_code": 0` and `"doctor_exit_code": 2`.
 
 ---
 
@@ -358,7 +366,7 @@ The one exception is `adapt setup` when setup did not do what was asked (see §5
 ### 5.1 Pre-Flight Gate
 0. On a host that is not Windows or Linux (`host.supported == false`, i.e. macOS), `adapt setup` stops with action `unsupported_platform` and an error naming the platform, before the gates below. Nothing is downloaded or changed, even with `--dry-run`. `target_dir` and `url` are `null`; the report shape and exit code follow `unsupported_architecture` (not-done rule, so an unverifiable listener still yields `3`). No later step could act on such a host, so deciding this first changes no safety outcome.
 1. Run `adb_server_5037` check **first**. If port `5037` is owned by `root`/another user or has a running server mismatch, `adapt setup` MUST abort immediately with exit code `3` and MUST NOT kill the server.
-2. Check if a valid `adb >= 34.0.0` is already installed and first on `PATH` (unless `--force` is passed to repair/re-install into user scope): `adb_path`, `adb_version`, `adb_origin` and `path_config` all have exit code `0` **and** `PATH` has an `adb`. A distribution-packaged `adb >= 34.0.0` counts as healthy (its origin is a `warn`). If already healthy, `adapt setup` exits with the pre-flight code without downloading (`noop_already_healthy`). A usable copy that is only off `PATH` is not "healthy" here; step 2b applies.
+2. Check if a valid `adb >= 34.0.0` is already installed and first on `PATH` (unless `--force` is passed to repair/re-install into user scope): `adb_path`, `adb_version`, `adb_origin` and `path_config` all have exit code `0` **and** `PATH` has an `adb`. A distribution-packaged `adb >= 34.0.0` counts as healthy (its origin is a `warn`). If already healthy, `adapt setup` stops without downloading (`noop_already_healthy`) and exits `0` (§5.3 success rule). A usable copy that is only off `PATH` is not "healthy" here; step 2b applies.
    - **2b. Existing healthy copy, PATH registration missing:** if setup's own install folder (the target directory, honouring `--isolated`) already holds an `adb` that exists, starts and reports `>= 34.0.0`, and is classified `google_official`, and the first `adb` on `PATH` is not that copy, setup does **not** download again (unless `--force`). It registers that folder on `PATH` instead, with the same mechanism as §5.2 step 4: action `path_registered`, `downloaded: false`, `path_updated: true`, `reused_existing: true`, followed by the post-setup doctor run. With `--dry-run` the action is `dry_run` with `would_download: false` and `would_update_path` reflecting `--no-path`. With `--no-path` nothing is changed: action `noop_already_installed`. A `PATH` change is a user-profile change, so it needs the same confirmation as a download (step 4): without `--yes` and without a terminal, `aborted_needs_yes`; a declined prompt, `aborted_unconfirmed`. If the `PATH` update itself fails, the action is `failed` with `reused_existing: true` and the error `Could not add <dir> to your user PATH.`
 3. On Debian/Linux hosts, check the host architecture. The official Linux platform-tools archive contains x86_64 binaries only, so on any other architecture (for example `aarch64`) `adapt setup` stops with action `unsupported_architecture` and an error naming the detected architecture. Nothing is downloaded, even with `--dry-run`. Windows hosts are not gated.
 4. Before a mutating download/unpack, or a `PATH`-only registration (step 2b), `adapt setup` prompts on `stderr` for confirmation unless `--yes`/`-y` is passed. When ADAPT cannot show a prompt (input or error output is not a terminal), `adapt setup` stops before changing anything unless `--yes` is given.
@@ -385,7 +393,7 @@ The one exception is `adapt setup` when setup did not do what was asked (see §5
    - **Windows 11:** Read and update `HKCU\Environment\Path` via `winreg` (idempotent; no duplicate entries), broadcast `WM_SETTINGCHANGE`, and update the current process environment. If an older `adb.exe` exists in another user `PATH` entry, place the user-scope `platform-tools` directory ahead of it in user `PATH` (or warn if a system `HKLM` `PATH` entry shadows it). **Never** write to `HKLM`.
    - **Debian:** Idempotently add a managed block to `~/.profile` prepending `$HOME/.local/share/android/platform-tools` (or selected isolated dir) to `PATH` so it takes precedence over `/usr/bin/adb` if Debian `apt` `adb` is installed. ADAPT does not edit `.bashrc`, `.zshrc`, `/etc/environment` or `/etc/profile`.
 5. **Post-Setup Verification & Safe OS Hints:**
-   - Re-run `adapt doctor` checks and return the resulting exit code (`0`, `1`, `2`, or `3`).
+   - Re-run `adapt doctor` checks, report them (with the resulting code in `doctor_exit_code`) and exit by the §5.3 success rule: `0` when the toolchain checks pass, otherwise the doctor's code.
    - Print safe, copy-pasteable OS instructions if `windows_pnp` (`pnputil` / Google USB INF / OEM driver page) or `debian_usb_permissions` (`udev` rules / `plugdev` group) need attention.
 
 ### 5.3 Setup Outcomes and Exit Codes
@@ -393,11 +401,11 @@ The one exception is `adapt setup` when setup did not do what was asked (see §5
 
 | `setup.action` | Meaning | Exit code |
 |---|---|---|
-| `installed` | Downloaded, unpacked and (unless `--no-path`) put on `PATH`. | Post-setup doctor exit code. |
-| `noop_already_healthy` | Toolchain already healthy; nothing downloaded. | Pre-flight exit code. |
-| `path_registered` | Healthy copy already in setup's install folder; its folder was put on `PATH`; nothing downloaded (§5.1 step 2b). | Post-setup doctor exit code. |
-| `noop_already_installed` | Healthy copy already in setup's install folder, but `--no-path` was given; nothing changed. | Pre-flight exit code. |
-| `dry_run` | `--dry-run`; reports `would_download` / `would_update_path`. | Pre-flight exit code. |
+| `installed` | Downloaded, unpacked and (unless `--no-path`) put on `PATH`. | Success rule (post-setup doctor run). |
+| `noop_already_healthy` | Toolchain already healthy; nothing downloaded. | Success rule (pre-flight doctor run). |
+| `path_registered` | Healthy copy already in setup's install folder; its folder was put on `PATH`; nothing downloaded (§5.1 step 2b). | Success rule (post-setup doctor run). |
+| `noop_already_installed` | Healthy copy already in setup's install folder, but `--no-path` was given; nothing changed. | Success rule (pre-flight doctor run). |
+| `dry_run` | `--dry-run`; reports `would_download` / `would_update_path`. | Pre-flight exit code (unchanged: a dry run installs nothing, so it reports the host as it is). |
 | `aborted_unsafe_server` | Port `5037` gate failed (§5.1 step 1). | `3`. |
 | `aborted_needs_yes` | No terminal to confirm and no `--yes`. | Not-done rule. |
 | `aborted_unconfirmed` | User declined the confirmation prompt. | Not-done rule. |
@@ -405,7 +413,9 @@ The one exception is `adapt setup` when setup did not do what was asked (see §5
 | `unsupported_platform` | Host is not Windows or Linux, e.g. macOS (§5.1 step 0). | Not-done rule. |
 | `failed` | Download, verification or unpack raised an error. | Not-done rule. |
 
-**Not-done rule:** when setup did not do what was asked, a pre-flight exit code of `0` becomes `1`; a non-zero pre-flight exit code (`1`, `2` or `3`) is kept, following the normal precedence. `status` is not changed and keeps describing host health. The process exit code always equals the report's `exit_code`.
+**Success rule:** when setup did what was asked (or nothing was needed) and the toolchain checks (`adb_path`, `adb_version`, `adb_origin`, `path_config`) all have exit code `0`, setup exits `0`. Remaining findings that are not about the toolchain (USB permissions or drivers, device state, the shared server on port `5037`) are still reported in the checks, in the human doctor report and `Next:` steps, and in `status` / `doctor_status` / `doctor_exit_code`, but they do not change setup's exit code. When the toolchain checks still fail afterwards, setup exits with the doctor's code (normally `1`). In an interactive terminal, setup exits with this code after the `Next:` menu closes.
+
+**Not-done rule:** when setup did not do what was asked, a pre-flight exit code of `0` becomes `1`; a non-zero pre-flight exit code (`1`, `2` or `3`) is kept, following the normal precedence. `status` is not changed and keeps describing host health. Every setup report carries the doctor run's own result in `doctor_status` and `doctor_exit_code`. The process exit code always equals the report's `exit_code`; the human doctor report printed by setup shows the doctor's own status line (`Status: <status> (exit code <doctor_exit_code>)`).
 
 For `failed`, `unsupported_architecture` and `unsupported_platform`, the report carries the error text in both `setup.error` and a top-level `error`. With `--json`, stdout is still the full report described in §4. Human output prints `Error: <message>` on `stderr` and exits without printing the doctor report or the next-actions menu.
 

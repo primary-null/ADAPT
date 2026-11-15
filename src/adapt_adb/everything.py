@@ -130,8 +130,10 @@ def run_everything(*, yes: bool = False, dry_run: bool = False, devices: list[st
                 result = run_setup_workflow(yes=True, force=False, no_path=no_path)
                 setup = result.get("setup", {})
                 action = setup.get("action", "unknown")
-                platform_ready = result.get("exit_code") in {0, 2} and action in {"installed", "noop_already_healthy", "path_registered", "noop_already_installed"}
-                unsafe = result.get("exit_code") == 3
+                # The doctor's own code: setup's exit_code no longer carries USB or server findings.
+                doctor_code = result.get("doctor_exit_code", result.get("exit_code"))
+                platform_ready = doctor_code in {0, 2} and action in {"installed", "noop_already_healthy", "path_registered", "noop_already_installed"}
+                unsafe = doctor_code == 3
                 steps.append({"step": "platform-tools", "status": "installed" if action == "installed" else "reused" if platform_ready else "blocked" if unsafe else "failed", "action": action, "report": result})
             except Exception:
                 steps.append({"step": "platform-tools", "status": "failed", "reason": "Platform-Tools setup failed. Existing installations were not forcibly replaced."})

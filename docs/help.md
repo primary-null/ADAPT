@@ -66,7 +66,9 @@ leave root-owned files that later block normal use, and asks you to run ADAPT
 as your normal user; when elevated it explains that tools in non-elevated
 sessions cannot share that server. It is a safety notice, not a tip: tips
 controls do not hide it, but `--json` does, and it never prompts or changes an
-exit code. `adapt doctor` also shows it in its report
+exit code. The doctor report rendered by `doctor` and `setup` leaves its own
+copy out in that case, so the warning appears once; the report shows it when
+no command printed it, such as in the interactive console
 ([doctor contract](doctor.md#33-host-platform-and-privilege)).
 
 ## Failure guidance

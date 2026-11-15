@@ -2751,8 +2751,23 @@ def build_next_actions(report: dict[str, Any]) -> list[dict[str, str]]:
 DOCTOR_FIX_POINTER = "Run 'adapt doctor --fix' to see how to fix the items above."
 
 
+def _cli_already_warned_privilege() -> bool:
+    """True when the running `adapt` command already printed the root/elevated warning on stderr."""
+    try:
+        from adapt_adb.failure_report import _click_context
+
+        ctx = _click_context()
+        return bool(ctx is not None and ctx.find_root().meta.get("adapt_privilege_warned"))
+    except Exception:
+        return False
+
+
 def _host_notes(report: dict[str, Any]) -> list[str]:
-    """Human-only host notes: unsupported platform and root/elevated sessions."""
+    """Human-only host notes: unsupported platform and root/elevated sessions.
+
+    The root/elevated note is left out when the CLI already warned on stderr, so a
+    terminal shows it once; library and console renders keep it.
+    """
     host = report.get("host") or {}
     host_os = str(host.get("os") or "")
     notes: list[str] = []
@@ -2762,7 +2777,7 @@ def _host_notes(report: dict[str, Any]) -> list[str]:
             "Checks that need a supported host are skipped or fail closed."
         )
     warning = privilege_warning(host_os, bool(host.get("uid_is_root")), bool(host.get("elevated")))
-    if warning:
+    if warning and not _cli_already_warned_privilege():
         notes.append(f"Warning: {warning}")
     return notes
 

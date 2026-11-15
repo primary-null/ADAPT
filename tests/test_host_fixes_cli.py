@@ -82,14 +82,14 @@ def test_root_warning_skips_commands_that_never_touch_adb(as_root):
         assert "Warning:" not in runner.invoke(app, argv).stderr
 
 
-def test_doctor_human_run_has_one_stderr_warning_and_one_report_line(as_root, tmp_path, monkeypatch):
+def test_doctor_human_run_shows_the_warning_once_on_stderr_only(as_root, tmp_path, monkeypatch):
     env = _healthy_env(tmp_path)
     env.host_os, env.uid_is_root = "debian", True
     env.debian_usb_state = doctor_mod.DebianUsbState(rule_files=["x"])
     monkeypatch.setattr(cli_mod, "_ACTIVE_DOCTOR_ENV", env)
     result = runner.invoke(app, ["doctor"])
     assert result.stderr.count("Warning: ADAPT is running as root.") == 1
-    assert result.stdout.count("Warning: ADAPT is running as root.") == 1
+    assert "Warning: ADAPT is running as root." not in result.stdout
 
 
 def test_a_failing_privilege_check_never_breaks_the_command(monkeypatch):

@@ -18,7 +18,7 @@ Counts, flags and examples are taken from the development-tree source. See the [
 | Android baselines in the offline matrix | 9 (API 29-37 = Android 10-17, including 12L) |
 | Samsung devices with recorded observations | Pre-release builds: 2 phones (API 33 and API 37). 2026-11-14: an API 33 phone, an API 37 phone and an API 36 tablet, with released 0.1.1 and native receiver sessions with each. All from a Windows 11 host |
 | Offline tests | 0.1.1: 917 Python tests in 33 modules (all passed on Windows, Python 3.13) and 20 native `#[test]` functions. Development tree: 2034 Python tests in 59 modules collected on 2026-11-14 (a collection count that is still changing; no full-suite result is recorded, see [validation](validation.md)) and 119 native `#[test]` functions. No CI job runs the native tests. Not a pass rate |
-| Failure guides (`adapt explain --list`) | **297** in the development tree, including 33 native receiver reason codes and 19 native receiver command outcomes; none in 0.1.1 |
+| Failure guides (`adapt explain --list`) | **298** in the development tree, including 33 native receiver reason codes and 19 native receiver command outcomes; none in 0.1.1 |
 
 These counts are for the development tree. It adds `adapt explain` and the four `dex receiver-*` commands to 0.1.1, with a help topic each.
 

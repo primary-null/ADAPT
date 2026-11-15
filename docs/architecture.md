@@ -36,7 +36,7 @@ ADAPT/
 |   |-- rapid.py                    Rapid ADAPT plan generator
 |   |-- help_system.py, hints.py,   64 help topics, tips, udev/driver hints, guide topics
 |   |   insights.py
-|   |-- failure_guide.py,           failure guide registry (data only; 297 guides, including the
+|   |-- failure_guide.py,           failure guide registry (data only; 298 guides, including the
 |   |   failure_report.py           receiver's reason codes and receiver-* outcomes) and its
 |   |                               runtime: classify, context, Why/Try/More, JSON/MCP `failure`
 |   |-- banner.py, console.py,      stderr banner, home screen (9 screens), progress dots

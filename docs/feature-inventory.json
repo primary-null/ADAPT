@@ -20,7 +20,7 @@
     "python_tests": 917,
     "python_test_files": 33,
     "native_tests": 119,
-    "failure_guides": 297
+    "failure_guides": 298
   },
   "counts_basis": "Counts describe this repository's development tree (unreleased changes, uncommitted on the distribution/public-release branch when counted) on 2026-11-14, except python_tests and python_test_files, which are the 0.1.1 pytest collection counts (commit 45b2a0a) because the development-tree count was still changing; on 2026-11-14 the development tree collected 2034 tests in 59 modules (a collection count, not a run). native_tests counts #[test] functions in native/windows-receiver/src. failure_guides counts the guides adapt explain --list shows (GUIDES in failure_guide.py, including 33 native receiver reason codes and 19 native receiver command outcomes); 0.1.1 has none. physical_phones_with_saved_evidence counts the two phones of the pre-release record; the 2026-11-14 record (0.1.1 smoke passes and native receiver sessions, one Windows 11 PC) adds an Android 16 tablet and does not say whether its Android 13 and Android 17 phones are the same units. No count is a pass rate. counts_0_1_1 holds the 0.1.1 values of the counts that differ.",
   "counts_0_1_1": {

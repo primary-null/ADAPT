@@ -65,8 +65,10 @@ worker reports this as `command_adb_source: registered_managed_copy` with a
 `path_config` warning (`adb.managed_not_on_path`). Plain `adb` run by other
 tools in that shell still gets the other copy; add the folder to PATH in a
 startup file that shell reads if they need the same version. Windows workers
-keep plain PATH order. This is covered by offline tests; the original problem
-was seen on a real Debian 13 worker and the fix has not yet been re-run there.
+keep plain PATH order. This is covered by offline tests. The original problem
+was seen on a Debian 13 virtual machine used as a worker; the fix was re-run
+there once on 2026-11-14 and the worker used the managed copy. No other worker
+has been tried.
 See [doctor](doctor.md) (`adb_path`, `path_config`).
 
 POSIX commands use shell quoting around each argv element. Windows mode sends

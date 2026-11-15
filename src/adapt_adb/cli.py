@@ -618,6 +618,14 @@ app.add_typer(rapid_app, name="rapid", callback=group_tip)
 app.add_typer(tailscale_app, name="tailscale", callback=group_tip)
 
 
+def _print_version(value: bool) -> None:
+    """Eager `--version`: print `adapt <version>` and exit 0 before any banner, tip or adb work."""
+    if value:
+        from adapt_adb import __version__
+        typer.echo(f"adapt {__version__}")
+        raise typer.Exit(0)
+
+
 @app.callback()
 def _root(
     ctx: typer.Context,
@@ -628,6 +636,10 @@ def _root(
     ),
     no_tips: bool = typer.Option(False, "--no-tips", help="Hide contextual usage tips for this invocation."),
     no_progress: bool = typer.Option(False, "--no-progress", help="Disable the adapting activity indicator."),
+    version: bool = typer.Option(
+        False, "--version", is_eager=True, expose_value=False, callback=_print_version,
+        help="Print the ADAPT version and exit.",
+    ),
 ) -> None:
     set_tip_context(ctx)
     set_progress_context(ctx)

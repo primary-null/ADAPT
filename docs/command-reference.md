@@ -19,6 +19,7 @@ Placed before the command: `adapt --no-banner doctor`.
 | `--no-banner` | Hide the ASCII wordmark (or set `ADAPT_NO_BANNER=1`; `ADAPT_BANNER=0` also disables it). The banner goes to stderr only for human terminals and is never shown for `--json` or `mcp`. |
 | `--no-tips` | Hide contextual usage tips for this invocation (or `ADAPT_TIPS=0`, or `adapt tips off`). |
 | `--no-progress` | Disable the `adapting...` activity indicator (or `ADAPT_NO_PROGRESS=1`). |
+| `--version` | Print `adapt <version>` on stdout and exit 0, without the banner, tips, progress output or any adb access. |
 
 ## Environment variables
 

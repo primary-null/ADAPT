@@ -10,6 +10,7 @@ import logging
 import os
 import platform
 import re
+import shlex
 import shutil
 import ssl
 import stat
@@ -22,6 +23,7 @@ import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -144,16 +146,164 @@ ADB_OVERRIDE_VARS: tuple[str, ...] = ("ADAPT_ADB", "ADB_PATH")
 class AdbResolution:
     """Which adb ADAPT's commands use, and where it came from.
 
-    ``source`` is ``override`` (ADAPT_ADB / ADB_PATH), ``path`` (the PATH search
+    ``source`` is ``override`` (ADAPT_ADB / ADB_PATH), ``registered_managed_copy``
+    (the platform-tools folder `adapt setup` registered, absent from this
+    process's PATH; see `find_registered_managed_adb`), ``path`` (the PATH search
     location), ``fallback_location`` (another searched folder) or ``none``.
     ``override_var`` names the first override variable that is set (its value is
     never stored); ``override_missing`` is True when that value is not a file.
+    ``registration`` is set only for ``registered_managed_copy``.
     """
 
     path: Path | None
     source: str
     override_var: str | None = None
     override_missing: bool = False
+    registration: "ManagedRegistration | None" = None
+
+
+# `adapt setup` writes this comment line, then `managed_path_export_line(folder)`,
+# into ~/.profile when it registers its platform-tools folder on a POSIX host.
+MANAGED_PATH_MARKER = "# ADAPT managed platform-tools PATH"
+REGISTERED_MANAGED_SOURCE = "registered_managed_copy"
+_MAX_PROFILE_BYTES = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ManagedRegistration:
+    """ADAPT's managed adb, registered by `adapt setup` but missing from this PATH."""
+
+    adb: Path
+    folder: Path
+    profile: Path
+    path_adb: Path
+
+
+def managed_path_export_line(folder: Path) -> str:
+    """The exact PATH line `adapt setup` adds to ~/.profile for ``folder``."""
+    return "export PATH=" + shlex.quote(str(folder)) + ':"$PATH"'
+
+
+def managed_platform_tools_dirs(home: Path) -> tuple[Path, ...]:
+    """POSIX folders `adapt setup` installs into: the default and the --isolated one."""
+    return (
+        home / ".local" / "share" / "android" / "platform-tools",
+        home / ".android" / "platform-tools",
+    )
+
+
+def read_profile_text_bounded(profile: Path, limit: int = _MAX_PROFILE_BYTES) -> str | None:
+    """Read a regular profile file read-only; None when missing, unreadable or over ``limit`` bytes."""
+    try:
+        if not profile.is_file():
+            return None
+        with profile.open("rb") as handle:
+            data = handle.read(limit + 1)
+    except OSError:
+        return None
+    if len(data) > limit:
+        return None
+    return data.decode("utf-8", errors="ignore")
+
+
+def _registered_line_index(text: str, folder: Path) -> int | None:
+    """Index of the last setup PATH line for ``folder``, when setup's marker line is present too.
+
+    Both lines must appear exactly (after strip()) as setup writes them; a commented-out
+    PATH line never matches, because it does not start with ``export``.
+    """
+    lines = [line.strip() for line in text.splitlines()]
+    if MANAGED_PATH_MARKER not in lines:
+        return None
+    export_line = managed_path_export_line(folder)
+    found = [idx for idx, line in enumerate(lines) if line == export_line]
+    return found[-1] if found else None
+
+
+def dir_listed_on_path(folder: Path, path_value: str, sep: str, *, resolve: bool) -> bool:
+    """True when ``folder`` is one of the PATH entries (normalized; resolved too when asked)."""
+    target = os.path.normpath(str(folder))
+    target_real = os.path.realpath(target) if resolve else None
+    for entry in path_value.split(sep):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if os.path.normpath(entry) == target:
+            return True
+        if target_real is not None:
+            try:
+                if os.path.realpath(entry) == target_real:
+                    return True
+            except (OSError, ValueError):
+                continue
+    return False
+
+
+def find_registered_managed_adb(
+    environ: Mapping[str, str],
+    home: Path,
+    path_adb: Path | None,
+    *,
+    is_usable: Callable[[Path], bool],
+    read_text: Callable[[Path], str | None],
+    on_path: Callable[[Path], bool],
+    same_file: Callable[[Path, Path], bool],
+) -> ManagedRegistration | None:
+    """Return ADAPT's managed adb when every condition holds, else None (POSIX hosts only).
+
+    (a) neither ADAPT_ADB nor ADB_PATH is set, even to a missing file; (c) ~/.profile holds
+    setup's marker line and its exact PATH line for a managed folder; (d) no registered
+    managed folder is on this PATH (when one is, PATH order wins as usual); (e) a different
+    adb is first on PATH; (b) the managed adb in that folder is usable (it exists, runs and
+    reports >= 34.0.0). The callers decide the host OS and supply the probes, so
+    `adapt doctor` and the commands share this one rule. Nothing here starts, stops or
+    talks to an ADB server.
+    """
+    if any(environ.get(name, "").strip() for name in ADB_OVERRIDE_VARS):
+        return None
+    if path_adb is None:
+        return None
+    profile = home / ".profile"
+    text = read_text(profile)
+    if not text:
+        return None
+    registered = [
+        (idx, folder)
+        for folder in managed_platform_tools_dirs(home)
+        if (idx := _registered_line_index(text, folder)) is not None
+    ]
+    if not registered or any(on_path(folder) for _, folder in registered):
+        return None
+    # The PATH line setup wrote last is the one a login shell puts first.
+    _, folder = max(registered, key=lambda item: item[0])
+    managed_adb = folder / "adb"
+    if same_file(managed_adb, path_adb) or not is_usable(managed_adb):
+        return None
+    return ManagedRegistration(managed_adb, folder, profile, path_adb)
+
+
+def _real_same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except (OSError, ValueError):
+        return False
+
+
+def _real_managed_registration(override_var: str | None) -> ManagedRegistration | None:
+    """`find_registered_managed_adb` for this process; never on Windows (see docs/doctor.md)."""
+    if override_var is not None or sys.platform == "win32":
+        return None
+    # The same PATH adb the search below would find first.
+    path_adb = next((cand for desc, cand in get_search_locations() if desc == "PATH"), None)
+    return find_registered_managed_adb(
+        os.environ,
+        Path.home(),
+        path_adb,
+        is_usable=lambda p: p.is_file() and os.access(p, os.X_OK) and _candidate_meets_min_version(p),
+        read_text=read_profile_text_bounded,
+        on_path=lambda folder: dir_listed_on_path(folder, os.environ.get("PATH", ""), os.pathsep, resolve=True),
+        same_file=_real_same_file,
+    )
 
 
 def resolve_adb_details() -> AdbResolution:
@@ -168,6 +318,12 @@ def resolve_adb_details() -> AdbResolution:
             if cand.is_file():
                 return AdbResolution(cand.resolve(), "override", env_var, False)
             override_missing = override_missing or env_var == override_var
+
+    registration = _real_managed_registration(override_var)
+    if registration is not None:
+        return AdbResolution(
+            registration.adb.resolve(), REGISTERED_MANAGED_SOURCE, None, False, registration
+        )
 
     valid_candidates: list[tuple[Path, str]] = []
     seen: set[Path] = set()
@@ -191,7 +347,8 @@ def resolve_adb_details() -> AdbResolution:
 def resolve_adb() -> Path | None:
     """Resolve the adb executable from known locations.
 
-    Checks ADAPT_ADB / ADB_PATH overrides first, then prefers the first candidate
+    Checks ADAPT_ADB / ADB_PATH overrides first, then the managed copy `adapt setup`
+    registered when it is missing from this PATH, then prefers the first candidate
     whose version is >= 34.0.0; falls back to the first found executable if none meet 34.0.0.
     Never downloads and never kills server.
     """

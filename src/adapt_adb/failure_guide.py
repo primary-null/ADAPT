@@ -1984,6 +1984,38 @@ _GUIDE_LIST: tuple[FailureGuide, ...] = (
         ),
     ),
     FailureGuide(
+        id="adb.managed_not_on_path",
+        summary=(
+            "ADAPT's commands use the Platform-Tools copy `adapt setup` registered in ~/.profile, but PATH in "
+            "this shell does not include its folder, so plain adb in this shell runs a different copy (shown above)."
+        ),
+        certainty="observed",
+        causes=(
+            Cause("The shell does not read ~/.profile, for example the non-login shell an SSH command runs in."),
+            Cause("~/.profile is not read because ~/.bash_profile or ~/.bash_login exists, or a later startup file replaced PATH."),
+        ),
+        steps=(
+            Step("See which adb ADAPT uses and which adb PATH finds:", "adapt doctor --json"),
+            Step(
+                "If other tools in this kind of shell run plain adb, add the folder named above to PATH in a startup "
+                "file that shell reads, so every tool uses one adb version.",
+                effect="manual",
+            ),
+            Step("Check again:", "adapt doctor", mcp_tool="doctor"),
+        ),
+        help_topic="doctor",
+        docs="docs/doctor.md",
+        diagnose=None,
+        avoid=(_AVOID_KILL,),
+        aliases=("registered managed copy", "not on path in this shell", "non-login shell"),
+        commands=("doctor",),
+        doctor_check="path_config",
+        doctor_remediation=(
+            "ADAPT already uses the registered copy. For plain adb in this kind of shell to match it, add <FOLDER> "
+            "to PATH in a startup file that shell reads."
+        ),
+    ),
+    FailureGuide(
         id="adb.too_old",
         summary="The adb ADAPT found reports a Platform-Tools version below 34.0.0, or no version at all, so ADAPT will not use it.",
         certainty="observed",

@@ -55,6 +55,20 @@ adapt ssh run windows-worker --remote-shell powershell --remote-adapt "C:\Progra
 adapt ssh run android-worker --port 2222 --identity "keys/worker key" --json
 ```
 
+An SSH command runs in a non-login shell that does not read `~/.profile`, so it
+can miss the Platform-Tools folder `adapt setup` registered there and find
+another `adb` first (for example a distribution's `/usr/bin/adb`). On a POSIX
+worker ADAPT then uses the registered managed copy anyway, provided `ADAPT_ADB`
+and `ADB_PATH` are unset, `~/.profile` still holds setup's marker and PATH
+lines, and that copy runs and reports 34.0.0 or newer. `adapt doctor` on the
+worker reports this as `command_adb_source: registered_managed_copy` with a
+`path_config` warning (`adb.managed_not_on_path`). Plain `adb` run by other
+tools in that shell still gets the other copy; add the folder to PATH in a
+startup file that shell reads if they need the same version. Windows workers
+keep plain PATH order. This is covered by offline tests; the original problem
+was seen on a real Debian 13 worker and the fix has not yet been re-run there.
+See [doctor](doctor.md) (`adb_path`, `path_config`).
+
 POSIX commands use shell quoting around each argv element. Windows mode sends
 a UTF-16LE encoded, noninteractive PowerShell script to invoke ADAPT, preserving
 spaced serials and executable paths. Embedded double quotes in Windows arguments

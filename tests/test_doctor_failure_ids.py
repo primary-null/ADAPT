@@ -16,7 +16,7 @@ import pytest
 
 import adapt_adb.doctor as doctor_mod
 from adapt_adb import failure_guide as fg
-from adapt_adb.adb import AdbProbeError
+from adapt_adb.adb import MANAGED_PATH_MARKER, AdbProbeError, managed_path_export_line
 from adapt_adb.doctor import (
     CHECK_IDS,
     DebianUsbState,
@@ -111,6 +111,14 @@ def _off_path(version: str) -> DoctorEnv:
                    command_adb=WIN_ADB, command_adb_source="fallback_location")
 
 
+def _registered_managed() -> DoctorEnv:
+    # `adapt setup` registered LNX_PT in ~/.profile; this shell's PATH has only the distribution adb.
+    return linux_env(environ={"PATH": "/usr/bin"}, which_adb=DISTRO_ADB, path_executables=[DISTRO_ADB],
+                     existing_paths={DISTRO_ADB, LNX_ADB, LNX_PT}, dpkg_owners={DISTRO_ADB: "adb", LNX_ADB: None},
+                     version_outputs={DISTRO_ADB: V35_DISTRO, LNX_ADB: V35},
+                     debian_profile_texts={LNX_HOME / ".profile": f"\n{MANAGED_PATH_MARKER}\n{managed_path_export_line(LNX_PT)}\n"})
+
+
 def _listening(**fields) -> Server5037State:
     base = dict(listening=True, pid=4242, owner="dev", owner_matches_current_user=True,
                 server_version_raw=V35)
@@ -162,6 +170,11 @@ SCENARIOS: dict[str, tuple] = {
     "off_path_usable": (lambda: _off_path(V35),
                         {"adb_path": ("warn", "adb.off_path", OFF_PATH),
                          "path_config": ("warn", "adb.off_path", OFF_PATH)}),
+    "registered_managed_not_on_path": (_registered_managed,
+                                       {"path_config": ("warn", "adb.managed_not_on_path",
+                                                        "ADAPT already uses the registered copy. For plain adb in this kind "
+                                                        f"of shell to match it, add {LNX_PT} to PATH in a startup file that "
+                                                        "shell reads.")}),
     "off_path_too_old": (lambda: _off_path(V33),
                          {"adb_path": ("fail", "adb.too_old", INSTALL),
                           "adb_version": ("fail", "adb.too_old", INSTALL_OFFICIAL_34),

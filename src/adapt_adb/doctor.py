@@ -42,13 +42,20 @@ from typing import Any, Callable
 
 from adapt_adb.adb import (
     ADB_OVERRIDE_VARS,
+    MANAGED_PATH_MARKER,
+    REGISTERED_MANAGED_SOURCE,
     AdbProbeError,
+    ManagedRegistration,
     PLATFORM_TOOLS_URL_LINUX,
     PLATFORM_TOOLS_URL_WINDOWS,
     add_to_windows_user_path,
+    dir_listed_on_path,
     download_and_extract_platform_tools,
+    find_registered_managed_adb,
     get_default_platform_tools_dir,
+    managed_path_export_line,
     parse_devices_short,
+    read_profile_text_bounded,
     resolve_adb_details,
     split_adb_prefix,
 )
@@ -226,7 +233,9 @@ class DoctorEnv:
     # The adb ADAPT's commands use (adb.resolve_adb). When command_adb_source is None,
     # an injected environment uses a valid ADAPT_ADB / ADB_PATH override, else the PATH adb.
     command_adb: Path | None = None
-    command_adb_source: str | None = None  # "override", "path", "fallback_location", "none"
+    # "override", "registered_managed_copy", "path", "fallback_location", "none"; when None,
+    # an injected POSIX environment also applies adb.find_registered_managed_adb.
+    command_adb_source: str | None = None
     os_release_text: str | None = None  # /etc/os-release contents for host detection
     elevated: bool | None = None  # Windows elevated (Administrator) session
 
@@ -1393,22 +1402,65 @@ def _discover_candidates(
 
 _COMMAND_ADB_SOURCE_TEXT: dict[str, str] = {
     "override": "the ADAPT_ADB / ADB_PATH environment variable",
+    REGISTERED_MANAGED_SOURCE: "the platform-tools folder `adapt setup` registered in ~/.profile",
     "path": "PATH",
     "fallback_location": "a folder ADAPT searches outside PATH",
     "none": "nowhere",
 }
 
 
+def _injected_managed_registration(
+    environ: dict[str, str],
+    path_adb: Path | None,
+    env: DoctorEnv,
+    host_os: str | None,
+    home: Path | None,
+    path_bins: list[Path] | None,
+) -> ManagedRegistration | None:
+    """`adb.find_registered_managed_adb` with an injected environment's probes (POSIX only)."""
+    if host_os is None or host_os == "windows" or home is None:
+        return None
+
+    def read_text(profile: Path) -> str | None:
+        if env.debian_profile_texts is not None:
+            return env.debian_profile_texts.get(profile)
+        # Real files are read only when the test also gave a home folder and no fake paths.
+        if env.existing_paths is None and env.home_dir is not None:
+            return read_profile_text_bounded(profile)
+        return None
+
+    def on_path(folder: Path) -> bool:
+        if any(_same_adb(p, folder / "adb") for p in (path_bins or [])):
+            return True
+        return dir_listed_on_path(folder, environ.get("PATH", ""), ":", resolve=False)
+
+    def is_usable(adb_bin: Path) -> bool:
+        if not _path_exists(adb_bin, env):
+            return False
+        return bool(parse_platform_tools_version(_query_adb_version_raw(adb_bin, env)).get("meets_minimum"))
+
+    return find_registered_managed_adb(
+        environ, home, path_adb,
+        is_usable=is_usable, read_text=read_text, on_path=on_path, same_file=_same_adb,
+    )
+
+
 def _resolve_command_adb(
     environ: dict[str, str],
     path_adb: Path | None,
     env: DoctorEnv | None = None,
+    *,
+    host_os: str | None = None,
+    home: Path | None = None,
+    path_bins: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Return the adb ADAPT's commands use (`adb.resolve_adb`) and where it came from.
 
-    Keys: ``path`` (Path | None), ``source`` ("override", "path", "fallback_location"
-    or "none"), ``override_var`` (name of the first set override variable, never its
-    value) and ``override_missing`` (that variable does not name an existing file).
+    Keys: ``path`` (Path | None), ``source`` ("override", "registered_managed_copy",
+    "path", "fallback_location" or "none"), ``override_var`` (name of the first set
+    override variable, never its value) and ``override_missing`` (that variable does
+    not name an existing file). ``registration`` (adb.ManagedRegistration) is added
+    only for "registered_managed_copy".
     """
     override_var: str | None = None
     override_value = ""
@@ -1420,26 +1472,39 @@ def _resolve_command_adb(
 
     if env is None:
         resolution = resolve_adb_details()
-        return {
+        real: dict[str, Any] = {
             "path": resolution.path,
             "source": resolution.source,
             "override_var": resolution.override_var,
             "override_missing": resolution.override_missing,
         }
+        if resolution.registration is not None:
+            real["registration"] = resolution.registration
+        return real
 
     override_path = Path(override_value).expanduser() if override_var else None
     override_missing = bool(override_path is not None and not _path_exists(override_path, env))
+    registration: ManagedRegistration | None = None
     if env.command_adb_source is not None:
         cmd_path, source = env.command_adb, env.command_adb_source
     elif override_path is not None and not override_missing:
         cmd_path, source = override_path, "override"
+    elif (
+        registration := _injected_managed_registration(environ, path_adb, env, host_os, home, path_bins)
+    ) is not None:
+        cmd_path, source = registration.adb, REGISTERED_MANAGED_SOURCE
     elif path_adb is not None:
         cmd_path, source = path_adb, "path"
     else:
         cmd_path, source = None, "none"
     if cmd_path is None:
         source = "none"
-    return {"path": cmd_path, "source": source, "override_var": override_var, "override_missing": override_missing}
+    result: dict[str, Any] = {
+        "path": cmd_path, "source": source, "override_var": override_var, "override_missing": override_missing,
+    }
+    if registration is not None:
+        result["registration"] = registration
+    return result
 
 
 def _same_adb(a: Path | None, b: Path | None) -> bool:
@@ -1479,9 +1544,23 @@ def run_doctor_checks(
     path_origin = origin
 
     # The adb ADAPT's own commands use (ADAPT_ADB / ADB_PATH, PATH, then fallback folders).
-    command = _resolve_command_adb(environ, which_bin, env)
+    command = _resolve_command_adb(environ, which_bin, env, host_os=host_os, home=home, path_bins=path_bins)
     command_adb: Path | None = command["path"]
     command_source: str = command["source"]
+    # The managed copy `adapt setup` registered, used because this PATH lacks its folder.
+    registration: ManagedRegistration | None = command.get("registration")
+    registered_managed = registration is not None and command_source == REGISTERED_MANAGED_SOURCE
+    registered_managed_facts: dict[str, Any] | None = (
+        {
+            "adb": str(registration.adb),
+            "folder": str(registration.folder),
+            "registration_file": str(registration.profile),
+            "folder_on_path": False,
+            "path_adb": str(resolved_adb) if resolved_adb is not None else str(registration.path_adb),
+        }
+        if registered_managed and registration is not None
+        else None
+    )
     if command_adb is not None and _same_adb(command_adb, resolved_adb):
         command_version_raw = version_raw
         command_parsed = parsed_ver
@@ -1496,7 +1575,8 @@ def run_doctor_checks(
         command_origin, command_origin_details = "none", {"reason": "no adb binary resolved"}
     # With no adb on PATH, the version and origin checks judge the copy the commands use.
     off_path_command = resolved_adb is None and command_adb is not None
-    if off_path_command:
+    # So do they when the commands use the registered managed copy instead of the PATH adb.
+    if off_path_command or registered_managed:
         parsed_ver, origin, origin_details = command_parsed, command_origin, command_origin_details
     command_usable = bool(command_adb is not None and command_parsed.get("meets_minimum"))
     # The shared-server check and the device listing use the adb the commands use, so
@@ -1673,7 +1753,10 @@ def run_doctor_checks(
                 "id": "adb_path",
                 "status": "warn" if override_note else "pass",
                 "exit_code": EXIT_OK,
-                "summary": f"Resolved adb on PATH at {resolved_adb}" + (f".{override_note}" if override_note else ""),
+                "summary": f"Resolved adb on PATH at {resolved_adb}" + (f".{override_note}" if override_note else "") + (
+                    f"; ADAPT commands use {command_adb} instead ({source_text}, not on PATH in this shell)."
+                    if registered_managed else ""
+                ),
                 "details": {
                     "resolved_adb": str(resolved_adb),
                     "fallbacks_found": existing_fallbacks,
@@ -1745,7 +1828,11 @@ def run_doctor_checks(
     # Check 3: adb_version (>= 34.0.0)
     # -------------------------------------------------------------------------
     pt_ver_str = parsed_ver.get("platform_tools_version")
-    off_path_suffix = " (the adb ADAPT commands use; it is not on PATH)" if off_path_command else ""
+    off_path_suffix = (
+        " (the adb ADAPT commands use; it is not on PATH)" if off_path_command
+        else " (the registered managed adb ADAPT commands use; it is not on PATH in this shell)"
+        if registered_managed else ""
+    )
     if resolved_adb is None and command_adb is None:
         checks.append(
             {
@@ -1887,14 +1974,23 @@ def run_doctor_checks(
         resolved_adb is not None
         and parsed_ver.get("meets_minimum")
     )
-    if (not path_bins or resolved_adb is None) and off_path_command and command_usable:
+    if registered_managed and registration is not None:
+        path_status = "warn"
+        path_code = EXIT_OK
+        path_summary = (
+            f"ADAPT commands use {command_adb}, the managed copy `adapt setup` registered in "
+            f"{registration.profile}, because PATH in this shell does not include {registration.folder}; "
+            f"plain `adb` in this shell runs {resolved_adb}."
+        )
+        path_failure_id: str | None = "adb.managed_not_on_path"
+    elif (not path_bins or resolved_adb is None) and off_path_command and command_usable:
         path_status = "warn"
         path_code = EXIT_OK
         path_summary = (
             f"No adb executable is reachable on PATH; ADAPT commands use {command_adb} "
             f"(found through {source_text}), which other tools cannot find."
         )
-        path_failure_id: str | None = "adb.off_path"
+        path_failure_id = "adb.off_path"
     elif not path_bins or resolved_adb is None:
         path_status = "fail"
         path_code = EXIT_MISSING_TOOLCHAIN
@@ -1934,8 +2030,12 @@ def run_doctor_checks(
                 "shadowed_executables": shadowed_strs,
                 "command_adb": command_details["command_adb"],
                 "command_adb_source": command_source,
+                "registered_managed_copy": registered_managed_facts,
             },
-            "remediation": doctor_remediation_text(path_failure_id, "path_config"),
+            "remediation": doctor_remediation_text(
+                path_failure_id, "path_config",
+                **({"FOLDER": str(registration.folder)} if registered_managed and registration is not None else {}),
+            ),
             "failure_id": path_failure_id,
         }
     )
@@ -2369,6 +2469,7 @@ def run_doctor_checks(
             "command_adb_source": command_source,
             "command_adb_version": command_parsed.get("platform_tools_version"),
             "command_adb_origin": command_origin,
+            "registered_managed_copy": registered_managed_facts,
         },
         "checks": checks,
         "devices": devices_summary_obj,
@@ -2702,6 +2803,12 @@ def render_doctor_human(report: dict[str, Any], *, show_fix: bool = False) -> st
         lines.append(f"ADB Path: {tc['adb_path'] or 'Not found'}")
         lines.append(f"ADB Version: {tc['platform_tools_version'] or 'N/A'}")
         lines.append(f"Origin: {tc['origin']}")
+        if tc.get("registered_managed_copy"):
+            lines.append(
+                f"ADAPT commands use: {command_adb} ({tc.get('command_adb_version') or 'N/A'}, "
+                f"{tc.get('command_adb_origin') or 'none'}), registered by `adapt setup`; "
+                "PATH in this shell does not include its folder"
+            )
     lines.append(f"Status: {report['status']} (exit code {report['exit_code']})")
     lines.append("")
     lines.append("Checks:")
@@ -2794,8 +2901,8 @@ def ensure_debian_user_path(target_dir: Path, home: Path, env: DoctorEnv | None 
     after strip(), equals the managed export line exactly; comments or other
     paths that merely contain target_dir do not count.
     """
-    export_line = "export PATH=" + shlex.quote(str(target_dir)) + ':"$PATH"'
-    marker = "# ADAPT managed platform-tools PATH"
+    export_line = managed_path_export_line(target_dir)
+    marker = MANAGED_PATH_MARKER
     block = f"\n{marker}\n{export_line}\n"
 
     def _has_export_line(text: str) -> bool:

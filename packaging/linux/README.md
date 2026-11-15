@@ -38,6 +38,8 @@ export PATH
 
 Reload your shell configuration (`source ~/.profile`) and confirm with `command -v adb` and `adb version` (should report `>= 34.0.0`).
 
+Non-login shells, such as the one an SSH command runs in, do not read `~/.profile`. A hand-written block like the one above therefore does not reach them, and ADAPT follows their `PATH`. Only the exact marker and `export PATH=...` lines that `adapt setup` writes let ADAPT's own commands keep using the managed copy in such a shell; `adapt doctor` then warns that `PATH` there lacks the folder (see [`docs/doctor.md`](../../docs/doctor.md), `path_config`). This is covered by offline tests and has not yet been re-run on a real host.
+
 ---
 
 ## 3. Udev Rules & Device Permissions (`51-android.rules`)

@@ -41,7 +41,18 @@ _DENIED_RE = re.compile(
     re.IGNORECASE,
 )
 _ERROR_RE = re.compile(r"(?:^|\n)\s*(?:error|failure)\s*[:\[]", re.IGNORECASE)
-_LOCK_ROOT = Path(tempfile.gettempdir()) / "adapt-adb-dev-options-locks"
+
+
+def _default_lock_root() -> Path | None:
+    """Per-device lock folder in the system temporary folder; None when no temporary folder is usable."""
+    try:
+        return Path(tempfile.gettempdir()) / "adapt-adb-dev-options-locks"
+    except OSError:
+        return None
+
+
+_LOCK_ROOT = _default_lock_root()
+_LOCK_FOLDER_MESSAGE = "Cannot use the system temporary folder for the per-device transaction lock."
 
 
 @dataclass(frozen=True)
@@ -411,7 +422,14 @@ def _save_snapshot(path: Path, document: dict[str, Any]) -> None:
 
 @contextmanager
 def _device_lock(identity: DeviceIdentity) -> Iterator[None]:
-    _LOCK_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        if _LOCK_ROOT is None:
+            raise FileNotFoundError("no usable temporary folder")
+        _LOCK_ROOT.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise DevOptionsError(
+            "concurrent_operation", _LOCK_FOLDER_MESSAGE, failure_id="devopts.lock_unavailable",
+        ) from exc
     # Global animation scales affect the whole device, across Android users.
     token = hashlib.sha256(identity.ro_serialno.encode("utf-8")).hexdigest()
     lock_path = _LOCK_ROOT / f"{token}.lock"

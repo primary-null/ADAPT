@@ -62,7 +62,10 @@ Before the first device write, ADAPT exclusively creates `PATH` with:
 - per-setting attempted/applied transaction state.
 
 An existing path, including a dangling symlink, is never overwritten. A
-per-device host file lock prevents overlapping apply/restore processes. Every
+per-device host file lock in the system temporary folder prevents overlapping
+apply/restore processes; if that folder cannot be used, the command stops before
+changing anything with `Error: Cannot use the system temporary folder for the
+per-device transaction lock.` (`adapt explain devopts.lock_unavailable`). Every
 write is read back. A partial apply attempts to restore values that still equal
 the profile value, but it will not overwrite a concurrently changed value. The
 snapshot is retained with errors even when rollback is incomplete. Retrying

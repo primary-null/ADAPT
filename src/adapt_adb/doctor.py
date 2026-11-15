@@ -494,6 +494,21 @@ def _get_home_dir(env: DoctorEnv | None = None) -> Path:
     return Path.home()
 
 
+def _same_file_key(cand: Path, host_os: str, env: DoctorEnv | None = None) -> str:
+    """Key under which PATH entries that reach one file count once.
+
+    On a merged-/usr Linux host `/bin` is a link to `/usr/bin`, so `/bin/adb` and
+    `/usr/bin/adb` are one program, not a second copy that shadows the first.
+    """
+    text = str(cand)
+    if not (env and env.existing_paths is not None):
+        try:
+            text = os.path.realpath(text)
+        except (OSError, ValueError):
+            pass
+    return text.lower() if host_os == "windows" else text
+
+
 def _path_exists(p: Path | None, env: DoctorEnv | None = None) -> bool:
     if p is None:
         return False
@@ -1334,7 +1349,7 @@ def _discover_candidates(
                 continue
             cand = Path(entry) / binary_name
             if _path_exists(cand, env):
-                norm = str(cand).lower() if host_os == "windows" else str(cand)
+                norm = _same_file_key(cand, host_os, env)
                 if norm not in seen:
                     seen.add(norm)
                     path_bins.append(cand)
@@ -2152,10 +2167,20 @@ def run_doctor_checks(
         elif deb_state.seat == "headless" and not deb_group_access:
             deb_status = "fail"
             deb_code = EXIT_DEVICE_OR_PERMISSIONS
-            deb_summary = (
-                "Headless/SSH session without active local seat requires membership in a group "
-                "that the Android udev rules grant (`plugdev` or `adbusers`)."
+            deb_member_of = (
+                "plugdev" if deb_state.in_plugdev_group else "adbusers" if deb_state.in_adbusers_group else None
             )
+            if deb_member_of:
+                # The user already has the group; what is missing is a rule that grants it.
+                deb_summary = (
+                    f"Headless/SSH session without active local seat: this user is in `{deb_member_of}`, "
+                    "but no Android udev rule grants that group."
+                )
+            else:
+                deb_summary = (
+                    "Headless/SSH session without active local seat requires membership in a group "
+                    "that the Android udev rules grant (`plugdev` or `adbusers`)."
+                )
             deb_failure_id = "host.udev_group_missing"
         elif not deb_state.has_uaccess_tag and not deb_group_access:
             deb_status = "fail"

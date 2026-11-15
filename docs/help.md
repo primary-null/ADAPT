@@ -145,6 +145,16 @@ Where guidance appears:
   that exits 0 but could not observe some values adds one line,
   `Some values were not observed: adapt explain ID`; a started scrcpy window that
   ADAPT does not watch adds `If no window appears: adapt explain ID`.
+- `dex receiver-status`, `receiver-start` and `receiver-stop`: after the existing
+  report on stdout, and as a `failure` key in `--json` reports that are refused,
+  failed or pending, or (for `receiver-status`) unreadable, stale, unverified or
+  not working. What ADAPT itself observed or refused is a
+  `dexpc.native_receiver.*` guide (for example
+  `dexpc.native_receiver.exe_not_found` or `dexpc.native_receiver.stop_unconfirmed`);
+  a reason code the receiver recorded is its `dexpc.receiver.CODE` guide. A report
+  that exits 0 but records a failure (a receiver that exited without recording a
+  shutdown, or a phone attempt the running receiver recorded as failed) adds only
+  the `More:` line. `receiver-plan` runs nothing and never fails.
 - The MCP tools `dex_inspect`, `dex_displays`, `android_capabilities` and
   `developer_options_inspect` keep their `error` and `message` and carry the
   specific `failure` object; so do `app_validate`, `app_logs`,
@@ -171,7 +181,9 @@ failure IDs, and `adapt help-me TOPIC` lists the topic's common failures. IDs
 are stable: scripts and AI clients may match on them. The native Windows
 receiver's reason codes are included as `dexpc.receiver.CODE` (for example
 `adapt explain dexpc.receiver.port_in_use`; `adapt explain dexpc.receiver`
-lists all of them). A help topic of several words is printed in quotes, for
+lists all of them), and the outcomes of the `dex receiver-*` commands as
+`dexpc.native_receiver.OUTCOME` (`adapt explain dexpc.native_receiver` lists
+them). A help topic of several words is printed in quotes, for
 example `adapt help-me "dev-options apply"`.
 
 ### Unexpected errors

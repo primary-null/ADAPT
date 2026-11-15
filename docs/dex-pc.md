@@ -220,6 +220,16 @@ refused or the receiver failed or exited, and 2 for `start_pending`.
 `receiver-stop` exits 0 when the receiver stopped or nothing was running, 1 when
 it refused, and 2 for `stop_pending`.
 
+Each of these outcomes that is not a success also names a failure guide: on
+stderr after the report, or as an additive `failure` object with `--json` (see
+[help](help.md#failure-guidance)); existing keys and exit codes do not change.
+What ADAPT itself observed or refused is a `dexpc.native_receiver.*` guide (for
+example `dexpc.native_receiver.port_busy` when TCP 7236 is taken before a start),
+and a reason code the receiver recorded is its `dexpc.receiver.CODE` guide. A
+report that exits 0 but records a failure, such as a receiver that exited
+without recording a shutdown, adds one `More: adapt explain ID` line. This is
+covered by offline tests only; no such failure has been observed on hardware.
+
 When `receiver-status` reports `streaming`, the next steps are the existing
 `pc-probe` and `pc-attach` commands with their existing caveats: `pc-probe`
 transfers and runs the bundled helper temporarily and needs `--yes`, and

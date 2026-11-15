@@ -3855,6 +3855,224 @@ RECEIVER_GUIDES: dict[str, FailureGuide] = dict((
 ))
 
 
+# ---------------------------------------------------------------------------
+# Native receiver supervisor outcomes (`adapt dex receiver-status`, `receiver-start`,
+# `receiver-stop`): what ADAPT itself observed or refused, as opposed to the reason codes
+# the receiver records above. IDs are "dexpc.native_receiver.<outcome>"; dex_receiver maps
+# each refusal reason and report state to one of them (report_failure_id).
+# ---------------------------------------------------------------------------
+
+_NR_STATUS = ("dex receiver-status",)
+_NR_START = ("dex receiver-start",)
+_NR_STOP = ("dex receiver-stop",)
+_NR_ALL = (*_NR_STATUS, *_NR_START, *_NR_STOP)
+_NR_PLAN_STEP = Step("Read the build steps, prerequisites and security posture (runs nothing):", "adapt dex receiver-plan")
+_NR_BUILD_STEP = Step("Build the receiver in an ADAPT source checkout (a locked build; ADAPT does not run it for you):",
+                      "powershell -NoProfile -File scripts\\build_receiver.ps1", "changes_host")
+_NR_START_DIR_STEP = Step("Start it with an absolute data directory of your choice:",
+                          "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --data-dir DIRECTORY --yes", "changes_host")
+_NR_OTHER_DIR_STEP = Step("If the receiver was started with another data directory, read that one:",
+                          "adapt dex receiver-status --data-dir DIRECTORY")
+_NR_WINDOW_STEP = Step("If the receiver must close now, close its window yourself; ADAPT never ends a process by ID.", effect="manual")
+_NR_MESSAGE_BOX_STEP = Step("Look for a dexdesk message box or window on this PC; the receiver reports some start-up problems only there.",
+                            effect="manual")
+_AVOID_STATUS_EDIT = "Editing or deleting status.json by hand; the receiver rewrites it, and ADAPT trusts only what the receiver wrote."
+
+
+def _nr(outcome: str, summary: str, causes: tuple[str, ...], steps: tuple[Step, ...], *, help_topic: str,
+        commands: tuple[str, ...], aliases: tuple[str, ...] = (), avoid: tuple[str, ...] = _AVOID_END,
+        variability: str | None = None, diagnose: str | None = "adapt dex receiver-status") -> FailureGuide:
+    return FailureGuide(id=f"dexpc.native_receiver.{outcome}", summary=summary, certainty="observed",
+                        causes=tuple(Cause(text) for text in causes), steps=steps, help_topic=help_topic,
+                        docs="docs/dex-pc.md", variability=variability, avoid=avoid,
+                        diagnose=diagnose, aliases=aliases, commands=commands)
+
+
+_NATIVE_RECEIVER_GUIDES: tuple[FailureGuide, ...] = (
+    _nr("not_windows",
+        "The native receiver is a Windows program and this computer is not running Windows, so ADAPT did not start, check or stop anything.",
+        ("The command ran on Linux or macOS, or in a Linux shell such as WSL.",
+         "A script written for a Windows PC ran on another computer."),
+        (Step("Run the receiver commands in a terminal on the Windows PC that should show the phone's desktop.", effect="manual"),
+         _NR_PLAN_STEP),
+        help_topic="dex receiver-start", commands=(*_NR_START, *_NR_STOP),
+        aliases=("not_windows", "native receiver is a windows program"), avoid=(), diagnose=None),
+    _nr("exe_not_found",
+        "The --exe path does not name an existing file called dexdesk.exe, so ADAPT started nothing; it never searches the disk or PATH for the receiver.",
+        ("The receiver has not been built yet; a build produces native\\windows-receiver\\target\\release\\dexdesk.exe in a source checkout.",
+         "The path has a typo, is relative to another folder, or names a renamed copy (ADAPT runs only a file called dexdesk.exe).",
+         "Security software removed or quarantined the built file."),
+        (_NR_PLAN_STEP,
+         Step("Preview the build without building (in a source checkout):", "powershell -NoProfile -File scripts\\build_receiver.ps1 -DryRun"),
+         Step("Start it with the full path of the dexdesk.exe you built:", "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes", "changes_host")),
+        help_topic="dex receiver-start", commands=_NR_START,
+        aliases=("exe_name", "exe_missing", "no file exists at the --exe path", "--exe must name a file called dexdesk.exe"), avoid=()),
+    _nr("data_dir_invalid",
+        "The receiver's data directory could not be used: the value is empty, has control characters, is not absolute (from ADAPT_DEX_DATA_DIR) "
+        "or is not a folder, or the default location is unknown because LOCALAPPDATA is not set.",
+        ("--data-dir or ADAPT_DEX_DATA_DIR holds a relative path or a pasted line break.",
+         "A file, not a folder, exists at that path, or your account cannot examine it.",
+         "LOCALAPPDATA is not set in this terminal, for example in a service account or a shell that is not a Windows one."),
+        (Step("Name an absolute folder explicitly:", "adapt dex receiver-status --data-dir DIRECTORY"),
+         Step("Check whether ADAPT_DEX_DATA_DIR is set in this terminal and holds an absolute folder path; the value is not shown here.", effect="manual")),
+        help_topic="dex receiver-status", commands=_NR_ALL, aliases=("data_dir_invalid",), avoid=()),
+    _nr("restriction_invalid",
+        "The --expect-name or --expect-id value, or ADAPT_DEX_EXPECTED_NAME or ADAPT_DEX_EXPECTED_ID inherited from this terminal, "
+        "is one the receiver would refuse, so ADAPT did not start it.",
+        ("The value is empty; an empty restriction restricts nothing.",
+         "It is longer than 256 bytes (name) or 1024 bytes (ID), counted in UTF-8.",
+         "It contains a control character, such as a line break pasted along with it.",
+         "One of the variables was already set in this terminal."),
+        (Step("Start again with a shorter value without line breaks, or without a restriction (open admission):",
+              "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --expect-name PHONE_NAME --yes", "changes_host"),
+         Step("Check whether either variable is set in this terminal and clear it if it was not meant for the receiver; the value is not shown here.",
+              effect="manual")),
+        help_topic="dex receiver-start", commands=_NR_START, aliases=("restriction_invalid",), avoid=()),
+    _nr("confirmation_required",
+        "Starting the receiver advertises this PC over Wi-Fi Direct and opens TCP port 7236, and stopping it closes its window and any phone "
+        "session, so both need --yes; nothing was done.",
+        ("--yes was left out.",
+         "The command ran from a script that does not pass --yes."),
+        (_NR_PLAN_STEP,
+         Step("Start it with explicit approval:", "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes", "changes_host"),
+         Step("Or stop it with explicit approval:", "adapt dex receiver-stop --yes", "changes_host")),
+        help_topic="dex receiver-start", commands=(*_NR_START, *_NR_STOP), aliases=("yes_required",), avoid=()),
+    _nr("already_running",
+        "A dexdesk.exe process is already running (or, where processes cannot be listed, this data directory's status file was updated moments "
+        "ago by a receiver that says it is running), so ADAPT did not start a second one.",
+        ("The receiver was started earlier, from ADAPT or by opening dexdesk.exe directly.",
+         "It runs with another data directory, so this directory's status file does not show it.",
+         "The receiver is single-instance: a second launch would only focus the running window and exit."),
+        (_STATUS_STEP, _NR_OTHER_DIR_STEP, _STOP_STEP, _START_STEP),
+        help_topic="dex receiver-start", commands=_NR_START, aliases=("already_running",)),
+    _nr("port_busy",
+        "Before starting, ADAPT found TCP port 7236 already taken or not available to this user while no receiver of this data directory "
+        "was running, so it did not start the receiver.",
+        ("Windows' own Wireless Display (Connect) receiver or another wireless-display receiver holds the port.",
+         "A dexdesk.exe started with another data directory is running.",
+         "Windows has reserved a port range that includes 7236, which is reported as access denied."),
+        (Step("Close Windows' Wireless Display app and any other wireless-display receiver.", effect="manual"),
+         Step("See which TCP port ranges Windows has reserved:", "netsh interface ipv4 show excludedportrange protocol=tcp"),
+         _NR_OTHER_DIR_STEP, _START_STEP),
+        help_topic="dex receiver-start", commands=_NR_START,
+        aliases=("tcp port 7236 is already in use", "tcp port 7236 is not available to this user")),
+    _nr("launch_failed",
+        "Windows could not start the file named by --exe, so no receiver is running.",
+        ("The file is not a working program for this PC: an incomplete build, a build for another architecture, or another file renamed to dexdesk.exe.",
+         "Security software or an application control policy blocked it.",
+         "Your account may not run programs from that folder."),
+        (_NR_BUILD_STEP,
+         Step("Check whether security software reported blocking dexdesk.exe; ADAPT changes no security setting.", effect="manual"),
+         Step("Start it again with the full path of the built file:", "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes", "changes_host")),
+        help_topic="dex receiver-start", commands=_NR_START, aliases=("windows could not start the file named by --exe",), avoid=()),
+    _nr("exited_early",
+        "The receiver process ADAPT started exited before it recorded any state in its status file.",
+        ("Exit code 0: another receiver instance already owns the window, so the new one focused it and exited.",
+         "Exit code 1: a start-up error before the receiver had any state (its data directory could not be created or its log could not "
+         "be opened); the receiver reports that only on its stderr and in a message box, which ADAPT does not capture.",
+         "The receiver crashed during start-up."),
+        (_NR_MESSAGE_BOX_STEP, _STATUS_STEP, _NR_START_DIR_STEP),
+        help_topic="dex receiver-start", commands=_NR_START,
+        aliases=("exited before it recorded a state", "exited at once with code 0")),
+    _nr("start_timeout",
+        "The receiver process is running, but within ADAPT's 30-second wait its status file did not show it advertising or failing, "
+        "so the start is not confirmed; ADAPT left the process alone.",
+        ("A message box from the receiver is waiting on this PC.",
+         "Windows' Wi-Fi Direct components were slow to start.",
+         "The receiver writes its status file to another folder (a different ADAPT_DEX_DATA_DIR)."),
+        (_NR_MESSAGE_BOX_STEP,
+         Step("Read the state again in a few seconds:", "adapt dex receiver-status"),
+         _STOP_STEP),
+        help_topic="dex receiver-start", commands=_NR_START, aliases=("start_pending",), variability=_WIFI_VARIES),
+    _nr("process_check_unavailable",
+        "ADAPT could not list running processes on this PC (the Windows tasklist program is missing or did not answer), so it could not tell "
+        "whether the status file belongs to a live receiver and wrote no stop request.",
+        ("tasklist.exe is missing, or SystemRoot is not set in this terminal.",
+         "A policy or security software blocks tasklist for your account.",
+         "tasklist did not answer within 15 seconds."),
+        (Step("Check that tasklist works in this terminal (read-only):", "tasklist /FI \"IMAGENAME eq dexdesk.exe\""),
+         _STATUS_STEP, _NR_WINDOW_STEP),
+        help_topic="dex receiver-stop", commands=_NR_STOP, aliases=("process_check_unavailable", "cannot list processes")),
+    _nr("status_missing",
+        "A dexdesk.exe process is running, but this data directory has no usable status file for it, so ADAPT cannot tell its state "
+        "and does not ask it to stop.",
+        ("The receiver was started with another data directory (--data-dir or ADAPT_DEX_DATA_DIR).",
+         "It is still starting and has not written its first status.",
+         "It is an older receiver build that writes no status file."),
+        (_NR_OTHER_DIR_STEP,
+         Step("Or wait a few seconds and read the state again:", "adapt dex receiver-status"),
+         _NR_WINDOW_STEP),
+        help_topic="dex receiver-status", commands=(*_NR_STATUS, *_NR_STOP), aliases=("no_usable_status",)),
+    _nr("status_unreadable",
+        "The receiver's status file exists but could not be used (unreadable, not valid JSON, too large, a link, or missing required fields), "
+        "so its state is not known.",
+        ("The receiver was replacing the file at that moment and the retries also failed.",
+         "The file was edited, truncated or replaced by another program.",
+         "The data directory path is not a folder, or your account cannot read it."),
+        (_STATUS_STEP,
+         Step("If it stays unreadable, close the receiver window and start it again so it writes a fresh status file:",
+              "adapt dex receiver-start --exe PATH_TO_DEXDESK_EXE --yes", "changes_host")),
+        help_topic="dex receiver-status", commands=_NR_STATUS, aliases=("status_unreadable",),
+        avoid=(*_AVOID_END, _AVOID_STATUS_EDIT)),
+    _nr("status_schema_unsupported",
+        "The receiver's status file uses a schema version this ADAPT does not understand, so its state was not interpreted.",
+        ("The receiver was built from newer source than this ADAPT.",
+         "The receiver and this ADAPT come from different checkouts or versions."),
+        (Step("See the schema version the file reports:", "adapt dex receiver-status --json"),
+         Step("Update ADAPT to the version that matches the receiver source you built.", effect="manual"),
+         _NR_BUILD_STEP),
+        help_topic="dex receiver-status", commands=_NR_STATUS, aliases=("unsupported_schema",),
+        avoid=(*_AVOID_END, _AVOID_STATUS_EDIT)),
+    _nr("status_stale",
+        "The receiver process is alive, but its status file has not been updated for more than 10 seconds, so the recorded state may be out of date.",
+        ("The receiver is hung or busy, for example in a stuck driver call.",
+         "The status file belongs to an earlier receiver, and another process now has the same process ID.",
+         "The PC's clock changed."),
+        (_STATUS_STEP,
+         Step("Close the receiver; if it does not close, close its window yourself:", "adapt dex receiver-stop --yes", "changes_host"),
+         _START_STEP),
+        help_topic="dex receiver-status", commands=_NR_STATUS, aliases=("status out of date",)),
+    _nr("exited_unrecorded",
+        "The receiver's process is gone, but its status file does not record a completed shutdown.",
+        ("The receiver crashed, or was ended from outside ADAPT (for example from Task Manager).",
+         "Windows was shutting down or the user signed out.",
+         "The receiver stopped while it was writing its final status."),
+        (Step("Read what the receiver last recorded, including any failure reason code:", "adapt dex receiver-status"),
+         Step("List the receiver's reason codes with their explanations:", "adapt explain dexpc.receiver"),
+         _START_STEP),
+        help_topic="dex receiver-status", commands=_NR_ALL, aliases=("process_gone",),
+        variability="The receiver is experimental source with no compatibility promise."),
+    _nr("stop_request_failed",
+        "ADAPT could not create the stop request file (stop.request) in the receiver's data directory, so the receiver was not asked to stop.",
+        ("A folder or another item that is not a plain file named stop.request is in the way.",
+         "Your account cannot write to the data directory.",
+         "Security software blocked the write."),
+        (Step("Look in the data directory for an item named stop.request that is not a plain file, and move it elsewhere if you put it there.",
+              effect="manual"),
+         _STATUS_STEP, _NR_WINDOW_STEP),
+        help_topic="dex receiver-stop", commands=_NR_STOP, aliases=("stop_request_blocked", "stop_request_failed")),
+    _nr("stop_unconfirmed",
+        "ADAPT asked the receiver to stop, but its process was still running after the 20-second wait; the stop request stays in place "
+        "and no process was ended.",
+        ("The receiver is still shutting down, for example closing a phone session or the Wi-Fi Direct device.",
+         "Its window is stuck, or a message box is open.",
+         "The receiver is hung and no longer reads the request."),
+        (Step("Read the state again in a few seconds:", "adapt dex receiver-status"),
+         Step("Ask again; a request that is already there is kept:", "adapt dex receiver-stop --yes", "changes_host"),
+         _NR_WINDOW_STEP),
+        help_topic="dex receiver-stop", commands=_NR_STOP, aliases=("still running after the wait",)),
+    _nr("unknown_reason",
+        "The receiver recorded a reason code this version of ADAPT does not know, so no specific explanation is available.",
+        ("The receiver was built from newer source that adds reason codes.",
+         "The status file was edited."),
+        (Step("See the code and the stage it was recorded at (the receiver's message text is withheld):", "adapt dex receiver-status --json"),
+         Step("Read the reason-code table in native/windows-receiver/README.md of the source you built.", effect="manual"),
+         Step("Update ADAPT to the version that matches the receiver source.", effect="manual")),
+        help_topic="dex receiver-status", commands=(*_NR_STATUS, *_NR_START), aliases=("unknown reason code",),
+        variability="The receiver is experimental source with no compatibility promise."),
+)
+
+
 def _build(guides: tuple[FailureGuide, ...]) -> dict[str, FailureGuide]:
     built: dict[str, FailureGuide] = {}
     for guide in guides:
@@ -3864,7 +4082,7 @@ def _build(guides: tuple[FailureGuide, ...]) -> dict[str, FailureGuide]:
     return built
 
 
-GUIDES: Mapping[str, FailureGuide] = _build(_GUIDE_LIST + _PHASE4_GUIDES + tuple(RECEIVER_GUIDES.values()))
+GUIDES: Mapping[str, FailureGuide] = _build(_GUIDE_LIST + _PHASE4_GUIDES + tuple(RECEIVER_GUIDES.values()) + _NATIVE_RECEIVER_GUIDES)
 RENAMED: Mapping[str, str] = {}
 
 

@@ -13,6 +13,10 @@ Conventions of this module:
 - Operations return report dictionaries instead of raising. A refusal is
   ``{"status": "refused", "reason": ..., "error": ...}``. Nothing here raises, so
   nothing adds to the failure-guidance ratchet in ``tests/test_failure_guide.py``.
+  ``report_failure_id`` names the failure guide for a report that is not a success
+  (``dexpc.native_receiver.*`` for what ADAPT observed or refused,
+  ``dexpc.receiver.<code>`` for a reason code the receiver recorded); the commands
+  print it after the report, or add it as a ``failure`` object under ``--json``.
 - Processes are never killed: no ``os.kill`` (on Windows it terminates), no
   ``terminate`` or ``kill``. A stop is a ``stop.request`` file the receiver reads.
 - Exception text of ``OSError`` is not printed (it embeds paths and so the
@@ -41,6 +45,7 @@ import typer
 
 from adapt_adb.dex import dex_app
 from adapt_adb.failure_guide import RECEIVER_GUIDES, Step
+from adapt_adb.failure_report import FailureContext, attach_failure, current_command, emit_failure, emit_pointer
 
 SCHEMA_VERSION = 1           # this module's report schema
 STATUS_SCHEMA_VERSION = 1    # the receiver's status.json schema it understands
@@ -967,6 +972,71 @@ def render_stop(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Failure guidance: which guide explains a report that is not a success
+# ---------------------------------------------------------------------------
+
+_NATIVE = "dexpc.native_receiver."
+# Every reason passed to _refuse in this module (tests/test_dex_receiver_guidance.py checks that).
+REFUSAL_GUIDES: dict[str, str] = {
+    "not_windows": _NATIVE + "not_windows",
+    "exe_name": _NATIVE + "exe_not_found",
+    "exe_missing": _NATIVE + "exe_not_found",
+    "data_dir_invalid": _NATIVE + "data_dir_invalid",
+    "restriction_invalid": _NATIVE + "restriction_invalid",
+    "yes_required": _NATIVE + "confirmation_required",
+    "already_running": _NATIVE + "already_running",
+    "port_in_use": _NATIVE + "port_busy",
+    "launch_failed": _NATIVE + "launch_failed",
+    "process_check_unavailable": _NATIVE + "process_check_unavailable",
+    "no_usable_status": _NATIVE + "status_missing",
+    "stop_request_blocked": _NATIVE + "stop_request_failed",
+    "stop_request_failed": _NATIVE + "stop_request_failed",
+}
+STATE_GUIDES: dict[str, str] = {"unverified": _NATIVE + "status_missing", "stale": _NATIVE + "status_stale"}
+
+
+def _recorded_failure_id(block: Mapping[str, Any] | None) -> str | None:
+    """Guide of a reason code the receiver recorded; None for none or an orderly end."""
+    if not block or block.get("code") in ORDERLY_ENDS:
+        return None
+    return f"dexpc.receiver.{block['code']}" if block.get("known_code") else _NATIVE + "unknown_reason"
+
+
+def report_failure_id(report: Mapping[str, Any]) -> str | None:
+    """The failure guide for a receiver report that is not a success, or None.
+
+    Reports with exit code 0 can still name one (a receiver that exited without recording a
+    shutdown, or a phone attempt the running receiver recorded as failed); the commands then
+    print a one-line pointer instead of the full guidance block.
+    """
+    outcome = report.get("status")
+    if outcome == "refused":
+        return REFUSAL_GUIDES.get(report.get("reason"), "internal.unclassified")
+    if outcome == "failed":
+        return _recorded_failure_id(report.get("last_failure")) or _NATIVE + "exited_early"
+    if outcome == "start_pending":
+        return _NATIVE + "start_timeout"
+    if outcome == "stop_pending":
+        return _NATIVE + "stop_unconfirmed"
+    if outcome in {"nothing_running", "stopped"}:
+        unrecorded = report.get("stale") is True or report.get("shutdown_recorded") is False
+        return _NATIVE + "exited_unrecorded" if unrecorded else None
+    if outcome != "observed":
+        return None
+    state, failure = report.get("state"), report.get("last_failure")
+    if state == "unreadable":
+        return _NATIVE + ("status_schema_unsupported" if report.get("status_file") == "unsupported_schema" else "status_unreadable")
+    if state in STATE_GUIDES:
+        return STATE_GUIDES[state]
+    if state == "not_working":
+        return _recorded_failure_id(failure) or _NATIVE + "unknown_reason"
+    if state == "not_running" and report.get("stale"):
+        crashed = failure and (failure["scope"] == "receiver" or failure["code"] == "internal_panic")
+        return (_recorded_failure_id(failure) if crashed else None) or _NATIVE + "exited_unrecorded"
+    return _recorded_failure_id(failure) if failure and failure.get("current") else None
+
+
 _RENDERERS = {"plan_only": render_plan, "started": render_start, "failed": render_start, "start_pending": render_start,
               "stopped": render_stop, "nothing_running": render_stop, "stop_pending": render_stop}
 
@@ -984,15 +1054,22 @@ def exit_code(report: dict[str, Any]) -> int:
 
 
 def _emit(report: dict[str, Any], json_output: bool) -> None:
+    code = exit_code(report)
+    failure_id = report_failure_id(report)
+    context = FailureContext.from_runtime(command=current_command()) if failure_id else None
     if json_output:
-        typer.echo(json.dumps(report, indent=2))
+        typer.echo(json.dumps(attach_failure(report, failure_id, context) if failure_id else report, indent=2))
     elif report["status"] == "refused":
         typer.echo(render_refused(report))
     elif report["status"] == "observed":
         typer.echo(render_status(report))
     else:
         typer.echo(_RENDERERS[report["status"]](report))
-    code = exit_code(report)
+    if failure_id and not json_output:
+        if code:
+            emit_failure(failure_id, context)
+        else:
+            emit_pointer(failure_id)
     if code:
         raise typer.Exit(code)
 

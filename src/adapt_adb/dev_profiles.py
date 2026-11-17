@@ -281,7 +281,8 @@ def evaluate(
     if package is not None and profile.package == "none":
         reasons.append({"code": "package_not_used", "text": "This profile does not use a package."})
     probe_package = package or ("com.example.app" if profile.package != "none" else None)
-    if not reasons and profile.steps and not select_steps(profile, api, tuple(options), probe_package):
+    step_api = api if profile.api_gate else None  # legacy profiles never gated their steps on the API level
+    if not reasons and profile.steps and not select_steps(profile, step_api, tuple(options), probe_package):
         reasons.append({"code": "no_steps_apply", "text": "No step of this profile applies on this device with these options."})
     if oem is not None:
         caveat = dict(profile.oem_caveats).get(oem)
@@ -290,7 +291,7 @@ def evaluate(
     skipped = [
         {"entry": step.entry, "reason": why}
         for step in profile.steps
-        if (why := step_applies(step, api, tuple(options), package)) is not None and why != "option_not_selected"
+        if (why := step_applies(step, step_api, tuple(options), package)) is not None and why != "option_not_selected"
     ]
     return {
         "name": profile.name,

@@ -130,6 +130,8 @@ class FakeDevice:
             if self.density_override is not None:
                 text += f"\nOverride density: {self.density_override}"
             return self._ok(args, text)
+        if body == ["size"]:
+            return self._ok(args, "Physical size: 1080x2400")
         if "wm" not in self.ignore:
             self.density_override = None if body[1] == "reset" else int(body[1])
         return self._ok(args)

@@ -635,6 +635,7 @@ def profiles_report(
     if package is not None:
         _validate_package_text(package)
     adb = _resolve_adb_path(adb_path)
+    _read_identity(adb, serial)  # an unreachable or unidentifiable device is an error, not an empty listing
     unread: list[dict[str, str]] = []
     transport = _transport(serial)
     detection = dev_detect.detect_oem(
@@ -661,6 +662,7 @@ def pixel_16kb_check(serial: str, *, adb_path: Path | str | None = None) -> dict
     """Read the page size and point to the safe ways to test 16 KB pages. Never changes the device."""
     serial = _validate_serial(serial)
     adb = _resolve_adb_path(adb_path)
+    _read_identity(adb, serial)
     unread: list[dict[str, str]] = []
     read = _reader(adb, serial)
     detection = dev_detect.detect_oem(read, unread, transport=_transport(serial), emulator=serial.startswith("emulator-"))

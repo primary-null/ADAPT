@@ -377,6 +377,28 @@ with DeX idle). During these sessions the report's `display_flag_evidence.observ
 `not_observed` fields named only the Android 17 phone and listed the tablet with
 DeX running as not observed; they were updated afterwards to name both devices.
 
+### 2026-11-16: agent-ready development tree, read-only, on an Android 13 phone
+
+Code: the development tree on the `distribution/public-release` branch (agent primer,
+MCP build-test loop tools, snapshot v2 profiles). One Windows 11 PC, one Samsung
+phone on Android 13 / One UI 5.1, over USB. Read-only: no setting was
+changed and nothing was installed or launched.
+
+| Command or tool | Result |
+|---|---|
+| `dev-options inspect --json` | Exit 0; all 13 settings `observed`. `detection`: `oem: samsung`, API 33, One UI `5.1` from `ro.build.version.oneui` (`50100`), `auto_blocker_applies: false`, `build_type: user`, page size 4096, form factor hints read |
+| `dev-options profiles --json` | Exit 0; all 14 profiles eligible, with per-app steps skipped where no package was given |
+| `dev-options inspect --all --json` | Exit 0; 84 catalog entries `observed`, 62 skipped by API or OEM, 0 errors |
+| `dev-options pixel-16kb-check --json` | Exit 0; page size 4096, `uses_16kb_pages: false` |
+| `dev-options apply --profile debugger-attach` without `--package` | Exit 2, refused before any snapshot or write |
+| `adapt mcp --read-only --device` (scripted MCP client) | 23 tools; `app_state` read the process, resumed activity and foreground; `log_mark` at millisecond precision; `logcat_tail` with `since` returned only lines after the mark; `ui_wait` timed out as a result; `help` and `developer_options_inspect` (with `detection`) answered |
+
+This run found that `app_state` never reported `last_exit`: real exit labels
+contain spaces (`OTHER KILLS BY SYSTEM`, `APP CRASH(EXCEPTION)`). The parser now
+uses the numeric reason code, and a rerun on the same phone reported the last exit
+reason. Not observed: any profile apply or restore, any MCP tool that acts on the
+phone, a Pixel, wireless adb, and any AI client driving the server.
+
 ### Not observed
 
 Not observed on any device, by the records above: a Linux host; Android 10 or

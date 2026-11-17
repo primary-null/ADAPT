@@ -687,7 +687,7 @@
    "confidence": "high",
    "automated_by": [],
    "automation": "read_only",
-   "guidance": null
+   "guidance": "Read only. ADAPT never changes this: turning it off would drop the connection ADAPT runs on."
   },
   {
    "id": "aosp.revoke_usb_authorizations",
@@ -741,7 +741,7 @@
    "confidence": "high",
    "automated_by": [],
    "automation": "read_only",
-   "guidance": null
+   "guidance": "Read only. ADAPT never changes this: turning it off would drop the connection ADAPT runs on."
   },
   {
    "id": "aosp.adb_authorization_timeout",
@@ -1572,7 +1572,7 @@
    "confidence": "medium",
    "automated_by": [],
    "automation": "read_only",
-   "guidance": null
+   "guidance": "Read only. ADAPT never changes this: turning it off would drop the connection ADAPT runs on."
   },
   {
    "id": "aosp.bluetooth_audio_options",
@@ -4724,8 +4724,8 @@
    "layer": "adb_control",
    "mechanism": "gfxinfo service",
    "read_cmd": "dumpsys gfxinfo PKG framestats",
-   "write_cmd": "dumpsys gfxinfo PKG reset",
-   "restore_cmd": "none needed",
+   "write_cmd": null,
+   "restore_cmd": null,
    "value_type": "report",
    "default": null,
    "min_api": 29,
@@ -4742,7 +4742,7 @@
    "confidence": "high",
    "automated_by": [],
    "automation": "read_only",
-   "guidance": null
+   "guidance": "Read only in ADAPT. The documented action (dumpsys gfxinfo PKG reset; none needed) is not run by ADAPT."
   },
   {
    "id": "adb.process_stress",

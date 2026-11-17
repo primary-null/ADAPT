@@ -298,3 +298,17 @@ def test_page_size_check_command_json_and_text_are_clean(make):
     assert result.exit_code == 0 and json.loads(result.stdout)["command"] == "dev-options pixel-16kb-check"
     text = runner.invoke(app, ["dev-options", "pixel-16kb-check", "-s", SERIAL])
     assert text.exit_code == 0 and "Page size: 4096 bytes" in text.stdout and "Never automated:" in text.stdout
+
+
+# --- MCP: the read-only inspect tool carries the detection block ---------------------------------
+
+
+def test_mcp_developer_options_inspect_returns_detection_and_stays_read_only(make):
+    from adapt_adb.mcp import access, tools
+
+    device = make(manufacturer="samsung", brand="samsung", props={"ro.build.version.oneui": "70000"})
+    payload = tools.tool_developer_options_inspect(SERIAL)
+    assert payload["detection"]["oem"] == "samsung" and payload["detection"]["samsung"]["version"] == "7.0"
+    assert payload["detection"]["guidance"] and "catalog_reads" not in payload
+    assert device.writes() == []
+    assert "developer_options_inspect" in access.OBSERVATION_TOOLS and "developer_options_inspect" not in access.MUTATING_TOOLS

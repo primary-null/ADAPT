@@ -531,35 +531,6 @@ def test_worker_dispatch_serializes_and_survives_new_loops(monkeypatch):
     assert count == 4 and peak == 1
 
 
-@pytest.mark.parametrize("spelling", ["is_error", "isError"])
-def test_legacy_handler_raises_with_error_payload(spelling, monkeypatch):
-    from types import SimpleNamespace
-    from adapt_adb.mcp import server
-
-    class LegacyServer:
-        def __init__(self, name):
-            pass
-        def list_tools(self):
-            return lambda fn: fn
-        def call_tool(self):
-            def register(fn):
-                self.handler = fn
-                return fn
-            return register
-
-    _, types, _ = server._require_mcp_sdk()
-    monkeypatch.setattr(server, "_require_mcp_sdk", lambda: (anyio, types, SimpleNamespace(Server=LegacyServer)))
-    error = SimpleNamespace(content=[SimpleNamespace(text='{"error":"invalid_params"}')], **{spelling: True})
-    monkeypatch.setattr(server, "dispatch_tool_call", lambda *a, **k: error)
-    instance = server.create_server()
-    async def exercise():
-        with pytest.raises(server.LegacyToolCallError, match="invalid_params"):
-            await instance.handler("tap", {})
-        setattr(error, spelling, False)
-        assert await instance.handler("tap", {}) == error.content
-    anyio.run(exercise)
-
-
 def test_modern_handler_uses_worker_and_preserves_errors(monkeypatch):
     from types import SimpleNamespace
     from adapt_adb.mcp import server

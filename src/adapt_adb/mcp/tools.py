@@ -237,6 +237,17 @@ TOOL_SCHEMAS.extend([
      "inputSchema": {"type": "object", "properties": {}}},
 ])
 
+# Offline guidance as a tool, for clients that do not surface MCP resources. Same text as `adapt://`.
+from adapt_adb.mcp.resources import HELP_TOPICS
+
+TOOL_SCHEMAS.append(
+    {"name": "help", "description": "Read ADAPT's built-in guidance offline: primer, this session's policy, safety rules, workflows, guides, the error reference or one failure guide. Same text as the adapt:// resources. Touches no device and holds no device data.",
+     "inputSchema": {"type": "object", "properties": {
+         "topic": {"type": "string", "enum": list(HELP_TOPICS)},
+         "id": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Failure ID such as device.unauthorized; only for topic `failure`."},
+     }, "required": ["topic"]}},
+)
+
 for _tool_schema in TOOL_SCHEMAS:
     _tool_schema["inputSchema"]["additionalProperties"] = False
     for _prop in _tool_schema["inputSchema"]["properties"].values():

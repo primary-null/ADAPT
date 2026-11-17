@@ -14,6 +14,7 @@ from adapt_adb import __version__ as ADAPT_VERSION
 from adapt_adb import agent_guide, failure_report
 from adapt_adb.adb import AdbProbeError
 from adapt_adb.doctor import UnsafeAdbServerError
+from adapt_adb.mcp import resources as mcp_resources
 from adapt_adb.mcp import tools as mcp_tools
 from adapt_adb.mcp.access import (
     AccessPolicy,
@@ -181,24 +182,15 @@ def get_mcp_tools(policy: AccessPolicy | None = None) -> list[Any]:
 
 
 def _build_tool(types: Any, name: str, description: str, inputs: dict[str, Any]) -> Any:
-    """One advertised tool with its title and annotations, both derived from `access.py`.
-
-    mcp 1.x releases before tool annotations existed get the plain tool (no title, no hints).
-    """
+    """One advertised tool with its title and annotations, both derived from `access.py`."""
     title = tool_title(name)
-    annotations_type = getattr(types, "ToolAnnotations", None)
-    if annotations_type is not None:
-        try:
-            return types.Tool(
-                name=name,
-                title=title,
-                description=description,
-                inputSchema=inputs,
-                annotations=annotations_type(title=title, **tool_annotation_hints(name)),
-            )
-        except (TypeError, ValueError):
-            pass
-    return types.Tool(name=name, description=description, inputSchema=inputs)
+    return types.Tool(
+        name=name,
+        title=title,
+        description=description,
+        inputSchema=inputs,
+        annotations=types.ToolAnnotations(title=title, **tool_annotation_hints(name)),
+    )
 
 
 def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, policy: AccessPolicy | None = None) -> Any:
@@ -231,6 +223,8 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
             payload = mcp_tools.tool_dex_inspect(device=args["device"])
         elif name == "dex_displays":
             payload = mcp_tools.tool_dex_inspect(device=args["device"], displays_only=True)
+        elif name == "help":
+            payload = mcp_resources.tool_help(policy, str(args["topic"]), args.get("id"))
         elif name == "android_versions":
             payload = mcp_tools.tool_android_versions()
         elif name == "android_capabilities":
@@ -433,21 +427,8 @@ async def _dispatch_in_worker(name: str, arguments: Any, policy: AccessPolicy) -
     )
 
 
-class LegacyToolCallError(Exception):
-    """Raised from the mcp 1.x decorator handler to make it return an error result."""
-
-
-def _result_is_error(result: Any) -> bool:
-    return bool(getattr(result, "is_error", False) or getattr(result, "isError", False))
-
-
-def _result_text(result: Any) -> str:
-    texts = [getattr(item, "text", "") for item in getattr(result, "content", []) or []]
-    return "\n".join(text for text in texts if text)
-
-
 def create_server(policy: AccessPolicy | None = None) -> Any:
-    """Create and configure the official MCP `Server` instance for ADAPT."""
+    """Create and configure the official MCP `Server` instance for ADAPT (mcp 2.x)."""
     _configure_stderr_logging()
     _, types, mcp_server_mod = _require_mcp_sdk()
     policy = policy or AccessPolicy()
@@ -460,50 +441,41 @@ def create_server(policy: AccessPolicy | None = None) -> Any:
         tool_args = getattr(params, "arguments", None) or {}
         return await _dispatch_in_worker(tool_name, tool_args, policy)
 
-    # Orientation text the client may show the model; built from the same module as `adapt agent primer`.
-    instructions = agent_guide.mcp_instructions(policy)
+    async def _on_list_resources(ctx: Any, params: Any = None) -> Any:
+        return types.ListResourcesResult(resources=[
+            types.Resource(uri=item["uri"], name=item["name"], title=item["title"],
+                           description=item["description"], mime_type=item["mime_type"])
+            for item in mcp_resources.resource_records()
+        ])
 
-    try:
-        server = mcp_server_mod.Server(
-            "adapt",
-            version=ADAPT_VERSION,
-            instructions=instructions,
-            on_list_tools=_on_list_tools,
-            on_call_tool=_on_call_tool,
-        )
-    except TypeError:
-        # Fallback for older mcp 1.x Server decorator API
-        try:
-            server = mcp_server_mod.Server("adapt", instructions=instructions)
-        except TypeError:
-            server = mcp_server_mod.Server("adapt")
-            try:
-                server.instructions = instructions
-            except AttributeError:
-                pass
-        try:
-            # The 1.x constructor may not take these keywords; the announced version is an attribute.
-            server.version = ADAPT_VERSION
-        except AttributeError:
-            pass
-        if hasattr(server, "list_tools"):
+    async def _on_list_resource_templates(ctx: Any, params: Any = None) -> Any:
+        return types.ListResourceTemplatesResult(resource_templates=[
+            types.ResourceTemplate(uri_template=item["uri_template"], name=item["name"], title=item["title"],
+                                   description=item["description"], mime_type=item["mime_type"])
+            for item in mcp_resources.template_records()
+        ])
 
-            @server.list_tools()
-            async def _legacy_list_tools() -> list[Any]:
-                return get_mcp_tools(policy)
+    async def _on_read_resource(ctx: Any, params: Any) -> Any:
+        report = mcp_resources.read_uri(str(getattr(params, "uri", "")), policy)
+        if "error" in report:
+            from mcp import MCPError
 
-        if hasattr(server, "call_tool"):
+            raise MCPError(types.INVALID_PARAMS, report["message"])
+        return types.ReadResourceResult(contents=[
+            types.TextResourceContents(uri=report["uri"], mime_type=report["mime_type"], text=report["text"])
+        ])
 
-            @server.call_tool()
-            async def _legacy_call_tool(name: str, arguments: dict[str, Any] | None) -> list[Any]:
-                res = await _dispatch_in_worker(name, arguments, policy)
-                if _result_is_error(res):
-                    # The 1.x decorator turns a handler exception into a result with
-                    # isError=True whose text is str(exc); returning content would not.
-                    raise LegacyToolCallError(_result_text(res))
-                return list(res.content)
-
-    return server
+    return mcp_server_mod.Server(
+        "adapt",
+        version=ADAPT_VERSION,
+        # Orientation text the client may show the model; built from the same module as `adapt agent primer`.
+        instructions=agent_guide.mcp_instructions(policy),
+        on_list_tools=_on_list_tools,
+        on_call_tool=_on_call_tool,
+        on_list_resources=_on_list_resources,
+        on_list_resource_templates=_on_list_resource_templates,
+        on_read_resource=_on_read_resource,
+    )
 
 
 async def run_stdio_async(stdin: Any = None, stdout: Any = None, *, policy: AccessPolicy | None = None) -> None:

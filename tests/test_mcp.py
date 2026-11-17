@@ -137,6 +137,7 @@ def test_mcp_registered_tools_and_client_session(monkeypatch):
         "diagnostic_logs",
         "logging_guide",
         "build_modes",
+        "help",
     ]
     assert names == expected
 

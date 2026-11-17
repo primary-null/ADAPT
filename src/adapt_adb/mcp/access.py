@@ -8,6 +8,8 @@ OBSERVATION_TOOLS = frozenset({"doctor", "setup_status", "list_devices", "device
 DEVICE_TOOLS = frozenset({"device_info", "screenshot", "ui_summary", "tap", "swipe", "key", "type", "install_apk", "logcat_tail", "android_capabilities", "developer_options_inspect", "dex_inspect", "dex_displays"})
 OBSERVATION_TOOLS |= frozenset({"app_validate", "app_logs", "debug_app_inspect", "build_modes", "diagnostic_logs", "logging_guide"})
 DEVICE_TOOLS |= frozenset({"app_validate", "app_logs", "debug_app_inspect", "diagnostic_logs"})
+# Offline guidance (resource twin): an observation that touches no device.
+OBSERVATION_TOOLS |= frozenset({"help"})
 # Successful results of these tools carry text produced by the device and its apps
 # (UI labels, log lines, model names, settings values). `screenshot` is marked in its
 # JSON metadata block separately because its result is not a single JSON payload.

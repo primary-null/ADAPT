@@ -21,6 +21,65 @@ CONTENT_NOTICE = (
 MAX_DEVICE_LENGTH = 128
 
 
+# Hand-written titles where the generated one would read badly. Any tool not listed gets a
+# title built from its name (see `tool_title`), so a new tool needs no entry here.
+TOOL_TITLES = {
+    "doctor": "Host doctor",
+    "tap": "Tap screen",
+    "swipe": "Swipe screen",
+    "key": "Press key",
+    "type": "Type text",
+}
+_TITLE_WORDS = {"ui": "UI", "dex": "DeX", "apk": "APK", "adb": "ADB"}
+
+# Acting tools that change what is on screen or what is typed, but never remove or replace
+# anything the user keeps: not destructive.
+NON_DESTRUCTIVE_ACTING_TOOLS = frozenset({"tap", "swipe", "key", "type"})
+# Acting tools where repeating the same call leaves the device as the first call did.
+IDEMPOTENT_ACTING_TOOLS = frozenset({"install_apk"})
+
+
+def tool_title(name: str) -> str:
+    """Human title for a tool: the hand-written one, else the name in sentence case."""
+    if name in TOOL_TITLES:
+        return TOOL_TITLES[name]
+    words = [_TITLE_WORDS.get(word, word) for word in name.split("_") if word]
+    if not words:
+        return name
+    if words[0] not in _TITLE_WORDS.values():
+        words[0] = words[0].capitalize()
+    return " ".join(words)
+
+
+def tool_annotation_hints(name: str) -> dict[str, bool]:
+    """Standard MCP tool annotation hints, derived from the classification above.
+
+    A tool in `OBSERVATION_TOOLS` is read-only. Every other tool acts on the phone and is
+    treated as destructive unless it is listed in `NON_DESTRUCTIVE_ACTING_TOOLS`, so a new
+    acting tool is advertised conservatively until someone classifies it. `install_apk` is
+    deliberately destructive: with its default `reinstall=True` (`adb install -r`) it replaces
+    the installed build of an app that is already on the phone, keeping its data, so it can
+    overwrite something the user had; repeating the identical call changes nothing further,
+    so it is idempotent. Every tool talks only to the local adb server and the attached
+    device, never to an open-ended outside world: `openWorldHint` is always false.
+    `ui_summary` counts as read-only: its unrestricted-session fallback writes and then
+    removes one temporary file, and leaves nothing behind.
+    """
+    if name in OBSERVATION_TOOLS:
+        return {
+            "read_only_hint": True,
+            "destructive_hint": False,
+            "idempotent_hint": True,
+            "open_world_hint": False,
+        }
+    return {
+        "read_only_hint": False,
+        "destructive_hint": name not in NON_DESTRUCTIVE_ACTING_TOOLS,
+        "idempotent_hint": name in IDEMPOTENT_ACTING_TOOLS,
+        "open_world_hint": False,
+    }
+
+
 def mark_untrusted_device_text(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of a successful payload labelled as untrusted device-originated data."""
     return {**payload, "content_trust": CONTENT_TRUST, "content_notice": CONTENT_NOTICE}

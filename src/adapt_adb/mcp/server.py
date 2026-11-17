@@ -11,7 +11,7 @@ from functools import partial
 from typing import Any
 
 from adapt_adb import __version__ as ADAPT_VERSION
-from adapt_adb import failure_report
+from adapt_adb import agent_guide, failure_report
 from adapt_adb.adb import AdbProbeError
 from adapt_adb.doctor import UnsafeAdbServerError
 from adapt_adb.mcp import tools as mcp_tools
@@ -23,6 +23,8 @@ from adapt_adb.mcp.access import (
     DEVICE_TOOLS,
     MUTATING_TOOLS,
     mark_untrusted_device_text,
+    tool_annotation_hints,
+    tool_title,
 )
 from adapt_adb.safety import SafetyError
 
@@ -174,8 +176,29 @@ def get_mcp_tools(policy: AccessPolicy | None = None) -> list[Any]:
                 " This session was started with a single --device, so `device` may be omitted "
                 "and then means that target."
             )
-        tools.append(types.Tool(name=schema["name"], description=description, inputSchema=inputs))
+        tools.append(_build_tool(types, schema["name"], description, inputs))
     return tools
+
+
+def _build_tool(types: Any, name: str, description: str, inputs: dict[str, Any]) -> Any:
+    """One advertised tool with its title and annotations, both derived from `access.py`.
+
+    mcp 1.x releases before tool annotations existed get the plain tool (no title, no hints).
+    """
+    title = tool_title(name)
+    annotations_type = getattr(types, "ToolAnnotations", None)
+    if annotations_type is not None:
+        try:
+            return types.Tool(
+                name=name,
+                title=title,
+                description=description,
+                inputSchema=inputs,
+                annotations=annotations_type(title=title, **tool_annotation_hints(name)),
+            )
+        except (TypeError, ValueError):
+            pass
+    return types.Tool(name=name, description=description, inputSchema=inputs)
 
 
 def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, policy: AccessPolicy | None = None) -> Any:
@@ -437,16 +460,27 @@ def create_server(policy: AccessPolicy | None = None) -> Any:
         tool_args = getattr(params, "arguments", None) or {}
         return await _dispatch_in_worker(tool_name, tool_args, policy)
 
+    # Orientation text the client may show the model; built from the same module as `adapt agent primer`.
+    instructions = agent_guide.mcp_instructions(policy)
+
     try:
         server = mcp_server_mod.Server(
             "adapt",
             version=ADAPT_VERSION,
+            instructions=instructions,
             on_list_tools=_on_list_tools,
             on_call_tool=_on_call_tool,
         )
     except TypeError:
         # Fallback for older mcp 1.x Server decorator API
-        server = mcp_server_mod.Server("adapt")
+        try:
+            server = mcp_server_mod.Server("adapt", instructions=instructions)
+        except TypeError:
+            server = mcp_server_mod.Server("adapt")
+            try:
+                server.instructions = instructions
+            except AttributeError:
+                pass
         try:
             # The 1.x constructor may not take these keywords; the announced version is an attribute.
             server.version = ADAPT_VERSION

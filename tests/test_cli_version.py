@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from typer.testing import CliRunner
 
@@ -36,6 +38,7 @@ def test_version_wins_over_a_following_command(no_adb):
 
 
 def test_version_is_listed_as_a_root_option_not_a_command():
-    help_text = runner.invoke(app, ["--help"]).stdout
+    # CI forces a colour terminal (Typer does when GITHUB_ACTIONS is set); compare the plain text.
+    help_text = re.sub(r"\x1b\[[0-9;]*m", "", runner.invoke(app, ["--help"]).stdout)
     assert "--version" in help_text
     assert "version" not in {c.name for c in app.registered_commands}

@@ -68,7 +68,10 @@ def test_user_scope_merges_keeps_other_servers_backs_up_and_records(box):
     path = box.touch(".cursor/mcp.json", original)
     planned = plan(box, "cursor")
     assert "+    \"adapt\": {" in planned.diff and "--- a/<home>/.cursor/mcp.json" in planned.diff
-    assert str(box.root) not in planned.diff  # no path with a user name in the diff
+    # The diff names the file as <home>/...; only the command line carries the absolute adapt path,
+    # by design at user scope (JSON escapes it on Windows, so compare the header lines).
+    headers = [line for line in planned.diff.splitlines() if line.startswith(("--- ", "+++ "))]
+    assert headers and all(str(box.root) not in line and "<home>" in line for line in headers)
     assert path.read_text() == original  # planning wrote nothing
     result = setup.apply_plan(planned, box.ctx())
     data = json.loads(path.read_text())

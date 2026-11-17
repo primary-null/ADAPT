@@ -611,7 +611,11 @@ def apply_plan(plan: Plan, ctx: Context) -> dict[str, Any]:
         return {**_fail(plan, "manifest", problem), "diff": plan.diff}
     stamp = ctx.stamp()
     if plan.method == "cli" and plan.cli_argv:
-        code, output = ctx.runner(plan.cli_argv, plan.cwd if plan.scope == "project" else None, RUN_TIMEOUT_S)
+        # Run the program PATH lookup found: on Windows a client shipped as `name.cmd` (npm shims)
+        # is not found by its bare name, because process creation only appends `.exe`.
+        resolved = ctx.which(plan.cli_argv[0]) or plan.cli_argv[0]
+        argv = [resolved, *plan.cli_argv[1:]]
+        code, output = ctx.runner(argv, plan.cwd if plan.scope == "project" else None, RUN_TIMEOUT_S)
         if code != 0:
             plan.result = {"output": output}
             return _fail(plan, "cli_failed", f"The client's own command failed (exit {code}); nothing was recorded.", output=output)

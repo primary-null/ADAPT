@@ -246,7 +246,8 @@ def test_the_clients_own_command_is_preferred_and_the_config_file_is_untouched(b
     box.on_path = {"claude"}
     before = tree_snapshot(box.root)
     result = install(box, "claude-code", devices=("SERIAL",))
-    assert box.commands == [["claude", "mcp", "add", "--scope", "user", "adapt", "--", box.adapt, "mcp", "--read-only", "--device", "SERIAL"]]
+    # The program PATH lookup found is run, so a Windows `name.cmd` shim works too.
+    assert box.commands == [[box.which("claude"), "mcp", "add", "--scope", "user", "adapt", "--", box.adapt, "mcp", "--read-only", "--device", "SERIAL"]]
     assert result["status"] == "installed" and result["method"] == "cli"
     assert not (box.home / ".claude.json").exists()
     after = tree_snapshot(box.root)
@@ -272,7 +273,7 @@ def test_method_cli_is_honoured_for_codex_and_pi_with_a_note_about_the_timeout(b
     planned = plan(box, "codex", method="cli")
     assert planned.method == "cli" and any("tool_timeout_sec" in n for n in planned.notes)
     setup.apply_plan(planned, box.ctx())
-    assert box.commands[0][:4] == ["codex", "mcp", "add", "adapt"]
+    assert box.commands[0][:4] == [box.which("codex"), "mcp", "add", "adapt"]
     box.touch(".cursor/mcp.json", "{}")  # Cursor is installed, but has no registration command
     cursor = plan(box, "cursor", method="cli")
     assert cursor.reason == "no_method" and "no registration command" in cursor.message
@@ -508,3 +509,12 @@ def test_cli_restore_and_uninstall_round_trip(monkeypatch, box):
     assert "adapt" not in json.loads(path.read_text())["mcpServers"]
     again = run(monkeypatch, box, "restore", entries[0]["id"], "--yes", "--force", project=False)
     assert again.exit_code == 0 and path.read_text() == '{"mcpServers": {}}\n'
+
+
+def test_the_clients_own_command_runs_the_program_path_lookup_found(box):
+    """A client installed as an npm `.cmd` shim on Windows is found by PATH lookup, not by its bare name."""
+    box.on_path = {"opencode"}
+    box.touch(".config/opencode/opencode.jsonc", "{}")
+    result = install(box, "opencode")
+    assert result["status"] == "installed"
+    assert box.commands and box.commands[0][0] == box.which("opencode") and box.commands[0][1:3] == ["mcp", "add"]

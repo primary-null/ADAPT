@@ -262,3 +262,17 @@ def test_the_old_promise_is_gone_everywhere_and_the_new_one_is_stated():
     assert new in " ".join((ROOT / "README.md").read_text(encoding="utf-8").split())
     primer = agent_guide.render_markdown(agent_guide.build_primer())
     assert "changes a client's settings only when you run `adapt agent install`" in " ".join(primer.split())
+
+
+def test_a_jsonc_client_falls_back_to_the_plain_json_file_its_own_command_wrote(tmp_path):
+    from adapt_adb import agent_clients as ac
+    client = ac.CLIENT_BY_KEY["opencode"]
+    tokens = {"home": str(tmp_path), "xdg": str(tmp_path / "xdg"), "project": str(tmp_path / "proj")}
+    jsonc = ac.config_path(client, "user", tokens, "linux")
+    assert jsonc is not None and jsonc.suffix == ".jsonc"
+    plain = jsonc.with_suffix(".json")
+    plain.parent.mkdir(parents=True)
+    plain.write_text("{}")
+    assert ac.config_path(client, "user", tokens, "linux") == plain
+    jsonc.write_text("{}")  # when both exist, the .jsonc file the table names wins
+    assert ac.config_path(client, "user", tokens, "linux") == jsonc

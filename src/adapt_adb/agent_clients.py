@@ -284,7 +284,14 @@ def _expand(template: str, tokens: Mapping[str, str | None]) -> Path | None:
 def config_path(client: Client, scope: str, tokens: Mapping[str, str | None], platform: str | None = None) -> Path | None:
     by_os = client.paths.get(scope, {})
     template = by_os.get(platform_key(platform)) or by_os.get("any")
-    return _expand(template, tokens) if template else None
+    path = _expand(template, tokens) if template else None
+    # A client that reads `name.jsonc` also reads `name.json` (OpenCode's own `mcp add` writes
+    # `opencode.json` when neither exists): use the plain JSON file when only it is there.
+    if path is not None and path.suffix == ".jsonc" and not path.exists():
+        sibling = path.with_suffix(".json")
+        if sibling.is_file():
+            return sibling
+    return path
 
 
 # --- the entry ADAPT registers ---------------------------------------------------------------

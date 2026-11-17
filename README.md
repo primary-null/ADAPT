@@ -101,7 +101,15 @@ No device handy? Try `adapt help-me --all`, `adapt tools list` or `adapt explain
 
 Tell your agent to run `adapt agent primer`. It prints what ADAPT is, the first steps, the development loop, safety rules written for an agent, and every command and MCP tool (`--json` gives the same as structured data). It is built from the installed commands, so it matches your version.
 
-To give an agent MCP tools instead, or as well, register the local server:
+To give an agent MCP tools instead, or as well, let ADAPT register the local server with the agent's client, or add it yourself:
+
+```text
+adapt agent clients                          # which AI clients are installed here
+adapt agent install claude-code --dry-run    # show the exact change; add --yes to apply it
+adapt agent skill install --scope project    # optional: the Agent Skill, for agents that read .agents/skills
+```
+
+ADAPT changes a client's settings only when you run `adapt agent install`, shows the change first, and keeps a backup. Or paste the MCP entry yourself:
 
 ```json
 {
@@ -111,7 +119,7 @@ To give an agent MCP tools instead, or as well, register the local server:
 }
 ```
 
-`adapt mcp` is a local stdio server with 24 tools and no network listener. `--read-only` keeps the 19 observation tools, and `--device` limits calls to the devices you list. The five tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`) never choose a device themselves. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions and a title and standard annotations for each tool. These are offline-tested; no AI client has yet been observed reading them.
+`adapt mcp` is a local stdio server with 25 tools and no network listener. `--read-only` keeps the 20 observation tools, and `--device` limits calls to the devices you list. The five tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`) never choose a device themselves. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions, a title and standard annotations for each tool, and its guidance as `adapt://` resources and a `help` tool. These and `adapt agent install` are offline-tested only; no AI client has yet been observed reading them and no client registration has been live-checked.
 
 More in [MCP access](docs/mcp-access.md) and the [client examples](examples/README.md).
 

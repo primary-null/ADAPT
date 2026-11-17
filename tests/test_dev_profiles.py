@@ -378,3 +378,58 @@ def test_failed_restore_on_one_ui_6_points_to_auto_blocker(make, tmp_path):
     with pytest.raises(DevOptionsError) as caught:
         restore(tmp_path)
     assert caught.value.kind == "restore_failed" and fr.classify(caught.value) == "devopts.samsung_auto_blocker"
+
+
+# --- the command line ------------------------------------------------------------------------------
+
+
+def test_apply_command_prints_the_note_and_the_claim_boundary(dev, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from adapt_adb.cli import app
+
+    result = CliRunner().invoke(app, ["dev-options", "apply", "--profile", "layout-debug", "-s", SERIAL, "--snapshot", str(tmp_path / "cli.json")])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("Applied layout-debug; recovery snapshot:")
+    assert "Property changes take effect when the app restarts" in result.stdout and "Effect check needed" in result.stdout
+    restored = CliRunner().invoke(app, ["dev-options", "restore", "-s", SERIAL, "--snapshot", str(tmp_path / "cli.json")])
+    assert restored.exit_code == 0 and restored.stdout.startswith("Restored snapshot:")
+
+
+def test_apply_command_takes_package_and_repeatable_options(dev, tmp_path):
+    from typer.testing import CliRunner
+
+    from adapt_adb.cli import app
+
+    result = CliRunner().invoke(app, ["dev-options", "apply", "--profile", "accessibility-display", "-s", SERIAL, "--snapshot", str(tmp_path / "a.json"),
+                                      "--option", "daltonizer", "--option", "force-dark"])
+    assert result.exit_code == 0 and saved(tmp_path, "a.json")["options"] == ["daltonizer", "force-dark"]
+    result = CliRunner().invoke(app, ["dev-options", "apply", "--profile", "debugger-attach", "-s", SERIAL, "--snapshot", str(tmp_path / "b.json"), "--package", PKG])
+    assert result.exit_code == 0 and saved(tmp_path, "b.json")["package"] == PKG
+
+
+@pytest.mark.parametrize("args,first_line,guide", [
+    (["--profile", "nope"], "Error: Profile must be one of: ", "devopts.invalid_profile"),
+    (["--profile", "debugger-attach"], "Error: Profile debugger-attach needs --package", "devopts.package_required"),
+    (["--profile", "fast-ui", "--package", PKG], "Error: Profile fast-ui does not use a package.", "devopts.invalid_package"),
+    (["--profile", "input-visualization", "--option", "bogus"], "Error: Unknown option for input-visualization", "devopts.invalid_option"),
+])
+def test_apply_command_refusals_keep_the_error_line_and_point_to_a_guide(dev, tmp_path, args, first_line, guide):
+    from typer.testing import CliRunner
+
+    from adapt_adb.cli import app
+
+    result = CliRunner().invoke(app, ["dev-options", "apply", "-s", SERIAL, "--snapshot", str(tmp_path / "x.json"), *args])
+    assert result.exit_code == 1 and result.stderr.startswith(first_line)
+    assert f"adapt explain {guide}" in result.stderr
+    assert dev.calls == [] and not (tmp_path / "x.json").exists()
+
+
+def test_apply_command_refuses_a_network_cutting_profile_over_wireless_adb(dev, tmp_path):
+    from typer.testing import CliRunner
+
+    from adapt_adb.cli import app
+
+    result = CliRunner().invoke(app, ["dev-options", "apply", "--profile", "network-degraded", "-s", "192.0.2.10:5555", "--snapshot", str(tmp_path / "w.json")])
+    assert result.exit_code == 1 and "refused over a TCP or wireless-debugging transport" in result.stderr
+    assert "adapt explain devopts.wireless_refused" in result.stderr and dev.calls == []

@@ -55,6 +55,43 @@ also accounts for administrator lock restrictions. ADAPT does not modify those
 restrictions. Sources: [Developer options](https://developer.android.com/studio/debug/dev-options),
 [AOSP StayAwakePreferenceController](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/src/com/android/settings/development/StayAwakePreferenceController.java).
 
+## More profiles for the test loop
+
+Ten more recoverable profiles cover the common test goals. Each uses the same
+guarded snapshot, readback and restore as stay-awake, and each one you apply is a
+step you run yourself: Rapid ADAPT still prints commands and executes none.
+
+```text
+adapt dev-options profiles -s SERIAL
+adapt dev-options apply --profile layout-debug -s SERIAL --snapshot layout.json
+adapt dev-options apply --profile lifecycle-stress -s SERIAL --snapshot lifecycle.json
+adapt dev-options apply --profile debugger-attach -s SERIAL --snapshot debug.json --package com.example.app
+adapt dev-options restore -s SERIAL --snapshot layout.json
+```
+
+- `layout-debug` (layout bounds, view attribute inspection), `lifecycle-stress`
+  (Don't keep activities, background ANRs, crash dialog; killing the app and
+  rotating stay your steps), `performance-capture` (`--package`; compiles the app
+  with speed-profile and keeps the screen on while USB-powered; leave animations
+  at 1, so do not combine it with `fast-ui`), `battery-doze` (unplugged battery
+  state and forced Doze; USB only), `rtl-large-font`, `accessibility-display`,
+  `input-visualization` (key presses on Android 15 and later),
+  `network-degraded` (download rate limit; USB only), `background-restricted` and
+  `debugger-attach` (`--package`).
+- `profiles` says which of them fit the phone (Android version, maker layer, USB
+  or wireless transport, package) and why not. Network-cutting profiles are refused
+  over wireless adb.
+- Property changes take effect when the app restarts. A stored value is not proof
+  of effect: the apply result names the profiles that need an effect check (a
+  screenshot after an app restart, or a lifecycle log line).
+- Restore is approximate for `performance-capture` (`compile --reset`),
+  `battery-doze` (Doze) and `background-restricted` (app op); the result says so.
+- On Samsung phones with One UI 6 or later, Auto Blocker can block commands over
+  USB; a failed write points to Settings > Security and privacy > Auto Blocker.
+  `adapt dev-options pixel-16kb-check` reads the page size. All of this is
+  offline-tested only; no profile has been run on a device yet. See
+  [Developer Options](dev-options.md).
+
 ## Deeper logging diagnostics
 
 ```text

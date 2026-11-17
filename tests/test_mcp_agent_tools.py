@@ -240,7 +240,8 @@ def test_schemas_are_strict_and_snapshot_path_is_not_an_argument():
         schema = next(s for s in tools.TOOL_SCHEMAS if s["name"] == name)["inputSchema"]
         assert schema["additionalProperties"] is False
     props = next(s for s in tools.TOOL_SCHEMAS if s["name"] == "dev_options_apply")["inputSchema"]["properties"]
-    assert set(props) == {"device", "profile"} and props["profile"]["enum"] == ["fast-ui", "touches", "desktop-testing", "stay-awake"]
+    from adapt_adb.dev_profiles import PROFILE_NAMES
+    assert set(props) == {"device", "profile", "package", "options"} and props["profile"]["enum"] == list(PROFILE_NAMES)
     result, payload = call("dev_options_apply", {"device": "SERIAL_A", "profile": "fast-ui", "snapshot": "/tmp/x.json"})
     assert result.is_error and payload["error"] == "invalid_params"
 
@@ -1211,3 +1212,29 @@ def test_state_dir_is_created_private_and_the_identity_folder_is_a_hash(device):
     [path] = snapshots(device)
     assert all(c in "0123456789abcdef" for c in path.parent.name)
     assert path.suffix == ".json" and path.read_text(encoding="utf-8").startswith("{")
+
+
+def test_apply_passes_package_and_options_to_the_profile_and_reports_follow_ups(device, monkeypatch):
+    seen = {}
+    real = dev_options.apply_profile
+
+    def spy(profile, serial, snapshot, **kwargs):
+        seen.update(kwargs, profile=profile)
+        return real(profile, serial, snapshot, **kwargs)
+
+    monkeypatch.setattr(dev_options, "apply_profile", spy)
+    payload = ok("dev_options_apply", {"device": "endpoint-5555", "profile": "input-visualization", "options": ["pointer-location"]})
+    assert seen["profile"] == "input-visualization" and seen["options"] == ("pointer-location",) and seen["package"] is None
+    assert payload["profile"] == "input-visualization" and "needs_effect_check" in payload and "restore_exactness" in payload
+
+
+@pytest.mark.parametrize("arguments", [
+    {"profile": "input-visualization", "options": ["not-an-option"]},
+    {"profile": "input-visualization", "options": "pointer-location"},
+    {"profile": "input-visualization", "options": ["pointer-location", "pointer-location"]},
+    {"profile": "no-such-profile"},
+])
+def test_apply_rejects_unknown_profiles_and_malformed_options_before_any_device_call(device, arguments):
+    writes = device._put_count
+    payload = err("dev_options_apply", {"device": "endpoint-5555", **arguments})
+    assert payload["error"] == "invalid_params" and device._put_count == writes and not snapshots(device)

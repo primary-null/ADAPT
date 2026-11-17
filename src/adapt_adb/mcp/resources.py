@@ -194,22 +194,38 @@ def _guide_tool_catalog() -> str:
 
 
 def _guide_dev_options() -> str:
-    from adapt_adb import dev_options
+    from adapt_adb import dev_profiles
 
-    profiles = {name: dict(values) for name, values in dev_options._PROFILE_VALUES.items()}
+    lines = []
+    for item in dev_profiles.profile_registry():
+        api = "any API" if not item["api_gated"] else f"API {item['min_api']}-{item['max_api']}"
+        facts = [api, f"package {item['package']}" if item["package"] != "none" else "no package",
+                 f"restore {item['restore_exactness']}"]
+        if item["needs_app_restart"]:
+            facts.append("app restart needed")
+        if item["needs_effect_check"]:
+            facts.append("check the effect")
+        if item["refuses_wireless_adb"]:
+            facts.append("refused over wireless adb")
+        if item["options"]:
+            facts.append("options: " + ", ".join(item["options"]))
+        lines.append(f"- `{item['name']}`: {item['description']} ({'; '.join(facts)})")
     return (
         "# Guide: Developer Options profiles\n\n"
-        "Profiles are applied from the command line only; there is no MCP tool that writes device "
-        "settings. `developer_options_inspect` reads the allowlisted settings.\n\n"
-        "- `adapt dev-options inspect -s SERIAL --json`: read the allowlisted settings.\n"
-        "- `adapt dev-options apply --profile NAME -s SERIAL --snapshot NEW_FILE.json`: write a recovery "
-        "snapshot first, then set the profile and read every value back. Ask the user first.\n"
-        "- `adapt dev-options restore -s SERIAL --snapshot NEW_FILE.json`: restore the saved values. A "
-        "setting someone else changed meanwhile is left alone and reported as a conflict.\n\n"
-        "Restore every profile you apply before you finish. Disabled animations can hide animation and "
-        "lifecycle bugs, so keep a normal-settings test path too.\n\n"
-        "Profiles and the settings they write:\n\n```json\n"
-        + json.dumps(profiles, indent=2, ensure_ascii=True) + "\n```\n"
+        "A profile prepares the phone for one test goal and is always reversible: a recovery snapshot is "
+        "written first, every value is read back, and restore puts back what was there. Ask the user first.\n\n"
+        "- MCP: `developer_options_inspect` reads settings and the device's maker (Pixel, Samsung, other); "
+        "`dev_options_apply` applies a profile (ADAPT keeps the snapshot); `dev_options_restore` undoes it. "
+        "Call `dev_options_restore` before you finish.\n"
+        "- Command line: `adapt dev-options profiles -s SERIAL` lists which profiles this device can take; "
+        "`adapt dev-options apply --profile NAME -s SERIAL --snapshot NEW_FILE.json` (add `--package` where "
+        "needed); `adapt dev-options restore -s SERIAL --snapshot NEW_FILE.json`; `adapt dev-options catalog` "
+        "lists every known option offline.\n\n"
+        "A stored value is not proof of effect: some profiles need a screenshot or a log line to confirm "
+        "them, and `debug.*` property changes reach an app only after it restarts. On Samsung One UI 6 and "
+        "later, Auto Blocker can refuse every write; the user turns it off on the phone. Disabled animations "
+        "can hide bugs, so keep a normal-settings test path too.\n\n"
+        "Profiles:\n\n" + "\n".join(lines) + "\n"
     )
 
 

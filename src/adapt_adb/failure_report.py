@@ -76,6 +76,12 @@ KIND_MAP: dict[tuple[str, str], str] = {
     ("dev_options", "unsupported_api"): "devopts.unsupported_api",
     ("dev_options", "apply_failed"): "devopts.apply_rollback_incomplete",  # the safe default; see apply_profile
     ("dev_options", "identity_mismatch"): "devopts.identity_mismatch",
+    ("dev_options", "invalid_package"): "devopts.invalid_package",
+    ("dev_options", "package_required"): "devopts.package_required",
+    ("dev_options", "invalid_option"): "devopts.invalid_option",
+    ("dev_options", "wireless_transport"): "devopts.wireless_refused",
+    ("dev_options", "profile_api_range"): "devopts.profile_api_range",
+    ("dev_options", "unsupported_state"): "devopts.unsupported_state",
     ("dev_options", "restore_failed"): "devopts.restore_failed",
     # dex
     ("dex", "invalid_serial"): "input.serial_invalid",

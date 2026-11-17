@@ -16,9 +16,9 @@ def test_package_data_rules_are_byte_identical_to_packaging_rules():
     assert PACKAGE_DATA_RULES.read_bytes() == PACKAGING_RULES.read_bytes()
 
 
-def test_package_data_directory_holds_only_the_rules_file_and_the_skill():
+def test_package_data_directory_holds_only_the_rules_file_the_catalog_and_the_skill():
     names = sorted(p.name for p in PACKAGE_DATA_RULES.parent.iterdir() if p.name != "__pycache__")
-    assert names == ["51-android.rules", "skill"]
+    assert names == ["51-android.rules", "dev-options-catalog.json", "skill"]
     skill = sorted(p.relative_to(PACKAGE_DATA_RULES.parent).as_posix() for p in (PACKAGE_DATA_RULES.parent / "skill").rglob("*") if p.is_file())
     assert skill == ["skill/adapt/SKILL.md", "skill/adapt/references/failures.md"]
 

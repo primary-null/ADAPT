@@ -24,8 +24,10 @@ _ORIG_GET_CONNECTED_DEVICES = _adb_mod.get_connected_devices
 
 ALLOWED_KEYS = ("BACK", "HOME", "ENTER", "APP_SWITCH", "POWER", "DEL")
 ALLOWED_LOG_LEVELS = ("V", "D", "I", "W", "E", "F")
-# Developer Options profiles `dev_options_apply` accepts (the same four the CLI knows).
-PROFILE_NAMES = ("fast-ui", "touches", "desktop-testing", "stay-awake")
+# Developer Options profiles `dev_options_apply` accepts: the CLI's registry, so both always agree.
+from adapt_adb.dev_profiles import PROFILE_NAMES, PROFILES as _PROFILE_SPECS  # noqa: E402
+
+PROFILE_OPTIONS = tuple(sorted({option for spec in _PROFILE_SPECS for option in spec.options}))
 
 # Argument bounds advertised in TOOL_SCHEMAS and enforced by the server's validator.
 MAX_COORDINATE = 20000
@@ -313,11 +315,17 @@ TOOL_SCHEMAS.extend([
      "description": "Check a test run started by test_run: progress while it runs, the parsed result (counts and failures) when it has finished.",
      "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string", "minLength": 12, "maxLength": 12, "description": "The run_id test_run returned."}}, "required": ["run_id"]}},
     {"name": "dev_options_apply",
-     "description": "Prepare the phone for testing with a reversible Developer Options profile (fast-ui animations off, touches, stay-awake, desktop-testing). "
-                    "ADAPT stores the recovery snapshot itself. Refused while a snapshot for this device and profile is still pending. "
-                    "Always call dev_options_restore before you finish." + ACTS_ON_PHONE_NOTE,
+     "description": "Prepare the phone for a test goal with a reversible Developer Options profile: fast-ui, touches, stay-awake, desktop-testing, "
+                    "layout-debug, lifecycle-stress, performance-capture, battery-doze, rtl-large-font, accessibility-display, input-visualization, "
+                    "network-degraded, background-restricted or debugger-attach (help topic dev-options lists each one's steps, API range and caveats). "
+                    "performance-capture, background-restricted and debugger-attach need `package`. ADAPT stores the recovery snapshot itself and reports "
+                    "whether the app must restart and whether an effect check is needed. Refused while a snapshot for this device and profile is "
+                    "still pending. Always call dev_options_restore before you finish." + ACTS_ON_PHONE_NOTE,
      "inputSchema": {"type": "object", "properties": {
          "device": _device_prop(explicit=True), "profile": {"type": "string", "enum": list(PROFILE_NAMES)},
+         "package": _package_prop("Application ID for the per-app steps of profiles that take one."),
+         "options": {"type": "array", "maxItems": 8, "items": {"type": "string", "enum": list(PROFILE_OPTIONS)},
+                     "description": "Optional steps a profile lists (for example airplane-mode for network-degraded)."},
      }, "required": ["profile"]}},
     {"name": "dev_options_restore",
      "description": "Undo what dev_options_apply changed: restores every pending snapshot for this device (newest first) and lists what was pending. "

@@ -51,10 +51,22 @@ class FakeAdb:
         if shell[:2] == ["shell", "getprop"]:
             if shell[2] == "ro.build.version.sdk":
                 return subprocess.CompletedProcess(args, 0, self.sdk + "\n", "")
-            value = self.serialno if shell[2] == "ro.serialno" else self.fingerprint
-            return subprocess.CompletedProcess(args, 0, value + "\n", "")
+            props = {
+                "ro.serialno": self.serialno,
+                "ro.build.fingerprint": self.fingerprint,
+                "ro.product.manufacturer": "ExampleMaker",
+                "ro.product.brand": "examplebrand",
+                "ro.build.type": "user",
+            }
+            return subprocess.CompletedProcess(args, 0, props.get(shell[2], "") + "\n", "")
         if shell == ["shell", "am", "get-current-user"]:
             return subprocess.CompletedProcess(args, 0, f"{self.user}\n", "")
+        if shell == ["shell", "getconf", "PAGE_SIZE"]:
+            return subprocess.CompletedProcess(args, 0, "4096\n", "")
+        if shell == ["shell", "pm", "list", "features"]:
+            return subprocess.CompletedProcess(args, 0, "feature:android.software.picture_in_picture\n", "")
+        if shell == ["shell", "dumpsys", "device_policy"]:
+            return subprocess.CompletedProcess(args, 0, "Device policy state:\n", "")
         assert shell[:2] == ["shell", "settings"]
         pos = 2
         setting_user = None

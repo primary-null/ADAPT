@@ -747,7 +747,116 @@ def require_serial_if_many(
     )
 
 
+# --- Developer Options argv shapes -----------------------------------------
+#
+# Every device command `dev_options` runs must match one of these token shapes
+# exactly.  A shape fixes the command words and says what each variable slot may
+# hold; which settings keys, properties and packages are allowed is decided by the
+# Developer Options registry.  Nothing here lets a pipe, a redirection, a quote
+# or an unknown command word through: a slot value is a plain token.
+
+_DEV_SLOTS: dict[str, re.Pattern[str]] = {
+    "prop": re.compile(r"[A-Za-z0-9_.-]{1,96}"),
+    "debugprop": re.compile(r"debug\.[a-z0-9_.]{1,64}"),
+    "propvalue": re.compile(r"[A-Za-z0-9_.-]{1,64}|''"),
+    "table": re.compile(r"global|secure|system"),
+    "key": re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,127}"),
+    "value": re.compile(r"[A-Za-z0-9_.,:=@+-]{1,128}"),
+    "user": re.compile(r"[0-9]{1,5}"),
+    "pkg": re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+"),
+    "int": re.compile(r"[0-9]{1,5}"),
+    "filter": re.compile(r"[a-z][a-z0-9-]{1,30}"),
+    "bucket": re.compile(r"active|working_set|frequent|rare|restricted"),
+    "appop": re.compile(r"[A-Z][A-Z0-9_]{2,63}"),
+    "appopmode": re.compile(r"allow|ignore|deny|foreground|default"),
+    "tags": re.compile(r"[A-Za-z0-9,_-]{2,160}"),
+    "nightmode": re.compile(r"yes|no|auto"),
+    "bool": re.compile(r"true|false"),
+    "enabledisable": re.compile(r"enable|disable"),
+}
+
+# (shape id, device argv after `adb -s SERIAL`).  `<slot>` marks a variable word.
+_DEV_SHAPES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("getprop", ("shell", "getprop", "<prop>")),
+    ("setprop", ("shell", "setprop", "<debugprop>", "<propvalue>")),
+    ("current-user", ("shell", "am", "get-current-user")),
+    ("settings-get", ("shell", "settings", "get", "<table>", "<key>")),
+    ("settings-get-user", ("shell", "settings", "--user", "<user>", "get", "<table>", "<key>")),
+    ("settings-put", ("shell", "settings", "put", "<table>", "<key>", "<value>")),
+    ("settings-put-user", ("shell", "settings", "--user", "<user>", "put", "<table>", "<key>", "<value>")),
+    ("settings-delete", ("shell", "settings", "delete", "<table>", "<key>")),
+    ("settings-delete-user", ("shell", "settings", "--user", "<user>", "delete", "<table>", "<key>")),
+    ("wm-density-read", ("shell", "wm", "density")),
+    ("wm-size-read", ("shell", "wm", "size")),
+    ("wm-density-set", ("shell", "wm", "density", "<int>")),
+    ("wm-density-reset", ("shell", "wm", "density", "reset")),
+    ("battery-read", ("shell", "dumpsys", "battery")),
+    ("battery-unplug", ("shell", "cmd", "battery", "unplug")),
+    ("battery-reset", ("shell", "cmd", "battery", "reset")),
+    ("deviceidle-read", ("shell", "dumpsys", "deviceidle", "get", "deep")),
+    ("deviceidle-force", ("shell", "dumpsys", "deviceidle", "force-idle")),
+    ("deviceidle-unforce", ("shell", "dumpsys", "deviceidle", "unforce")),
+    ("debug-app-set", ("shell", "am", "set-debug-app", "--persistent", "<pkg>")),
+    ("debug-app-set-wait", ("shell", "am", "set-debug-app", "-w", "--persistent", "<pkg>")),
+    ("debug-app-clear", ("shell", "am", "clear-debug-app")),
+    ("package-dump", ("shell", "dumpsys", "package", "<pkg>")),
+    ("package-compile", ("shell", "cmd", "package", "compile", "-m", "<filter>", "-f", "<pkg>")),
+    ("package-compile-reset", ("shell", "cmd", "package", "compile", "--reset", "<pkg>")),
+    ("uimode-read", ("shell", "cmd", "uimode", "night")),
+    ("uimode-set", ("shell", "cmd", "uimode", "night", "<nightmode>")),
+    ("standby-bucket-read", ("shell", "am", "get-standby-bucket", "--user", "<user>", "<pkg>")),
+    ("standby-bucket-set", ("shell", "am", "set-standby-bucket", "--user", "<user>", "<pkg>", "<bucket>")),
+    ("appops-read", ("shell", "cmd", "appops", "get", "--user", "<user>", "<pkg>", "<appop>")),
+    ("appops-set", ("shell", "cmd", "appops", "set", "--user", "<user>", "<pkg>", "<appop>", "<appopmode>")),
+    ("app-locales-read", ("shell", "cmd", "locale", "get-app-locales", "<pkg>", "--user", "<user>")),
+    ("app-locales-set", ("shell", "cmd", "locale", "set-app-locales", "<pkg>", "--user", "<user>", "--locales", "<tags>")),
+    ("app-locales-clear", ("shell", "cmd", "locale", "set-app-locales", "<pkg>", "--user", "<user>")),
+    ("netpolicy-read", ("shell", "cmd", "netpolicy", "get", "restrict-background")),
+    ("netpolicy-set", ("shell", "cmd", "netpolicy", "set", "restrict-background", "<bool>")),
+    ("airplane-set", ("shell", "cmd", "connectivity", "airplane-mode", "<enabledisable>")),
+    ("page-size", ("shell", "getconf", "PAGE_SIZE")),
+    ("features-read", ("shell", "pm", "list", "features")),
+    ("device-policy-read", ("shell", "dumpsys", "device_policy")),
+)
+_DEV_SHAPE_IDS = frozenset(name for name, _ in _DEV_SHAPES)
+_DEV_WRITE_SHAPES = frozenset({
+    "setprop", "settings-put", "settings-put-user", "settings-delete", "settings-delete-user", "wm-density-set",
+    "wm-density-reset", "battery-unplug", "battery-reset", "deviceidle-force", "deviceidle-unforce",
+    "debug-app-set", "debug-app-set-wait", "debug-app-clear", "package-compile", "package-compile-reset",
+    "uimode-set", "standby-bucket-set", "appops-set", "app-locales-set", "app-locales-clear", "netpolicy-set",
+    "airplane-set",
+})
+
+
+def match_dev_options_shell(device_args: Sequence[str]) -> str | None:
+    """Shape id of an allowlisted Developer Options device command, else ``None``.
+
+    ``device_args`` is the argv after ``adb -s SERIAL`` (it starts with ``shell``).
+    Returns ``None`` instead of raising so callers decide how to refuse.
+    """
+    tokens = [str(item) for item in device_args]
+    for name, shape in _DEV_SHAPES:
+        if len(shape) != len(tokens):
+            continue
+        for want, got in zip(shape, tokens):
+            if want.startswith("<"):
+                if not _DEV_SLOTS[want[1:-1]].fullmatch(got):
+                    break
+            elif want != got:
+                break
+        else:
+            return name
+    return None
+
+
+def dev_options_shape_writes(shape: str) -> bool:
+    """True when the shape changes device state (every other shape only reads)."""
+    return shape in _DEV_WRITE_SHAPES
+
+
 __all__ = [
+    "match_dev_options_shell",
+    "dev_options_shape_writes",
     "FORBIDDEN_ADB_ARGS",
     "AdaptError",
     "SafetyError",

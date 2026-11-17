@@ -133,7 +133,7 @@ def test_workflow_texts_name_only_real_tools_and_real_commands():
 
     root = get_command(app)
     for topic in STATIC_TOPICS:
-        for quoted in re.findall(r"`(adapt [a-z][a-z -]*)", resources.read_topic(topic)["text"]):
+        for quoted in re.findall(r"`(adapt [a-z][a-z0-9 -]*)", resources.read_topic(topic)["text"]):
             command = root
             for token in quoted.split()[1:]:
                 if token.startswith("-") or not hasattr(command, "list_commands"):

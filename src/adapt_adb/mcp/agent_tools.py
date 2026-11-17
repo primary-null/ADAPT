@@ -926,7 +926,7 @@ def _identity_key(identity: Any) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-_SNAPSHOT_NAME_RE = re.compile(r"(fast-ui|touches|desktop-testing|stay-awake)-(\d{8}T\d{6}Z)-([0-9a-f]{8})\.json")
+_SNAPSHOT_NAME_RE = re.compile("(" + "|".join(map(re.escape, PROFILES)) + r")-(\d{8}T\d{6}Z)-([0-9a-f]{8})\.json")
 
 
 def _snapshot_status(path: Path) -> str:
@@ -966,7 +966,8 @@ def _dev_error(exc: dev_options.DevOptionsError, **extra: Any) -> dict[str, Any]
     return tag_payload(payload, classify(exc, area="dev_options"))
 
 
-def tool_dev_options_apply(device: str | None, profile: str) -> dict[str, Any]:
+def tool_dev_options_apply(device: str | None, profile: str, package: str | None = None,
+                           options: list[str] | None = None) -> dict[str, Any]:
     """Apply one Developer Options profile with a recovery snapshot ADAPT stores and names; restore it before finishing."""
     if profile not in PROFILES:
         return _error("invalid_params", f"`profile` must be one of: {', '.join(PROFILES)}.")
@@ -987,13 +988,19 @@ def tool_dev_options_apply(device: str | None, profile: str) -> dict[str, Any]:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         snapshot_id = f"{profile}-{stamp}-{secrets.token_hex(4)}"
         directory.mkdir(mode=0o700, exist_ok=True)
-        report = dev_options.apply_profile(profile, serial, directory / f"{snapshot_id}.json", adb_path=adb)
+        report = dev_options.apply_profile(profile, serial, directory / f"{snapshot_id}.json", adb_path=adb,
+                                           package=package, options=tuple(options or ()))
     except dev_options.DevOptionsError as exc:
         return _dev_error(exc)
     except OSError:
         return _error("snapshot_io", "ADAPT could not create its snapshot folder in the per-user state directory.", "devopts.snapshot_io")
-    return {"ok": True, "profile": profile, "snapshot_id": snapshot_id, "changed": report["changed"], "unchanged": report["unchanged"],
-            "note": f"{report['note']} Call dev_options_restore before you finish."}
+    result = {"ok": True, "profile": profile, "snapshot_id": snapshot_id, "changed": report["changed"], "unchanged": report["unchanged"],
+              "note": f"{report['note']} Call dev_options_restore before you finish."}
+    # What the agent must still do or know: restart the app, check the effect, how exact restore is.
+    for key in ("needs_app_restart", "needs_effect_check", "effect_check", "restore_exactness", "skipped_steps", "claim_boundary"):
+        if key in report:
+            result[key] = report[key]
+    return result
 
 
 def tool_dev_options_restore(device: str | None, profile: str | None = None) -> dict[str, Any]:
@@ -1066,7 +1073,7 @@ def call_tool(name: str, args: dict[str, Any], *, allow_device_file: bool = True
     elif name == "test_status":
         payload = tool_test_status(args["run_id"], allowed_devices=allowed_devices)
     elif name == "dev_options_apply":
-        payload = tool_dev_options_apply(device, args["profile"])
+        payload = tool_dev_options_apply(device, args["profile"], args.get("package"), args.get("options"))
     elif name == "dev_options_restore":
         payload = tool_dev_options_restore(device, args.get("profile"))
     elif name == "permission_grant":

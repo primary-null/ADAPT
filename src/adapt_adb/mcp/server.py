@@ -48,6 +48,8 @@ def _matches_json_type(value: Any, expected: str) -> bool:
         return isinstance(value, (int, float)) and not isinstance(value, bool)
     if expected == "object":
         return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
     return False
 
 
@@ -72,6 +74,15 @@ def _arguments_match_schema(name: str, arguments: Any) -> bool:
             return False
         if "enum" in prop and value not in prop["enum"]:
             return False
+        if isinstance(value, list):
+            items = prop.get("items", {})
+            if len(value) > prop.get("maxItems", 16) or len(set(map(repr, value))) != len(value):
+                return False
+            for item in value:
+                if items.get("type") and not _matches_json_type(item, items["type"]):
+                    return False
+                if "enum" in items and item not in items["enum"]:
+                    return False
         if isinstance(value, str):
             if len(value) < prop.get("minLength", 0):
                 return False

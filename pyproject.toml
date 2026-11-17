@@ -56,7 +56,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-adapt_adb = ["resources/dex_bridge/*.java", "resources/dex_bridge/*.jar", "resources/dex_bridge/*.json", "resources/dex_bridge/*.md", "data/51-android.rules"]
+adapt_adb = ["resources/dex_bridge/*.java", "resources/dex_bridge/*.jar", "resources/dex_bridge/*.json", "resources/dex_bridge/*.md", "data/51-android.rules", "data/dev-options-catalog.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

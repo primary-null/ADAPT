@@ -1,0 +1,4939 @@
+{
+ "schema_version": 1,
+ "researched": "2026-11-16",
+ "scope": "Android 10 (API 29) through Android 17 (API 37); AOSP Developer options, Pixel, Samsung One UI, and adb test controls. Desk research only: nothing here was run on a device.",
+ "source_note": "Curated subset of desk research. Nothing in this catalog was run on a device by ADAPT; confidence is per entry. Privileged entries are left out.",
+ "field_notes": {
+  "commands": "read_cmd, write_cmd and restore_cmd are device shell commands. Prefix each with: adb -s SERIAL shell. PKG is an app package name. null means no shell-UID path is known.",
+  "restore_cmd": "SNAPSHOT means: write back the value saved before the change with the same settings put form, or run settings delete TABLE KEY when the key was absent. PROP_EMPTY means: setprop NAME '' (debug.* properties also clear on reboot).",
+  "min_api": "29 means present at or before API 29 (the scope floor), not introduced in 29.",
+  "max_api": "Last API level where the entry is on the main AOSP Developer options screen or the command works; null means still present in android17-release.",
+  "needs_reboot": "no | yes | poke (system property; running apps see it only after a SystemProperties poke or an app process restart) | app_restart | unknown",
+  "confidence": "high = read in AOSP source or official documentation during this research; medium = AOSP or official knowledge not re-read this session, or official documentation that is incomplete; low = forum, blog or memory only",
+  "api_levels": "29=10, 30=11, 31=12, 32=12L, 33=13, 34=14, 35=15, 36=16, 37=17. Quarterly platform releases (QPR) do not change the API level and are named in oem_notes."
+ },
+ "counts": {
+  "entries": 176,
+  "by_class": {
+   "inspect": 31,
+   "ui_only": 43,
+   "profile": 95,
+   "dangerous": 7
+  },
+  "by_layer": {
+   "aosp": 120,
+   "pixel": 6,
+   "samsung": 15,
+   "adb_control": 35
+  }
+ },
+ "entries": [
+  {
+   "id": "aosp.developer_mode",
+   "ui_name": "Developer options (main switch)",
+   "section": "Top",
+   "layer": "aosp",
+   "mechanism": "Settings.Global development_settings_enabled",
+   "read_cmd": "settings get global development_settings_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Turning it off resets several options. From Android 17 QPR1 third-party apps reportedly cannot read this value; whether adb shell still can is not verified.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options",
+    "https://www.androidauthority.com/android-17-qpr1-developer-settings-3713036/"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.memory",
+   "ui_name": "Memory",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "procstats service",
+   "read_cmd": "dumpsys procstats --hours 3 ; dumpsys meminfo PKG",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "report",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "performance",
+    "logging"
+   ],
+   "oem_notes": "Output format differs per release.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.bugreport",
+   "ui_name": "Bug report",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "dumpstate through the bugreport service",
+   "read_cmd": "(host) adb -s SERIAL bugreport OUT.zip",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "zip file",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Contains personal data from all apps and users; takes minutes. Samsung adds its own SysDump path.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.bug_report_handler",
+   "ui_name": "Bug report handler",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure custom_bugreport_handler_app and custom_bugreport_handler_user; shown only when the device config enables a handler choice",
+   "read_cmd": "settings get secure custom_bugreport_handler_app",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "package name",
+   "default": null,
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Visible mainly on Pixel and work-profile devices; hidden on most others.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android11-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Bug report handler\" (section: General). ADAPT cannot change it from the shell. Visible mainly on Pixel and work-profile devices; hidden on most others."
+  },
+  {
+   "id": "aosp.memtag",
+   "ui_name": "Memory Tagging Extension (Android 13: Reboot with MTE)",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "System property arm64.memtag.bootctl, applied at reboot; needs ARMv9 MTE hardware",
+   "read_cmd": "getprop arm64.memtag.bootctl ; getprop ro.arm64.memtag.bootctl_supported",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "string",
+   "default": "none",
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility",
+    "security"
+   ],
+   "oem_notes": "Android 13 had a one-shot Reboot with MTE button; Android 14 replaced it with a page. Practical only on Pixel 8 and later; hidden elsewhere.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Memory Tagging Extension (Android 13: Reboot with MTE)\" (section: General). ADAPT cannot change it from the shell. Android 13 had a one-shot Reboot with MTE button; Android 14 replaced it with a page. Practical only on Pixel 8 and later; hidden elsewhere."
+  },
+  {
+   "id": "aosp.local_backup_password",
+   "ui_name": "Desktop backup password",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Backup manager password for adb backup",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "adb backup is deprecated; no testing value.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Desktop backup password\" (section: General). ADAPT cannot change it from the shell. adb backup is deprecated; no testing value."
+  },
+  {
+   "id": "aosp.stay_awake",
+   "ui_name": "Stay awake",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Settings.Global stay_on_while_plugged_in, bitmask 1 AC, 2 USB, 4 wireless, 8 dock",
+   "read_cmd": "settings get global stay_on_while_plugged_in",
+   "write_cmd": "settings put global stay_on_while_plugged_in VALUE",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int bitmask 0-15",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power"
+   ],
+   "oem_notes": "Already in ADAPT (stay-awake). Device policy can override it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/StayAwakePreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "stay-awake",
+    "performance-capture"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.hdcp_checking",
+   "ui_name": "HDCP checking",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "System property persist.sys.hdcp_checking (never, drm-only, always)",
+   "read_cmd": "getprop persist.sys.hdcp_checking",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "string",
+   "default": "drm-only",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "persist.sys.* is not writable by the shell user. Often hidden on user builds.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.bt_hci_snoop_log",
+   "ui_name": "Enable Bluetooth HCI snoop log (plus snoop log filters, Bluetooth stack log level)",
+   "section": "General (Android 17: Bluetooth sub-page)",
+   "layer": "aosp",
+   "mechanism": "System property persist.bluetooth.btsnooplogmode; Bluetooth must restart",
+   "read_cmd": "getprop persist.bluetooth.btsnooplogmode",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "string disabled/filtered/full",
+   "default": "disabled",
+   "min_api": 29,
+   "max_api": 36,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging",
+    "network"
+   ],
+   "oem_notes": "Filters were added in Android 14, stack log level in Android 15. In android17-release these keys left the main screen and a single Bluetooth entry opens a sub-page; that they moved there is an inference. The log is retrieved with a bug report.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Enable Bluetooth HCI snoop log (plus snoop log filters, Bluetooth stack log level)\" (section: General (Android 17: Bluetooth sub-page)). ADAPT cannot change it from the shell. Filters were added in Android 14, stack log level in Android 15. In android17-release these keys left the main screen and a single Bluetooth entry opens a sub-page; that they moved there is an inference. The log is retrieved with a bug report."
+  },
+  {
+   "id": "aosp.oem_unlock",
+   "ui_name": "OEM unlocking",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Persistent data block / OEM lock HAL",
+   "read_cmd": "getprop sys.oem_unlock_allowed ; getprop ro.boot.flash.locked",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "Never automate. Unlocking the bootloader afterwards wipes the device. Carriers and Samsung US models hide it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automate. Unlocking the bootloader afterwards wipes the device. Carriers and Samsung US models hide it."
+  },
+  {
+   "id": "aosp.running_services",
+   "ui_name": "Running services",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "ActivityManager running services",
+   "read_cmd": "dumpsys activity services PKG",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "report",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "lifecycle",
+    "performance"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.convert_to_fbe",
+   "ui_name": "Convert to file encryption",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Reformat of userdata to file-based encryption",
+   "read_cmd": "getprop ro.crypto.type",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": 32,
+   "needs_reboot": "yes",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "Wipes all data. Removed in Android 13.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android12L-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. Wipes all data. Removed in Android 13."
+  },
+  {
+   "id": "aosp.picture_color_mode",
+   "ui_name": "Picture color mode (sRGB) / Cool color temperature",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Display color mode through SurfaceFlinger and color display service",
+   "read_cmd": "dumpsys color_display",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Hidden on most devices; OEMs use their own screen mode setting.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Picture color mode (sRGB) / Cool color temperature\" (section: General). ADAPT cannot change it from the shell. Hidden on most devices; OEMs use their own screen mode setting."
+  },
+  {
+   "id": "aosp.webview_provider",
+   "ui_name": "WebView implementation",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "webviewupdate service",
+   "read_cmd": "dumpsys webviewupdate",
+   "write_cmd": "cmd webviewupdate set-webview-implementation PACKAGE",
+   "restore_cmd": "cmd webviewupdate set-webview-implementation ORIGINAL_PACKAGE",
+   "value_type": "package name",
+   "default": "com.google.android.webview",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Only packages in the device's valid provider list are accepted. Shell access to the set command should be checked per release.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.webview_devtools",
+   "ui_name": "WebView DevTools",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Launches the WebView developer UI activity",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "debugging",
+    "compatibility"
+   ],
+   "oem_notes": "Added to the screen in android16-release.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"WebView DevTools\" (section: General). ADAPT cannot change it from the shell. Added to the screen in android16-release."
+  },
+  {
+   "id": "aosp.ota_disable_automatic_update",
+   "ui_name": "Automatic system updates",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Settings.Global ota_disable_automatic_update (1 = do not apply updates at reboot)",
+   "read_cmd": "settings get global ota_disable_automatic_update",
+   "write_cmd": "settings put global ota_disable_automatic_update 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Keeps a test device on one build during a test run. Samsung and other OEM updaters may ignore it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.dsu_loader",
+   "ui_name": "DSU Loader",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Dynamic System Updates: installs and boots a generic system image",
+   "read_cmd": "gsi_tool status",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Downloads gigabytes, reboots into another system. Guide only. Pixel offers Google-signed images; most OEMs do not.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android11-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"DSU Loader\" (section: General). ADAPT cannot change it from the shell. Downloads gigabytes, reboots into another system. Guide only. Pixel offers Google-signed images; most OEMs do not."
+  },
+  {
+   "id": "aosp.demo_mode",
+   "ui_name": "System UI demo mode",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Settings.Global sysui_demo_allowed plus broadcasts to com.android.systemui with action com.android.systemui.demo",
+   "read_cmd": "settings get global sysui_demo_allowed",
+   "write_cmd": "settings put global sysui_demo_allowed 1 ; am broadcast -a com.android.systemui.demo -e command enter ; am broadcast -a com.android.systemui.demo -e command clock -e hhmm 1200",
+   "restore_cmd": "am broadcast -a com.android.systemui.demo -e command exit ; then SNAPSHOT for sysui_demo_allowed",
+   "value_type": "int 0/1 plus broadcasts",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout"
+   ],
+   "oem_notes": "Google documents the adb commands as verified only on Nexus and Pixel. Samsung System UI support is partial. Demo state has no readback beyond the setting; a screenshot is the check.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.qs_developer_tiles",
+   "ui_name": "Quick settings developer tiles",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "Enables Quick Settings tile components in the Settings app (layout bounds, profile HWUI, force RTL, animation scale, Sensors off, wireless debugging)",
+   "read_cmd": "settings get secure sysui_qs_tiles",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "tile list",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "layout",
+    "debugging"
+   ],
+   "oem_notes": "Tile set differs per release and OEM.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Quick settings developer tiles\" (section: General). ADAPT cannot change it from the shell. Tile set differs per release and OEM."
+  },
+  {
+   "id": "aosp.sensors_off_tile",
+   "ui_name": "Sensors off (Quick Settings tile only)",
+   "section": "Quick settings developer tiles",
+   "layer": "aosp",
+   "mechanism": "SensorPrivacyManager through the developer tile",
+   "read_cmd": "dumpsys sensor_privacy",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "security",
+    "compatibility"
+   ],
+   "oem_notes": "Disables camera, microphone and motion sensors for all apps. Useful to test missing-sensor handling. A cmd sensor_privacy path exists on Android 12 and later but shell access is not verified.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Sensors off (Quick Settings tile only)\" (section: Quick settings developer tiles). ADAPT cannot change it from the shell. Disables camera, microphone and motion sensors for all apps. Useful to test missing-sensor handling. A cmd sensor_privacy path exists on Android 12 and later but shell access is not verified."
+  },
+  {
+   "id": "aosp.grammatical_gender",
+   "ui_name": "Grammatical gender",
+   "section": "General",
+   "layer": "aosp",
+   "mechanism": "GrammaticalInflectionManager system grammatical gender",
+   "read_cmd": "dumpsys grammatical_inflection",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "enum not specified/neuter/feminine/masculine",
+   "default": "not specified",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "locale_rtl"
+   ],
+   "oem_notes": "A shell command for the service may exist; not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android15-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Grammatical gender\" (section: General). ADAPT cannot change it from the shell. A shell command for the service may exist; not verified."
+  },
+  {
+   "id": "aosp.system_tracing",
+   "ui_name": "System Tracing",
+   "section": "Debugging (injected tile)",
+   "layer": "aosp",
+   "mechanism": "Traceur app (com.android.traceur) over Perfetto; injected into the screen, not part of development_settings.xml",
+   "read_cmd": "perfetto -o /data/misc/perfetto-traces/trace.perfetto-trace -t 10s sched freq idle am wm gfx view",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "trace file",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "performance",
+    "logging"
+   ],
+   "oem_notes": "The perfetto shell command is the automation path; the on-device UI is optional. Samsung ships its own tracing UI on some builds.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.legacy_misc_removed",
+   "ui_name": "Removed in Android 11: trust agent toggles, theme accent/font/icon shape, SMS access restriction, Bubbles",
+   "section": "General / Apps / Theming",
+   "layer": "aosp",
+   "mechanism": "Various (Settings.Global notification_bubbles, theme overlays)",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "mixed",
+   "default": null,
+   "min_api": 29,
+   "max_api": 29,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Present only in android10-release. No testing value today.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android10-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Removed in Android 11: trust agent toggles, theme accent/font/icon shape, SMS access restriction, Bubbles\" (section: General / Apps / Theming). ADAPT cannot change it from the shell. Present only in android10-release. No testing value today."
+  },
+  {
+   "id": "aosp.usb_debugging",
+   "ui_name": "USB debugging",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global adb_enabled",
+   "read_cmd": "settings get global adb_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Writing 0 cuts the adb connection: never automate. Samsung Auto Blocker turns it off and greys it out.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.revoke_usb_authorizations",
+   "ui_name": "Revoke USB debugging authorizations",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Deletes the stored adb keys",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "Locks every host out until re-authorized on the device.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. Locks every host out until re-authorized on the device."
+  },
+  {
+   "id": "aosp.wireless_debugging",
+   "ui_name": "Wireless debugging",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global adb_wifi_enabled; pairing through the Settings UI",
+   "read_cmd": "settings get global adb_wifi_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Phones from Android 11; TV and Wear from Android 13. Android 17 with adb 37 adds ADB Wi-Fi 2.0. Pairing needs the user. Turns itself off when Wi-Fi drops.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.adb_authorization_timeout",
+   "ui_name": "Disable adb authorization timeout",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global adb_allowed_connection_time (0 = never expire; default 7 days in ms)",
+   "read_cmd": "settings get global adb_allowed_connection_time",
+   "write_cmd": "settings put global adb_allowed_connection_time 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "long ms",
+   "default": "604800000",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "debugging",
+    "security"
+   ],
+   "oem_notes": "Stops lab devices from dropping authorization after a week unused. It weakens security, so apply only on request.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/AdbAuthorizationTimeoutPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.local_terminal",
+   "ui_name": "Local terminal",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Enables the legacy com.android.terminal package",
+   "read_cmd": "pm list packages com.android.terminal",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Hidden when the package is not on the device, which is nearly always.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Local terminal\" (section: Debugging). ADAPT cannot change it from the shell. Hidden when the package is not on the device, which is nearly always."
+  },
+  {
+   "id": "aosp.bugreport_in_power",
+   "ui_name": "Bug report shortcut",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure bugreport_in_power_menu (Settings.Secure in android16-release source)",
+   "read_cmd": "settings get secure bugreport_in_power_menu",
+   "write_cmd": "settings put secure bugreport_in_power_menu 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Low value for automation because adb bugreport does the same. Samsung power menu does not show it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/BugReportInPowerPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.verbose_vendor_logging",
+   "ui_name": "Enable verbose vendor logging",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Dumpstate HAL setVerboseLoggingEnabled; not a settings key",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Shown only when the vendor HAL supports it (Pixel). Not the same as the Samsung verbose debug switch.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/EnableVerboseVendorLoggingPreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Enable verbose vendor logging\" (section: Debugging). ADAPT cannot change it from the shell. Shown only when the vendor HAL supports it (Pixel). Not the same as the Samsung verbose debug switch."
+  },
+  {
+   "id": "aosp.verbose_printer_logging",
+   "ui_name": "Verbose printer logging",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Not read; added in android16-qpr2-release",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Android 16 QPR2 and later. Backing key not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-qpr2-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Verbose printer logging\" (section: Debugging). ADAPT cannot change it from the shell. Android 16 QPR2 and later. Backing key not verified."
+  },
+  {
+   "id": "aosp.view_attribute_inspection",
+   "ui_name": "Enable view attribute inspection",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global debug_view_attributes (all apps); debug_view_attributes_application_package for one app",
+   "read_cmd": "settings get global debug_view_attributes",
+   "write_cmd": "settings put global debug_view_attributes 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "debugging"
+   ],
+   "oem_notes": "What Android Studio Layout Inspector sets. Slows view inflation.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "layout-debug"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.debug_app",
+   "ui_name": "Select debug app / Wait for debugger",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "IActivityManager.setDebugApp; mirrored in Settings.Global debug_app and wait_for_debugger",
+   "read_cmd": "settings get global debug_app ; settings get global wait_for_debugger",
+   "write_cmd": "am set-debug-app [-w] [--persistent] PKG",
+   "restore_cmd": "am clear-debug-app (or am set-debug-app with the saved package and flags)",
+   "value_type": "package name plus int 0/1",
+   "default": "null / 0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "With -w the app hangs at launch until a debugger attaches: always pair with a restore. Non-persistent form clears itself after the next launch.",
+   "sources": [
+    "https://developer.android.com/tools/adb",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/WaitForDebuggerPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "debugger-attach"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.verify_apps_over_usb",
+   "ui_name": "Verify apps over USB",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global verifier_verify_adb_installs (constant PACKAGE_VERIFIER_INCLUDE_ADB)",
+   "read_cmd": "settings get global verifier_verify_adb_installs",
+   "write_cmd": "settings put global verifier_verify_adb_installs 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "security",
+    "performance"
+   ],
+   "oem_notes": "Turning it off skips the Play Protect scan on adb installs. Security trade-off: apply only on request. Samsung Auto Blocker and Play Protect policy may still block installs.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/VerifyAppsOverUsbPreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.art_verifier_debuggable",
+   "ui_name": "Verify bytecode of debuggable apps",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global art_verifier_verify_debuggable",
+   "read_cmd": "settings get global art_verifier_verify_debuggable",
+   "write_cmd": "settings put global art_verifier_verify_debuggable 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "debugging"
+   ],
+   "oem_notes": "Off shortens first launch of large debuggable apps but can hide verification errors.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.logd_size",
+   "ui_name": "Logger buffer sizes",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "System property persist.logd.size; logcat -G changes the live buffers",
+   "read_cmd": "logcat -g",
+   "write_cmd": "logcat -G 16M",
+   "restore_cmd": "logcat -G ORIGINAL_SIZE",
+   "value_type": "size",
+   "default": "256K (device dependent)",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "logcat -G does not persist across reboot, which makes it safer than the property. Samsung defaults are larger. Shell permission for -G should be checked on each OEM.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.logpersist",
+   "ui_name": "Store logger data persistently on device",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "System property persist.logd.logpersistd",
+   "read_cmd": "getprop persist.logd.logpersistd",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "string",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Hidden on most user builds.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Store logger data persistently on device\" (section: Debugging). ADAPT cannot change it from the shell. Hidden on most user builds."
+  },
+  {
+   "id": "aosp.camera_laser_sensor",
+   "ui_name": "Camera laser sensor",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Device-specific system property",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Old Nexus hardware only; hidden elsewhere.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Camera laser sensor\" (section: Debugging). ADAPT cannot change it from the shell. Old Nexus hardware only; hidden elsewhere."
+  },
+  {
+   "id": "aosp.feature_flags",
+   "ui_name": "Feature flags",
+   "section": "Debugging (hidden page)",
+   "layer": "aosp",
+   "mechanism": "FeatureFlagUtils: Settings.Global keys named settings_* and matching sys.fflag.override.* properties",
+   "read_cmd": "settings list global | grep settings_",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "flag list",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "The page is empty or hidden on most user builds from Android 12. Each flag is a separate decision; ADAPT should only read the list.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.gpu_debug_layers",
+   "ui_name": "Enable GPU debug layers",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_gpu_debug_layers, gpu_debug_app, gpu_debug_layers (Vulkan), gpu_debug_layers_gles, gpu_debug_layer_app",
+   "read_cmd": "settings get global enable_gpu_debug_layers ; settings get global gpu_debug_app",
+   "write_cmd": "settings put global enable_gpu_debug_layers 1 ; settings put global gpu_debug_app PKG ; settings put global gpu_debug_layers VK_LAYER_KHRONOS_validation",
+   "restore_cmd": "SNAPSHOT for each key",
+   "value_type": "int plus strings",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "debugging"
+   ],
+   "oem_notes": "Android 9 and later. The target app must be debuggable (or profileable from Android 10 for some layers) and the layer library must be present.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.angle_system_driver",
+   "ui_name": "Experimental: Enable ANGLE",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "System property persist.graphics.egl; reboot",
+   "read_cmd": "getprop persist.graphics.egl",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance",
+    "compatibility"
+   ],
+   "oem_notes": "Shown only where ANGLE is shipped (recent Pixels). Per-app ANGLE through the graphics driver keys is the lighter route.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Experimental: Enable ANGLE\" (section: Debugging). ADAPT cannot change it from the shell. Shown only where ANGLE is shipped (recent Pixels). Per-app ANGLE through the graphics driver keys is the lighter route."
+  },
+  {
+   "id": "aosp.game_default_frame_rate",
+   "ui_name": "Disable default frame rate for games",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "IGameManagerService.toggleGameDefaultFrameRate; reflected in debug.graphics.game_default_frame_rate.disabled",
+   "read_cmd": "getprop debug.graphics.game_default_frame_rate.disabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "false",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Behind an aconfig flag; matters only for apps in the game category.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/GameDefaultFrameRatePreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Disable default frame rate for games\" (section: Debugging). ADAPT cannot change it from the shell. Behind an aconfig flag; matters only for apps in the game category."
+  },
+  {
+   "id": "aosp.graphics_driver_preferences",
+   "ui_name": "Graphics driver preferences (Android 10: Game driver preferences)",
+   "section": "Debugging (sub-page)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global updatable_driver_all_apps and updatable_driver_*_opt_in_apps / opt_out_apps (Android 10 names start with game_driver_); ANGLE per app: angle_gl_driver_selection_pkgs and angle_gl_driver_selection_values",
+   "read_cmd": "settings list global | grep -e updatable_driver -e game_driver -e angle_",
+   "write_cmd": "settings put global angle_gl_driver_selection_pkgs PKG ; settings put global angle_gl_driver_selection_values angle",
+   "restore_cmd": "SNAPSHOT for each key",
+   "value_type": "int plus package lists",
+   "default": "0 / absent",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "compatibility"
+   ],
+   "oem_notes": "Works only where an updatable driver or ANGLE is installed. The page is hidden when the device has neither.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android11-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.app_compat_changes",
+   "ui_name": "App Compatibility Changes",
+   "section": "Debugging (sub-page)",
+   "layer": "aosp",
+   "mechanism": "Platform compat framework",
+   "read_cmd": "dumpsys platform_compat",
+   "write_cmd": "am compat enable|disable CHANGE_ID_OR_NAME PKG",
+   "restore_cmd": "am compat reset CHANGE_ID_OR_NAME PKG (or am compat reset-all PKG)",
+   "value_type": "per-app change override",
+   "default": "by target SDK",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "On user builds only debuggable apps can be overridden, and only for changes that allow it. The command force-stops the app.",
+   "sources": [
+    "https://developer.android.com/about/versions/12/behavior-changes-all"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_refresh_rate",
+   "ui_name": "Show refresh rate",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "SurfaceFlinger binder transaction 1034 (1 on, 0 off, 2 query)",
+   "read_cmd": "service call SurfaceFlinger 1034 i32 2",
+   "write_cmd": "service call SurfaceFlinger 1034 i32 1",
+   "restore_cmd": "service call SurfaceFlinger 1034 i32 0",
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Raw Binder call: ADAPT does not use these today, so this needs an owner decision and a device check of shell permission. Clears on reboot. Samsung may not draw the overlay.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ShowRefreshRatePreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_hdr_sdr_ratio",
+   "ui_name": "Show HDR/SDR ratio",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "SurfaceFlinger overlay; transaction code not read",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance",
+    "display_desktop"
+   ],
+   "oem_notes": "Only on HDR-capable panels.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android15-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Show HDR/SDR ratio\" (section: Debugging). ADAPT cannot change it from the shell. Only on HDR-capable panels."
+  },
+  {
+   "id": "aosp.overlay_settings",
+   "ui_name": "Allow screen overlays on Settings",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure secure_overlay_settings",
+   "read_cmd": "settings get secure secure_overlay_settings",
+   "write_cmd": "settings put secure secure_overlay_settings 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "security",
+    "input_accessibility"
+   ],
+   "oem_notes": "Lets overlay-drawing test tools stay visible over Settings. Security trade-off.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/OverlaySettingsPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.force_peak_refresh_rate",
+   "ui_name": "Force peak refresh rate",
+   "section": "Debugging",
+   "layer": "aosp",
+   "mechanism": "Settings.System min_refresh_rate (float; highest rate or Infinity = on, 0 = off)",
+   "read_cmd": "settings get system min_refresh_rate ; settings get system peak_refresh_rate",
+   "write_cmd": "settings put system min_refresh_rate 120.0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Readback of the key is not proof of the panel rate: confirm with dumpsys display. Samsung ignores these keys and uses its own Motion smoothness setting. Raises battery use.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ForcePeakRefreshRatePreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.wifi_display_certification",
+   "ui_name": "Wireless display certification",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "Settings.Global wifi_display_certification_on",
+   "read_cmd": "settings get global wifi_display_certification_on",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "display_desktop",
+    "network"
+   ],
+   "oem_notes": "Only adds certification menus to the cast screen.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.wifi_verbose_logging",
+   "ui_name": "Enable Wi-Fi verbose logging",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "WifiManager verbose logging; Settings.Global wifi_verbose_logging_enabled",
+   "read_cmd": "settings get global wifi_verbose_logging_enabled",
+   "write_cmd": "cmd wifi set-verbose-logging enabled",
+   "restore_cmd": "cmd wifi set-verbose-logging disabled (when the snapshot value was 0)",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "logging",
+    "network"
+   ],
+   "oem_notes": "The cmd wifi subcommand exists from Android 11; shell access to it is not verified on every release. Samsung replaces much of the Wi-Fi stack logging.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.wifi_scan_throttling",
+   "ui_name": "Wi-Fi scan throttling",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "WifiManager.setScanThrottleEnabled; Settings.Global wifi_scan_throttle_enabled",
+   "read_cmd": "settings get global wifi_scan_throttle_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "network",
+    "power"
+   ],
+   "oem_notes": "Needed off when testing apps that scan Wi-Fi often. Writing the key directly may not reach the Wi-Fi service, so guide the user.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Wi-Fi scan throttling\" (section: Networking). ADAPT cannot change it from the shell. Needed off when testing apps that scan Wi-Fi often. Writing the key directly may not reach the Wi-Fi service, so guide the user."
+  },
+  {
+   "id": "aosp.wifi_mac_randomization",
+   "ui_name": "Wi-Fi non-persistent MAC randomization (Android 11-12L: enhanced MAC randomization)",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "Settings.Global non_persistent_mac_randomization_force_enabled (earlier enhanced_mac_randomization_force_enabled)",
+   "read_cmd": "settings get global non_persistent_mac_randomization_force_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "network"
+   ],
+   "oem_notes": "Renamed in Android 13.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android13-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.mobile_data_always_on",
+   "ui_name": "Mobile data always active",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "Settings.Global mobile_data_always_on",
+   "read_cmd": "settings get global mobile_data_always_on",
+   "write_cmd": "settings put global mobile_data_always_on 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "network",
+    "power"
+   ],
+   "oem_notes": "Changes how fast Wi-Fi to mobile handover is. Samsung hides the toggle on some models but keeps the key.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.tethering_hardware_offload",
+   "ui_name": "Tethering hardware acceleration",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "Settings.Global tether_offload_disabled",
+   "read_cmd": "settings get global tether_offload_disabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "network"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.ingress_rate_limit",
+   "ui_name": "Network download rate limit",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "Settings.Global ingress_rate_limit_bytes_per_second (-1 = no limit)",
+   "read_cmd": "settings get global ingress_rate_limit_bytes_per_second",
+   "write_cmd": "settings put global ingress_rate_limit_bytes_per_second 16000",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "long bytes per second",
+   "default": "-1",
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "network",
+    "performance"
+   ],
+   "oem_notes": "Limits download speed on every network that provides internet. It also slows wireless adb traffic. Needs kernel support; whether Samsung kernels honour it is not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android13-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "network-degraded"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.default_usb_configuration",
+   "ui_name": "Default USB configuration",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "UsbManager current functions",
+   "read_cmd": "svc usb getFunctions",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "enum none/mtp/ptp/rndis/midi",
+   "default": "none",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Changing USB functions re-enumerates the port and drops the adb connection, so ADAPT should only read it.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.bluetooth_audio_options",
+   "ui_name": "Bluetooth audio codec, sample rate, bits per sample, channel mode, LDAC quality, HD audio",
+   "section": "Networking (Android 17: Bluetooth sub-page)",
+   "layer": "aosp",
+   "mechanism": "BluetoothA2dp codec configuration API; applies to the connected device",
+   "read_cmd": "dumpsys bluetooth_manager",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "enums",
+   "default": "system selection",
+   "min_api": 29,
+   "max_api": 36,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Greyed out with no audio device connected. Android 17 moves all Bluetooth items behind one Bluetooth entry and Pixel adds LHDC v5 as a codec choice (press reports).",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml",
+    "https://www.makeuseof.com/androids-secret-menu-has-some-new-tricks-with-android-17/"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Bluetooth audio codec, sample rate, bits per sample, channel mode, LDAC quality, HD audio\" (section: Networking (Android 17: Bluetooth sub-page)). ADAPT cannot change it from the shell. Greyed out with no audio device connected. Android 17 moves all Bluetooth items behind one Bluetooth entry and Pixel adds LHDC v5 as a codec choice (press reports)."
+  },
+  {
+   "id": "aosp.bluetooth_stack_options",
+   "ui_name": "Bluetooth: show devices without names, disable absolute volume, AVRCP/MAP version, max connected audio devices, disable A2DP hardware offload, LE Audio toggles",
+   "section": "Networking (Android 17: Bluetooth sub-page)",
+   "layer": "aosp",
+   "mechanism": "persist.bluetooth.* system properties; several need a reboot",
+   "read_cmd": "getprop | grep persist.bluetooth",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "mixed",
+   "default": null,
+   "min_api": 29,
+   "max_api": 36,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility",
+    "network"
+   ],
+   "oem_notes": "Gabeldorsche toggle existed in Android 11-12L. LE Audio toggles arrived in Android 13-15 and changed names each release. Not writable by the shell user.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Bluetooth: show devices without names, disable absolute volume, AVRCP/MAP version, max connected audio devices, disable A2DP hardware offload, LE Audio toggles\" (section: Networking (Android 17: Bluetooth sub-page)). ADAPT cannot change it from the shell. Gabeldorsche toggle existed in Android 11-12L. LE Audio toggles arrived in Android 13-15 and changed names each release. Not writable by the shell user."
+  },
+  {
+   "id": "aosp.nfc_logging",
+   "ui_name": "NFC stack debug log (13-14), NFC verbose vendor debug log, NFC NCI unfiltered snoop log",
+   "section": "Networking",
+   "layer": "aosp",
+   "mechanism": "persist.nfc.* system properties; NFC restart or reboot",
+   "read_cmd": "getprop | grep persist.nfc",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Stack debug log removed in Android 15; vendor log and snoop log added in Android 14. Snoop logs can contain card data.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"NFC stack debug log (13-14), NFC verbose vendor debug log, NFC NCI unfiltered snoop log\" (section: Networking). ADAPT cannot change it from the shell. Stack debug log removed in Android 15; vendor log and snoop log added in Android 14. Snoop logs can contain card data."
+  },
+  {
+   "id": "aosp.show_taps",
+   "ui_name": "Show taps",
+   "section": "Input",
+   "layer": "aosp",
+   "mechanism": "Settings.System show_touches (per user)",
+   "read_cmd": "settings --user USER get system show_touches",
+   "write_cmd": "settings --user USER put system show_touches 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility"
+   ],
+   "oem_notes": "Already in ADAPT (touches).",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "touches",
+    "input-visualization"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.pointer_location",
+   "ui_name": "Pointer location",
+   "section": "Input",
+   "layer": "aosp",
+   "mechanism": "Settings.System pointer_location (per user)",
+   "read_cmd": "settings --user USER get system pointer_location",
+   "write_cmd": "settings --user USER put system pointer_location 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility"
+   ],
+   "oem_notes": "ADAPT reads it today but has no profile. The overlay covers the status bar area, which changes screenshots.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "input-visualization"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.show_key_presses",
+   "ui_name": "Show key presses",
+   "section": "Input",
+   "layer": "aosp",
+   "mechanism": "Settings.System show_key_presses",
+   "read_cmd": "settings --user USER get system show_key_presses",
+   "write_cmd": "settings --user USER put system show_key_presses 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "display_desktop"
+   ],
+   "oem_notes": "Useful for keyboard testing in desktop mode. Samsung support not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ShowKeyPressesPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "input-visualization"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.touchpad_visualizer",
+   "ui_name": "Show touchpad input",
+   "section": "Input",
+   "layer": "aosp",
+   "mechanism": "InputSettings.setTouchpadVisualizer, behind an aconfig flag",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 36,
+   "max_api": 36,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "input_accessibility",
+    "display_desktop"
+   ],
+   "oem_notes": "On the Android 16 screen only; gone from android17-release.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/TouchpadVisualizerPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Show touchpad input\" (section: Input). ADAPT cannot change it from the shell. On the Android 16 screen only; gone from android17-release."
+  },
+  {
+   "id": "aosp.stylus_handwriting",
+   "ui_name": "Stylus handwriting",
+   "section": "Input method",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure stylus_handwriting_enabled",
+   "read_cmd": "settings get secure stylus_handwriting_enabled",
+   "write_cmd": "settings put secure stylus_handwriting_enabled 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "1 from Android 14",
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility"
+   ],
+   "oem_notes": "Needs a stylus device and a keyboard app that supports handwriting. Samsung uses its own S Pen to text feature.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/StylusHandwritingPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_surface_updates",
+   "ui_name": "Show surface updates",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "SurfaceFlinger binder transaction 1002 (write), 1010 (read)",
+   "read_cmd": "service call SurfaceFlinger 1010",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Flashes whole windows; hard to read back reliably from the 1010 parcel. Guide the user rather than automate.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ShowSurfaceUpdatesPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Show surface updates\" (section: Drawing). ADAPT cannot change it from the shell. Flashes whole windows; hard to read back reliably from the 1010 parcel. Guide the user rather than automate."
+  },
+  {
+   "id": "aosp.show_layout_bounds",
+   "ui_name": "Show layout bounds",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "System property debug.layout, then a SystemProperties poke",
+   "read_cmd": "getprop debug.layout",
+   "write_cmd": "setprop debug.layout true",
+   "restore_cmd": "setprop debug.layout false",
+   "value_type": "boolean string",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout"
+   ],
+   "oem_notes": "Running apps redraw with bounds only after a poke (service call activity 1599295570) or an app restart. Clears on reboot.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ShowLayoutBoundsPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "layout-debug"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.force_rtl",
+   "ui_name": "Force RTL layout direction",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Global debug.force_rtl plus system property debug.force_rtl, then a locale update",
+   "read_cmd": "settings get global debug.force_rtl ; getprop debug.force_rtl",
+   "write_cmd": "settings put global debug.force_rtl 1 ; setprop debug.force_rtl true",
+   "restore_cmd": "SNAPSHOT for the setting ; setprop debug.force_rtl false",
+   "value_type": "int 0/1 plus boolean string",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "locale_rtl",
+    "layout"
+   ],
+   "oem_notes": "The Settings screen also calls LocalePicker.updateLocales, which the shell cannot do; apps and System UI pick the change up after a restart or configuration change. Needs a device check. The app must declare supportsRtl.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/RtlLayoutPreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "rtl-large-font"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.window_animation_scale",
+   "ui_name": "Window animation scale",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Global window_animation_scale",
+   "read_cmd": "settings get global window_animation_scale",
+   "write_cmd": "settings put global window_animation_scale 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float 0-10",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "input_accessibility"
+   ],
+   "oem_notes": "Already in ADAPT (fast-ui).",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "fast-ui"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.transition_animation_scale",
+   "ui_name": "Transition animation scale",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Global transition_animation_scale",
+   "read_cmd": "settings get global transition_animation_scale",
+   "write_cmd": "settings put global transition_animation_scale 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float 0-10",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "input_accessibility"
+   ],
+   "oem_notes": "Already in ADAPT (fast-ui).",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "fast-ui"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.animator_duration_scale",
+   "ui_name": "Animator duration scale",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Global animator_duration_scale",
+   "read_cmd": "settings get global animator_duration_scale",
+   "write_cmd": "settings put global animator_duration_scale 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float 0-10",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "input_accessibility"
+   ],
+   "oem_notes": "Already in ADAPT (fast-ui). The preference key on the screen was renamed in Android 16; the settings key did not change. Values of 5 or 10 are a slow-motion mode for spotting animation bugs.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "fast-ui"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.simulate_secondary_displays",
+   "ui_name": "Simulate secondary displays",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Global overlay_display_devices, for example 1920x1080/320",
+   "read_cmd": "settings get global overlay_display_devices",
+   "write_cmd": "settings put global overlay_display_devices 1920x1080/320",
+   "restore_cmd": "SNAPSHOT (settings delete when absent)",
+   "value_type": "string WxH/DPI[;...]",
+   "default": "absent",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Draws the extra display as an overlay on the phone screen; it is owned by the system and trusted. ADAPT deliberately does not write this today. Samsung may not honour it.",
+   "sources": [
+    "https://source.android.com/docs/core/display/multi_display/testing-dev-environment"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.shade_display_awareness",
+   "ui_name": "Shade display position",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Not read",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "enum",
+   "default": null,
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Chooses which display shows the notification shade with connected displays. Backing key not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Shade display position\" (section: Drawing). ADAPT cannot change it from the shell. Chooses which display shows the notification shade with connected displays. Backing key not verified."
+  },
+  {
+   "id": "aosp.smallest_width",
+   "ui_name": "Smallest width",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Display density override (same as wm density); Settings.Secure display_density_forced",
+   "read_cmd": "wm density",
+   "write_cmd": "wm density DPI",
+   "restore_cmd": "wm density reset (or wm density SAVED_OVERRIDE)",
+   "value_type": "int dpi",
+   "default": "physical density",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "display_desktop"
+   ],
+   "oem_notes": "See adb.wm_density. Extreme values can make the device hard to operate; clamp to a safe range.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.display_cutout_emulation",
+   "ui_name": "Display cutout",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Runtime resource overlays in category com.android.internal.display_cutout_emulation",
+   "read_cmd": "cmd overlay list | grep cutout",
+   "write_cmd": "cmd overlay enable-exclusive --category com.android.internal.display.cutout.emulation.tall",
+   "restore_cmd": "cmd overlay disable OVERLAY_PKG, then re-enable the overlay that was enabled before",
+   "value_type": "overlay package",
+   "default": "device default (none)",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "display_desktop"
+   ],
+   "oem_notes": "Overlay package names differ per release and OEM (corner, double, hole, tall, waterfall). Read the list first. Samsung often ships none.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.transparent_navigation_bar",
+   "ui_name": "Transparent navigation bar",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Overlay com.android.internal.systemui.navbar.transparent",
+   "read_cmd": "cmd overlay list | grep navbar.transparent",
+   "write_cmd": "cmd overlay enable --user current com.android.internal.systemui.navbar.transparent",
+   "restore_cmd": "cmd overlay disable --user current com.android.internal.systemui.navbar.transparent",
+   "value_type": "overlay state",
+   "default": "disabled",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout"
+   ],
+   "oem_notes": "For edge-to-edge testing with three-button navigation. Absent on Samsung.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/TransparentNavigationBarPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.contrast",
+   "ui_name": "Contrast",
+   "section": "Drawing (Android 14 only; later under Display or Accessibility)",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure contrast_level (-1.0 to 1.0)",
+   "read_cmd": "settings get secure contrast_level",
+   "write_cmd": "settings put secure contrast_level 1.0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float",
+   "default": "0",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "layout"
+   ],
+   "oem_notes": "On the developer screen in Android 14 only; the key remains. Affects Material You colour contrast.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.text_cursor_blink_rate",
+   "ui_name": "Text cursor blink rate",
+   "section": "Drawing",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure accessibility_text_cursor_blink_interval_ms",
+   "read_cmd": "settings get secure accessibility_text_cursor_blink_interval_ms",
+   "write_cmd": "settings put secure accessibility_text_cursor_blink_interval_ms 0",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int ms",
+   "default": "500",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility"
+   ],
+   "oem_notes": "A non-blinking cursor makes screenshot comparison stable. Key name taken from the preference key; verify on a device.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_view_updates",
+   "ui_name": "Show view updates",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.show_dirty_regions",
+   "read_cmd": "getprop debug.hwui.show_dirty_regions",
+   "write_cmd": "setprop debug.hwui.show_dirty_regions true",
+   "restore_cmd": "PROP_EMPTY",
+   "value_type": "boolean string",
+   "default": "empty",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Flashing display: warn photosensitive users.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_hw_layers_updates",
+   "ui_name": "Show hardware layers updates",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.show_layers_updates",
+   "read_cmd": "getprop debug.hwui.show_layers_updates",
+   "write_cmd": "setprop debug.hwui.show_layers_updates true",
+   "restore_cmd": "PROP_EMPTY",
+   "value_type": "boolean string",
+   "default": "empty",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.debug_gpu_overdraw",
+   "ui_name": "Debug GPU overdraw",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.overdraw (false, show, show_deuteranomaly)",
+   "read_cmd": "getprop debug.hwui.overdraw",
+   "write_cmd": "setprop debug.hwui.overdraw show",
+   "restore_cmd": "setprop debug.hwui.overdraw false",
+   "value_type": "string",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "layout"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/DebugGpuOverdrawPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.debug_non_rect_clip",
+   "ui_name": "Debug non-rectangular clip operations",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.show_non_rect_clip (hide, highlight, stencil)",
+   "read_cmd": "getprop debug.hwui.show_non_rect_clip",
+   "write_cmd": "setprop debug.hwui.show_non_rect_clip highlight",
+   "restore_cmd": "setprop debug.hwui.show_non_rect_clip hide",
+   "value_type": "string",
+   "default": "hide",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.override_force_dark",
+   "ui_name": "Override force-dark",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.force_dark",
+   "read_cmd": "getprop debug.hwui.force_dark",
+   "write_cmd": "setprop debug.hwui.force_dark true",
+   "restore_cmd": "PROP_EMPTY",
+   "value_type": "boolean string",
+   "default": "empty",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "compatibility"
+   ],
+   "oem_notes": "Only acts while dark theme is on. Shows how an app without a dark theme looks under forced darkening.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ForceDarkPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "accessibility-display"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.window_blurs",
+   "ui_name": "Allow window-level blurs",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "Settings.Global disable_window_blurs (inverted: 1 = blurs off)",
+   "read_cmd": "settings get global disable_window_blurs",
+   "write_cmd": "settings put global disable_window_blurs 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "layout"
+   ],
+   "oem_notes": "Shown only when the device supports cross-window blur. Turning blurs off approximates a low-end GPU.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/EnableBlursPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.force_msaa",
+   "ui_name": "Force 4x MSAA",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "System property debug.egl.force_msaa",
+   "read_cmd": "getprop debug.egl.force_msaa",
+   "write_cmd": "setprop debug.egl.force_msaa true",
+   "restore_cmd": "setprop debug.egl.force_msaa false",
+   "value_type": "boolean string",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "OpenGL ES 2.0 apps only.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.disable_hw_overlays",
+   "ui_name": "Disable HW overlays",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "SurfaceFlinger binder transaction 1008 (write), 1010 (read)",
+   "read_cmd": "service call SurfaceFlinger 1010",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Raw Binder call with a hard-to-parse readback. Guide only. Clears on reboot.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/HardwareOverlaysPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Disable HW overlays\" (section: Hardware accelerated rendering). ADAPT cannot change it from the shell. Raw Binder call with a hard-to-parse readback. Guide only. Clears on reboot."
+  },
+  {
+   "id": "aosp.simulate_color_space",
+   "ui_name": "Simulate color space",
+   "section": "Hardware accelerated rendering",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure accessibility_display_daltonizer_enabled and accessibility_display_daltonizer (0 monochromacy, 11 protanomaly, 12 deuteranomaly, 13 tritanomaly)",
+   "read_cmd": "settings get secure accessibility_display_daltonizer_enabled ; settings get secure accessibility_display_daltonizer",
+   "write_cmd": "settings put secure accessibility_display_daltonizer 0 ; settings put secure accessibility_display_daltonizer_enabled 1",
+   "restore_cmd": "SNAPSHOT for both keys",
+   "value_type": "int plus int mode",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "layout"
+   ],
+   "oem_notes": "Screenshots taken with screencap do not show the colour transform; only the panel does. Shares keys with the Accessibility colour correction setting.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/SimulateColorSpacePreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "accessibility-display"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.usb_audio_routing",
+   "ui_name": "Disable USB audio routing",
+   "section": "Media",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure usb_audio_automatic_routing_disabled",
+   "read_cmd": "settings get secure usb_audio_automatic_routing_disabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.media_transcoding",
+   "ui_name": "Media transcoding settings",
+   "section": "Media (sub-page)",
+   "layer": "aosp",
+   "mechanism": "persist.sys.fuse.transcode_* system properties",
+   "read_cmd": "getprop | grep transcode",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "mixed",
+   "default": null,
+   "min_api": 31,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "For testing HEVC to AVC compatible media transcoding.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android12-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Media transcoding settings\" (section: Media (sub-page)). ADAPT cannot change it from the shell. For testing HEVC to AVC compatible media transcoding."
+  },
+  {
+   "id": "aosp.media_drm",
+   "ui_name": "Media DRM settings",
+   "section": "Media (sub-page)",
+   "layer": "aosp",
+   "mechanism": "Widevine security level override",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "mixed",
+   "default": null,
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Forces software secure crypto (Widevine L3) for playback tests.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android15-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Media DRM settings\" (section: Media (sub-page)). ADAPT cannot change it from the shell. Forces software secure crypto (Widevine L3) for playback tests."
+  },
+  {
+   "id": "aosp.strict_mode",
+   "ui_name": "Strict mode enabled",
+   "section": "Monitoring",
+   "layer": "aosp",
+   "mechanism": "IWindowManager.setStrictModeVisualIndicatorPreference; property persist.sys.strictmode.visual",
+   "read_cmd": "getprop persist.sys.strictmode.visual",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance",
+    "debugging"
+   ],
+   "oem_notes": "persist.sys.* is not writable by the shell user. Flashes the screen on main-thread disk or network work.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/StrictModePreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Strict mode enabled\" (section: Monitoring). ADAPT cannot change it from the shell. persist.sys.* is not writable by the shell user. Flashes the screen on main-thread disk or network work."
+  },
+  {
+   "id": "aosp.profile_hwui_rendering",
+   "ui_name": "Profile HWUI rendering",
+   "section": "Monitoring",
+   "layer": "aosp",
+   "mechanism": "System property debug.hwui.profile (false, visual_bars, true = record for dumpsys gfxinfo)",
+   "read_cmd": "getprop debug.hwui.profile",
+   "write_cmd": "setprop debug.hwui.profile visual_bars",
+   "restore_cmd": "setprop debug.hwui.profile false",
+   "value_type": "string",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "poke",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "For numbers instead of bars, dumpsys gfxinfo PKG framestats works without this property.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/ProfileGpuRenderingPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.dont_keep_activities",
+   "ui_name": "Don't keep activities",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "IActivityManager.setAlwaysFinish, which stores Settings.Global always_finish_activities",
+   "read_cmd": "settings get global always_finish_activities",
+   "write_cmd": "settings put global always_finish_activities 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle"
+   ],
+   "oem_notes": "The Settings app goes through a Binder call, not a plain settings write. Whether a direct settings put takes effect without a reboot must be checked on a device; a readback of the key alone does not prove the behaviour.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/KeepActivitiesPreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "lifecycle-stress"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.background_process_limit",
+   "ui_name": "Background process limit",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "IActivityManager.setProcessLimit; no settings key",
+   "read_cmd": "dumpsys activity processes | grep -i 'process limit'",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int -1 to 4",
+   "default": "-1 (standard)",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "lifecycle",
+    "performance"
+   ],
+   "oem_notes": "No documented shell command. Resets at reboot. Good low-memory simulation, but the user must set it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/BackgroundProcessLimitPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Background process limit\" (section: Apps). ADAPT cannot change it from the shell. No documented shell command. Resets at reboot. Good low-memory simulation, but the user must set it."
+  },
+  {
+   "id": "aosp.background_check",
+   "ui_name": "Background check",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "AppOps RUN_IN_BACKGROUND per app",
+   "read_cmd": "cmd appops get PKG RUN_IN_BACKGROUND",
+   "write_cmd": "cmd appops set PKG RUN_IN_BACKGROUND ignore",
+   "restore_cmd": "cmd appops set PKG RUN_IN_BACKGROUND SAVED_MODE",
+   "value_type": "appop mode",
+   "default": "allow",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle",
+    "power"
+   ],
+   "oem_notes": "See adb.background_restriction for the user-facing restriction (RUN_ANY_IN_BACKGROUND).",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.show_first_crash_dialog",
+   "ui_name": "Always show crash dialog",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure show_first_crash_dialog_dev_option (with Settings.Global show_first_crash_dialog)",
+   "read_cmd": "settings get secure show_first_crash_dialog_dev_option",
+   "write_cmd": "settings put secure show_first_crash_dialog_dev_option 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle",
+    "debugging"
+   ],
+   "oem_notes": "Makes every crash visible instead of only repeated ones. Samsung shows its own crash dialog.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "lifecycle-stress"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.show_background_anrs",
+   "ui_name": "Show background ANRs",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Secure anr_show_background (per user)",
+   "read_cmd": "settings --user USER get secure anr_show_background",
+   "write_cmd": "settings --user USER put secure anr_show_background 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle",
+    "debugging"
+   ],
+   "oem_notes": "ADAPT reads it today but has no profile.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "lifecycle-stress"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.cached_apps_freezer",
+   "ui_name": "Suspend execution for cached apps",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global cached_apps_freezer (device_default, enabled, disabled); the Settings app reboots after the change",
+   "read_cmd": "settings get global cached_apps_freezer",
+   "write_cmd": "settings put global cached_apps_freezer enabled",
+   "restore_cmd": "SNAPSHOT, then a reboot by the user",
+   "value_type": "string enum",
+   "default": "device_default",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle",
+    "power"
+   ],
+   "oem_notes": "Needs a user reboot both to apply and to restore. On by default from Android 12 on most devices.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/CachedAppsFreezerPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.notification_channel_warnings",
+   "ui_name": "Show notification channel warnings",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global show_notification_channel_warnings",
+   "read_cmd": "settings get global show_notification_channel_warnings",
+   "write_cmd": "settings put global show_notification_channel_warnings 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility",
+    "debugging"
+   ],
+   "oem_notes": "Shows a toast when an app posts a notification without a valid channel.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.reset_notification_importance",
+   "ui_name": "Reset notification importance",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "NotificationManager action",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 31,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Irreversible reset of user-changed importance for all apps.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android12-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Reset notification importance\" (section: Apps). ADAPT cannot change it from the shell. Irreversible reset of user-changed importance for all apps."
+  },
+  {
+   "id": "aosp.standby_apps",
+   "ui_name": "Standby apps",
+   "section": "Apps (sub-page)",
+   "layer": "aosp",
+   "mechanism": "App standby buckets",
+   "read_cmd": "am get-standby-bucket PKG",
+   "write_cmd": "am set-standby-bucket PKG active|working_set|frequent|rare|restricted",
+   "restore_cmd": "am set-standby-bucket PKG SAVED_BUCKET",
+   "value_type": "bucket (10 active, 20 working_set, 30 frequent, 40 rare, 45 restricted)",
+   "default": "depends on use",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "lifecycle"
+   ],
+   "oem_notes": "restricted exists from Android 12. The system moves the bucket again when the app is used, so read it back right before the test. Samsung adds sleeping and deep sleeping apps on top.",
+   "sources": [
+    "https://developer.android.com/about/versions/12/behavior-changes-all"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "battery-doze"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.tare",
+   "ui_name": "TARE settings (The Android Resource Economy)",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_tare and tare_* constants",
+   "read_cmd": "settings get global enable_tare",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 33,
+   "max_api": 35,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "power"
+   ],
+   "oem_notes": "Experimental; removed from the screen in Android 16.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android13-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.force_allow_on_external",
+   "ui_name": "Force allow apps on external",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global force_allow_on_external",
+   "read_cmd": "settings get global force_allow_on_external",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Only matters with adoptable storage.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.force_resizable_activities",
+   "ui_name": "Force activities to be resizable",
+   "section": "Apps (Android 16+: Window management)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global force_resizable_activities",
+   "read_cmd": "settings get global force_resizable_activities",
+   "write_cmd": "settings put global force_resizable_activities 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop",
+    "compatibility"
+   ],
+   "oem_notes": "Guides say a reboot is needed. On Samsung the same behaviour is offered as Labs > Multi window for all apps (One UI 4 and later).",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.enable_freeform_support",
+   "ui_name": "Enable freeform windows",
+   "section": "Apps (Android 16+: Window management)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_freeform_support",
+   "read_cmd": "settings get global enable_freeform_support",
+   "write_cmd": "settings put global enable_freeform_support 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Already in ADAPT (desktop-testing). The Settings app asks for a reboot when enabling.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/desktopexperience/FreeformWindowsPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "desktop-testing"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.force_desktop_mode",
+   "ui_name": "Force desktop mode (Android 16+: Enable desktop mode on secondary display)",
+   "section": "Apps (Android 16+: Window management)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global force_desktop_mode_on_external_displays; in Android 16 the toggle also writes enable_freeform_support",
+   "read_cmd": "settings get global force_desktop_mode_on_external_displays",
+   "write_cmd": "settings put global force_desktop_mode_on_external_displays 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Already in ADAPT (desktop-testing). AOSP documents a reboot after enabling. Samsung ignores it in favour of DeX.",
+   "sources": [
+    "https://source.android.com/docs/core/display/multi_display/testing-dev-environment",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/desktopexperience/DesktopModeSecondaryDisplayPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "desktop-testing"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "aosp.non_resizable_multi_window",
+   "ui_name": "Enable non-resizable in multi window",
+   "section": "Apps (Android 16+: Window management)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_non_resizable_multi_window",
+   "read_cmd": "settings get global enable_non_resizable_multi_window",
+   "write_cmd": "settings put global enable_non_resizable_multi_window 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 31,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop",
+    "compatibility"
+   ],
+   "oem_notes": "Lets apps declared non-resizable enter split screen and freeform without being resized.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/window/NonResizableMultiWindowPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.sizecompat_freeform",
+   "ui_name": "Enable freeform sizecompat",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_sizecompat_freeform",
+   "read_cmd": "settings get global enable_sizecompat_freeform",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": 30,
+   "needs_reboot": "unknown",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Android 11 only.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android11-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.override_desktop_mode_features",
+   "ui_name": "Enable freeform windows / desktop mode features (override)",
+   "section": "Window management",
+   "layer": "aosp",
+   "mechanism": "Settings.Global override_desktop_mode_features (ToggleOverride: unset, off, on); the Settings app shows a reboot dialog",
+   "read_cmd": "settings get global override_desktop_mode_features",
+   "write_cmd": "settings put global override_desktop_mode_features 1",
+   "restore_cmd": "SNAPSHOT (settings delete when absent), then a reboot by the user",
+   "value_type": "int enum",
+   "default": "absent (unset)",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "The numeric values of the override enum were not read from source: verify on a device before building. Devices without desktop windowing support ignore it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/desktopexperience/DesktopModePreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.override_desktop_experience_features",
+   "ui_name": "Enable desktop experience features",
+   "section": "Window management",
+   "layer": "aosp",
+   "mechanism": "Settings.Global override_desktop_experience_features (ToggleOverride); the Settings app shows a reboot dialog",
+   "read_cmd": "settings get global override_desktop_experience_features",
+   "write_cmd": "settings put global override_desktop_experience_features 1",
+   "restore_cmd": "SNAPSHOT (settings delete when absent), then a reboot by the user",
+   "value_type": "int enum",
+   "default": "absent (unset)",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Google introduced it for Pixel 8 and 9 series on Android 16 QPR1 Beta 2. Connected-display desktop became generally available on supported devices with Android 16 QPR3, so the override matters less there. Enum values not verified.",
+   "sources": [
+    "https://android-developers.googleblog.com/2025/06/developer-preview-enhanced-android-desktop-experiences-connected-displays.html",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/desktopexperience/DesktopExperiencePreferenceController.java"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.predictive_back_animations",
+   "ui_name": "Predictive back animations",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_back_animation",
+   "read_cmd": "settings get global enable_back_animation",
+   "write_cmd": "settings put global enable_back_animation 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 33,
+   "max_api": 36,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "compatibility"
+   ],
+   "oem_notes": "On the screen from Android 13 until Android 16; removed in Android 16 QPR2 because the animations are on by default. Samsung enabled system back animations later than Pixel.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/src/com/android/settings/development/BackAnimationPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.reset_shortcut_throttling",
+   "ui_name": "Reset ShortcutManager rate-limiting",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "shortcut service",
+   "read_cmd": "dumpsys shortcut",
+   "write_cmd": "cmd shortcut reset-throttling",
+   "restore_cmd": "none needed (one-time action)",
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Harmless one-time reset; nothing to snapshot.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.disable_child_process_restrictions",
+   "ui_name": "Disable child process restrictions",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Feature flag settings_enable_monitor_phantom_procs (Settings.Global); Android 12 used device_config activity_manager max_phantom_processes",
+   "read_cmd": "settings get global settings_enable_monitor_phantom_procs",
+   "write_cmd": "settings put global settings_enable_monitor_phantom_procs false",
+   "restore_cmd": "SNAPSHOT (settings delete when absent)",
+   "value_type": "boolean string",
+   "default": "absent (monitor on)",
+   "min_api": 32,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle"
+   ],
+   "oem_notes": "The switch is on the screen from Android 14; on 12L and 13 the same flag sits on the Feature flags page. The default limit is 32 child processes across all apps. The Android 12 device_config route may be blocked for the shell from Android 14. Samsung keeps its own process management.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/PhantomProcessPreferenceController.java",
+    "https://github.com/agnostic-apollo/Android-Docs/blob/master/en/docs/apps/processes/phantom-cached-and-empty-processes.md"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.force_enable_notes_role",
+   "ui_name": "Force enable Notes role",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "System property for the notes role",
+   "read_cmd": "cmd role get-role-holders android.app.role.NOTES",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "For testing note-taking apps on devices that do not enable the role.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android14-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Force enable Notes role\" (section: Apps). ADAPT cannot change it from the shell. For testing note-taking apps on devices that do not enable the role."
+  },
+  {
+   "id": "aosp.disable_screen_share_protections",
+   "ui_name": "Disable screen share protections",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Settings.Global disable_screen_share_protections_for_apps_and_notifications",
+   "read_cmd": "settings get global disable_screen_share_protections_for_apps_and_notifications",
+   "write_cmd": "settings put global disable_screen_share_protections_for_apps_and_notifications 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "security",
+    "debugging"
+   ],
+   "oem_notes": "Android 15 hides notifications, one-time passwords and login fields during screen sharing and recording, which also blanks them in scrcpy and screenrecord. This turns that off for a demo or test. Key name taken from the preference key; verify on a device. Privacy trade-off: always restore.",
+   "sources": [
+    "https://developer.android.com/studio/debug/dev-options",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android15-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.webapp_minter",
+   "ui_name": "Enable web app minter (string name enable_webapp_minter_title)",
+   "section": "Apps",
+   "layer": "aosp",
+   "mechanism": "Not read",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": null,
+   "min_api": 37,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "New in android17-release. The on-screen label and purpose were not verified.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Enable web app minter (string name enable_webapp_minter_title)\" (section: Apps). ADAPT cannot change it from the shell. New in android17-release. The on-screen label and purpose were not verified."
+  },
+  {
+   "id": "aosp.autofill_logging",
+   "ui_name": "Autofill: logging level, max requests per session, max visible datasets, reset",
+   "section": "Autofill",
+   "layer": "aosp",
+   "mechanism": "Settings.Global autofill_logging_level (0 off, 2 debug, 4 verbose), autofill_max_partitions_size, autofill_max_visible_datasets",
+   "read_cmd": "settings get global autofill_logging_level",
+   "write_cmd": "settings put global autofill_logging_level 4",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "logging",
+    "input_accessibility"
+   ],
+   "oem_notes": "Verbose autofill logs can contain form field values.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.shared_data",
+   "ui_name": "Shared data",
+   "section": "Storage",
+   "layer": "aosp",
+   "mechanism": "Blob store service viewer",
+   "read_cmd": "dumpsys blob_store",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "report",
+   "default": null,
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android11-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "aosp.mock_location_app",
+   "ui_name": "Select mock location app",
+   "section": "Debugging (Android 12+: Location)",
+   "layer": "aosp",
+   "mechanism": "AppOps android:mock_location for one app",
+   "read_cmd": "cmd appops get PKG android:mock_location",
+   "write_cmd": "cmd appops set PKG android:mock_location allow",
+   "restore_cmd": "cmd appops set PKG android:mock_location SAVED_MODE (the Settings app uses the errored mode for removal)",
+   "value_type": "appop mode",
+   "default": "default (not allowed)",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility",
+    "security"
+   ],
+   "oem_notes": "The app must also declare ACCESS_MOCK_LOCATION. Only one app should hold it.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/MockLocationAppPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.gnss_full_tracking",
+   "ui_name": "Force full GNSS measurements",
+   "section": "Debugging (Android 12+: Location)",
+   "layer": "aosp",
+   "mechanism": "Settings.Global enable_gnss_raw_meas_full_tracking",
+   "read_cmd": "settings get global enable_gnss_raw_meas_full_tracking",
+   "write_cmd": "settings put global enable_gnss_raw_meas_full_tracking 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "compatibility"
+   ],
+   "oem_notes": "Disables GNSS duty cycling; raises battery use.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android17-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "aosp.location_indicators",
+   "ui_name": "Show location indicator",
+   "section": "Location",
+   "layer": "aosp",
+   "mechanism": "device_config privacy location_indicators_enabled",
+   "read_cmd": "device_config get privacy location_indicators_enabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "true",
+   "min_api": 31,
+   "max_api": 35,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "Removed from the screen in Android 16.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android12-release/res/xml/development_settings.xml"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "pixel.linux_terminal",
+   "ui_name": "Linux development environment",
+   "section": "Debugging",
+   "layer": "pixel",
+   "mechanism": "Android Virtualization Framework running a Debian VM; enables the Terminal app. AOSP preference key linux_terminal from android16-release",
+   "read_cmd": "pm list packages com.android.virtualization.terminal ; getprop ro.boot.hypervisor.vm.supported",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "debugging",
+    "compatibility"
+   ],
+   "oem_notes": "Pixel from Android 15 QPR2 (March 2025). Other OEMs from Android 16 and only on supported chipsets: press reports name Galaxy Z Flip 7 and Galaxy Tab S11 as supporting it and Z Fold 7 and S25 Ultra as not. Downloads several hundred megabytes on first use.",
+   "sources": [
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/res/xml/development_settings.xml",
+    "https://www.androidauthority.com/galaxy-z-flip-7-linux-terminal-3578675"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Linux development environment\" (section: Debugging). ADAPT cannot change it from the shell. Pixel from Android 15 QPR2 (March 2025). Other OEMs from Android 16 and only on supported chipsets: press reports name Galaxy Z Flip 7 and Galaxy Tab S11 as supporting it and Z Fold 7 and S25 Ultra as not. Downloads several hundred megabytes on first use."
+  },
+  {
+   "id": "pixel.boot_16kb_page_size",
+   "ui_name": "Boot with 16KB page size",
+   "section": "General",
+   "layer": "pixel",
+   "mechanism": "Settings.Global enable_16k_pages; applies a kernel OTA payload and reboots. AOSP preference key enable_16k_pages",
+   "read_cmd": "getconf PAGE_SIZE ; settings get global enable_16k_pages",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 35,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Pixel 8, 8 Pro and 8a from Android 15 QPR1; Pixel 9, 9 Pro and 9 Pro XL from Android 15 QPR2; Pixel 9a from Android 16. The AOSP controller checks OEM unlock and the ext4 file system first, and those steps wipe the device. Never automate; ADAPT can only read the page size and guide.",
+   "sources": [
+    "https://developer.android.com/guide/practices/page-sizes",
+    "https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/android16-release/src/com/android/settings/development/Enable16kPagesPreferenceController.java"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. Pixel 8, 8 Pro and 8a from Android 15 QPR1; Pixel 9, 9 Pro and 9 Pro XL from Android 15 QPR2; Pixel 9a from Android 16. The AOSP controller checks OEM unlock and the ext4 file system first, and those steps wipe the device. Never automate; ADAPT can only read the page size and guide."
+  },
+  {
+   "id": "pixel.page_size_compat_mode",
+   "ui_name": "16 KB backcompat mode (device-wide override; per app: Run app with page size compat mode)",
+   "section": "adb only",
+   "layer": "pixel",
+   "mechanism": "System properties bionic.linker.16kb.app_compat.enabled (true, false, fatal on Android 17) and pm.16kb.app_compat.disabled",
+   "read_cmd": "getprop bionic.linker.16kb.app_compat.enabled ; getprop pm.16kb.app_compat.disabled",
+   "write_cmd": "setprop bionic.linker.16kb.app_compat.enabled false ; setprop pm.16kb.app_compat.disabled true",
+   "restore_cmd": "setprop both properties back to the saved values (or empty)",
+   "value_type": "string",
+   "default": "empty",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Meaningful only on a device already running a 16 KB kernel. Forcing compat off (or fatal on Android 17) makes binaries with 4 KB alignment fail, which is the check Google Play requires for updates targeting Android 15 and higher from 1 February 2027. Any device or emulator with a 16 KB kernel, not only Pixel.",
+   "sources": [
+    "https://developer.android.com/guide/practices/page-sizes"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "pixel.connected_display_desktop",
+   "ui_name": "Desktop windowing on connected displays (Pixel availability)",
+   "section": "Window management",
+   "layer": "pixel",
+   "mechanism": "Same keys as aosp.override_desktop_experience_features and aosp.force_desktop_mode",
+   "read_cmd": "settings get global override_desktop_experience_features ; dumpsys display | grep -i mDisplayId",
+   "write_cmd": "see aosp.override_desktop_experience_features",
+   "restore_cmd": "see aosp.override_desktop_experience_features",
+   "value_type": "int enum",
+   "default": "absent",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Developer preview on Pixel 8 and 9 series with Android 16 QPR1 Beta 2; general availability on supported devices with Android 16 QPR3; Android 17 adds per-display eligibility. Needs DisplayPort output, which Pixel 8 and later have.",
+   "sources": [
+    "https://android-developers.googleblog.com/2025/06/developer-preview-enhanced-android-desktop-experiences-connected-displays.html"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "pixel.device_config_flags",
+   "ui_name": "Server-pushed flags (device_config)",
+   "section": "adb only",
+   "layer": "pixel",
+   "mechanism": "DeviceConfig namespaces",
+   "read_cmd": "device_config list",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "namespace/flag=value list",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "From Android 14 the shell user can write only allowlisted namespaces and flags, and Google can overwrite values at any sync. Treat as read-only evidence of what the build has switched on.",
+   "sources": [
+    "https://www.esper.io/blog/android-14-device-config-block"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "pixel.identity",
+   "ui_name": "Pixel detection",
+   "section": "adb only",
+   "layer": "pixel",
+   "mechanism": "Build properties",
+   "read_cmd": "getprop ro.product.manufacturer ; getprop ro.product.brand ; getprop ro.product.device ; getprop ro.soc.model ; getprop ro.build.id",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "strings",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Pixel: manufacturer Google and brand google. ro.build.id carries the release train (for example BP1A is Android 15 QPR2, per press reports), which is how a QPR can be told apart since the API level does not change. ro.soc.model exists from Android 12.",
+   "sources": [
+    "https://www.androidauthority.com/android-linux-terminal-app-available-3532999"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.identity",
+   "ui_name": "Samsung and One UI version detection",
+   "section": "adb only",
+   "layer": "samsung",
+   "mechanism": "Build properties ro.build.version.oneui, ro.build.version.sem, ro.build.version.sep",
+   "read_cmd": "getprop ro.product.manufacturer ; getprop ro.build.version.oneui ; getprop ro.build.version.sep ; getprop ro.build.version.sem ; getprop ro.csc.sales_code",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "strings",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "ro.build.version.oneui is a five-digit code: 60000 = 6.0, 60100 = 6.1, 60101 = 6.1.1, 80500 = 8.5 (values seen in public build.prop dumps; Samsung does not document the format). Older builds expose only sep, the Samsung platform version. ro.csc.sales_code tells carrier variants apart, which matters because US carrier models hide OEM unlocking.",
+   "sources": [
+    "https://github.com/Fede2782/oneCompleter/blob/sep-15.x/customize.sh",
+    "https://en.wikipedia.org/wiki/One_UI"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.auto_blocker",
+   "ui_name": "Auto Blocker",
+   "section": "Settings > Security and privacy",
+   "layer": "samsung",
+   "mechanism": "Samsung security service (package com.samsung.android.rampart per the Galaxy Store listing); backing settings key not known",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean plus sub-toggles",
+   "default": "on for devices released with One UI 6.1.1 or later",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "security",
+    "debugging"
+   ],
+   "oem_notes": "One UI 6.0 and later. Protections: blocks apps from unauthorized sources, blocks commands by USB cable, blocks malware images in messaging apps, blocks non-official software updates. Users and Samsung developer forum staff report that it switches USB debugging off and greys it out. When adb fails on a Samsung device, tell the user to check this first. A community post claims One UI 9 cuts the USB data connection entirely while it is on; not confirmed by Samsung.",
+   "sources": [
+    "https://www.samsung.com/us/support/answer/ANS10003636/",
+    "https://forum.developer.samsung.com/t/s24-ultra-developer-option-usb-debugging-greyed-out/29526/10"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Security and privacy (Auto Blocker). ADAPT cannot change it from the shell. One UI 6.0 and later. Protections: blocks apps from unauthorized sources, blocks commands by USB cable, blocks malware images in messaging apps, blocks non-official software updates. Users and Samsung developer forum staff report that it switches USB debugging off and greys it out. When adb fails on a Samsung device, tell the user to check this first. A community post claims One UI 9 cuts the USB data connection entirely while it is on; not confirmed by Samsung."
+  },
+  {
+   "id": "samsung.maximum_restrictions",
+   "ui_name": "Auto Blocker > Maximum restrictions",
+   "section": "Settings > Security and privacy > Auto Blocker",
+   "layer": "samsung",
+   "mechanism": "Samsung security service",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 34,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "security",
+    "network"
+   ],
+   "oem_notes": "From One UI 6.1.1. Turns on app protection, blocks device admin apps (and work profiles), blocks 2G, blocks auto reconnection to non-secure Wi-Fi, blocks hyperlinks and previews, blocks shared albums, removes location data when sharing pictures. Affects network, MDM and messaging tests.",
+   "sources": [
+    "https://www.samsung.com/us/support/answer/ANS10003636/"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Security and privacy > Auto Blocker (Auto Blocker > Maximum restrictions). ADAPT cannot change it from the shell. From One UI 6.1.1. Turns on app protection, blocks device admin apps (and work profiles), blocks 2G, blocks auto reconnection to non-secure Wi-Fi, blocks hyperlinks and previews, blocks shared albums, removes location data when sharing pictures. Affects network, MDM and messaging tests."
+  },
+  {
+   "id": "samsung.gpuwatch",
+   "ui_name": "GPUWatch",
+   "section": "Developer options",
+   "layer": "samsung",
+   "mechanism": "Samsung overlay app; backing key not known",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean plus overlay options",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Overlay with frame rate, CPU and GPU load, graphics API, resolution and driver. v1.0 on Android 9, v1.5 on Android 10, v2.0 on Android 11 (all Samsung phones). Reported missing on some models (XCover 7, A55) and hidden while the USB security setting is on.",
+   "sources": [
+    "https://developer.samsung.com/galaxy-gamedev/gpuwatch.html",
+    "https://forum.developer.samsung.com/t/gpuwatch-missind/29661"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"GPUWatch\" (section: Developer options). ADAPT cannot change it from the shell. Overlay with frame rate, CPU and GPU load, graphics API, resolution and driver. v1.0 on Android 9, v1.5 on Android 10, v2.0 on Android 11 (all Samsung phones). Reported missing on some models (XCover 7, A55) and hidden while the USB security setting is on."
+  },
+  {
+   "id": "samsung.game_optimizing_service",
+   "ui_name": "Game Optimizing Service (GOS) throttling",
+   "section": "Not on device UI",
+   "layer": "samsung",
+   "mechanism": "System package com.samsung.android.game.gos (older: com.enhance.gameservice)",
+   "read_cmd": "pm list packages -d | grep -e game.gos -e gameservice ; dumpsys gamemanager",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "package state",
+   "default": "enabled",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Throttles apps it classifies as games, which skews performance numbers. Forums describe pm disable-user --user 0 for the package and also report a watchdog re-enabling it; all of that is unofficial, so ADAPT should only report the package state alongside any performance capture.",
+   "sources": [
+    "https://forum.developer.samsung.com/t/disabling-game-optimizing-service-doesnt-work/13690"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.service_code_hardware_test",
+   "ui_name": "*#0*# hardware test menu",
+   "section": "Samsung Phone app dialer",
+   "layer": "samsung",
+   "mechanism": "Samsung service-mode app",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "menu",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "input_accessibility",
+    "display_desktop"
+   ],
+   "oem_notes": "Display colours, touch grid, sensors, speaker, camera, S Pen. Works only in the Samsung Phone app; carriers and newer One UI releases disable some codes. Wi-Fi-only tablets have no dialer.",
+   "sources": [
+    "https://www.androidauthority.com/secret-dialer-codes-samsung-phones-3684761/"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: dial the code in the Samsung Phone app (*#0*# hardware test menu); codes differ by model and carrier. ADAPT cannot change it from the shell. Display colours, touch grid, sensors, speaker, camera, S Pen. Works only in the Samsung Phone app; carriers and newer One UI releases disable some codes. Wi-Fi-only tablets have no dialer."
+  },
+  {
+   "id": "samsung.service_code_sysdump",
+   "ui_name": "*#9900# SysDump (Run dumpstate/logcat, Copy to sdcard, Debug Level)",
+   "section": "Samsung Phone app dialer",
+   "layer": "samsung",
+   "mechanism": "Samsung SysDump service-mode app",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "menu",
+   "default": "Debug Level Low",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "Samsung's Knox documentation uses it to collect logs. Raising Debug Level to Mid restarts the device and should be set back to Low afterwards. The menu labels here came from a summary of the Samsung page and should be checked on a device.",
+   "sources": [
+    "https://docs.samsungknox.com/admin/knox-manage/original-console/monitor/collect-bug-reports/"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: dial the code in the Samsung Phone app (*#9900# SysDump (Run dumpstate/logcat, Copy to sdcard, Debug Level)); codes differ by model and carrier. ADAPT cannot change it from the shell. Samsung's Knox documentation uses it to collect logs. Raising Debug Level to Mid restarts the device and should be set back to Low afterwards. The menu labels here came from a summary of the Samsung page and should be checked on a device."
+  },
+  {
+   "id": "samsung.service_code_usb_settings",
+   "ui_name": "*#0808# USB settings",
+   "section": "Samsung Phone app dialer",
+   "layer": "samsung",
+   "mechanism": "Samsung service-mode app changing the USB function set",
+   "read_cmd": "svc usb getFunctions",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "menu",
+   "default": "MTP + ADB",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "yes",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "Choosing a set without ADB removes the debug connection until someone changes it back on the device. Never guide a user here without a clear warning.",
+   "sources": [
+    "https://www.xda-developers.com/android-secret-codes/"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. Choosing a set without ADB removes the debug connection until someone changes it back on the device. Never guide a user here without a clear warning."
+  },
+  {
+   "id": "samsung.verbose_debug_logging",
+   "ui_name": "Verbose debug logging switch (owner-reported label)",
+   "section": "Developer options",
+   "layer": "samsung",
+   "mechanism": "Not known; firmware-specific",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "logging"
+   ],
+   "oem_notes": "No public source found for this label or its key. It is not AOSP verbose vendor logging and not SysDump Debug Level. Find the key by diffing settings list before and after toggling it on a device.",
+   "sources": [
+    "https://docs.samsungknox.com/admin/knox-manage/original-console/monitor/collect-bug-reports/"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Verbose debug logging switch (owner-reported label)\" (section: Developer options). ADAPT cannot change it from the shell. No public source found for this label or its key. It is not AOSP verbose vendor logging and not SysDump Debug Level. Find the key by diffing settings list before and after toggling it on a device."
+  },
+  {
+   "id": "samsung.multi_window_all_apps",
+   "ui_name": "Labs > Multi window for all apps (One UI 3: Force activities to be resizable)",
+   "section": "Settings > Advanced features > Labs",
+   "layer": "samsung",
+   "mechanism": "Reported to map to Settings.Global force_resizable_activities",
+   "read_cmd": "settings get global force_resizable_activities",
+   "write_cmd": "settings put global force_resizable_activities 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "unknown",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop",
+    "compatibility"
+   ],
+   "oem_notes": "Labs menu from One UI 4 (Android 12). That the Labs switch uses the AOSP key is a community claim: read the key before and after toggling on a device to confirm. Applies to split screen, pop-up view and DeX.",
+   "sources": [
+    "https://sammobile.com/news/one-ui-4-0-multitasking-hack-you-need-to-check-out"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "samsung.dex_state",
+   "ui_name": "Samsung DeX state",
+   "section": "adb only",
+   "layer": "samsung",
+   "mechanism": "dumpsys desktopmode (One UI 5 observed) or FLAG_WIRELESS_DEX_DISPLAY and FLAG_EXTERNAL_DEX_HOSTING in dumpsys display (One UI 8 and 9, where the desktopmode service is absent)",
+   "read_cmd": "dumpsys desktopmode ; dumpsys display",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "report",
+   "default": null,
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "display_desktop"
+   ],
+   "oem_notes": "Already implemented in ADAPT (dex inspect); recorded here from the repository's own device observations, not from this research. Starting DeX is a user action. From One UI 7 DeX for PC is gone and from One UI 8 DeX is built on Android desktop windowing.",
+   "sources": [
+    "https://www.samsung.com/us/support/answer/ANS10001955/"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.motion_smoothness",
+   "ui_name": "Motion smoothness (refresh rate)",
+   "section": "Settings > Display",
+   "layer": "samsung",
+   "mechanism": "Samsung key, reported as Settings.Secure refresh_rate_mode (0 standard, 1 adaptive, 2 high)",
+   "read_cmd": "settings get secure refresh_rate_mode ; dumpsys display | grep -i refreshRate",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int enum",
+   "default": "1 on flagship models",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Samsung ignores the AOSP min_refresh_rate key. Key name and values are from memory of community posts and not verified; record the mode with every performance capture.",
+   "sources": [
+    "https://android-shell.se/android/settings/"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.sleeping_apps",
+   "ui_name": "Background usage limits (Sleeping apps, Deep sleeping apps, Never auto sleeping apps)",
+   "section": "Settings > Battery",
+   "layer": "samsung",
+   "mechanism": "Samsung Device Care on top of app standby buckets and AppOps",
+   "read_cmd": "am get-standby-bucket PKG ; cmd appops get PKG RUN_ANY_IN_BACKGROUND ; dumpsys deviceidle whitelist",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "per-app list",
+   "default": "Put unused apps to sleep is on",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "power",
+    "lifecycle"
+   ],
+   "oem_notes": "Stops background work and notifications of a test app that has not been opened for a while. The Samsung lists have no documented shell interface; the AOSP reads show part of the effect.",
+   "sources": [
+    "https://www.samsung.com/us/support/answer/ANS10001361/"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Battery (Background usage limits (Sleeping apps, Deep sleeping apps, Never auto sleeping apps)). ADAPT cannot change it from the shell. Stops background work and notifications of a test app that has not been opened for a while. The Samsung lists have no documented shell interface; the AOSP reads show part of the effect."
+  },
+  {
+   "id": "samsung.settings_diff",
+   "ui_name": "Samsung-only settings keys discovery",
+   "section": "adb only",
+   "layer": "samsung",
+   "mechanism": "Settings provider listing compared before and after a manual toggle",
+   "read_cmd": "settings list global ; settings list secure ; settings list system",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "key=value lists",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "The only reliable way to learn Samsung key names, since Samsung does not publish them. The lists contain personal data (device name, accounts, Wi-Fi names): keep them on the host and compare key names and changed values only.",
+   "sources": [
+    "https://android-shell.se/android/settings/"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "samsung.linux_terminal_availability",
+   "ui_name": "Linux development environment on Galaxy devices",
+   "section": "Developer options",
+   "layer": "samsung",
+   "mechanism": "Same as pixel.linux_terminal",
+   "read_cmd": "pm list packages com.android.virtualization.terminal",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "boolean",
+   "default": "off",
+   "min_api": 36,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "ui_only",
+   "testing_use": [
+    "debugging"
+   ],
+   "oem_notes": "One UI 8 on some chipsets only (press reports: Z Flip 7 and Tab S11 yes; Z Fold 7 and S25 Ultra no).",
+   "sources": [
+    "https://www.androidauthority.com/galaxy-z-flip-7-linux-terminal-3578675"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "guidance_only",
+   "guidance": "Do this on the device: open Settings > Developer options > \"Linux development environment on Galaxy devices\" (section: Developer options). ADAPT cannot change it from the shell. One UI 8 on some chipsets only (press reports: Z Flip 7 and Tab S11 yes; Z Fold 7 and S25 Ultra no)."
+  },
+  {
+   "id": "adb.device_identity",
+   "ui_name": "Device, OEM and Android version detection",
+   "section": "Detection",
+   "layer": "adb_control",
+   "mechanism": "Build properties",
+   "read_cmd": "getprop ro.build.version.sdk ; getprop ro.build.version.release ; getprop ro.product.manufacturer ; getprop ro.product.brand ; getprop ro.product.model ; getprop ro.build.fingerprint ; getprop ro.build.type ; getprop ro.build.characteristics",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "strings",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "ro.build.type user means no root and many hidden options. Skin version properties for other OEMs (for example ro.miui.ui.version.name, ro.build.version.oplusrom) are from memory and unverified.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "adb.capability_discovery",
+   "ui_name": "What this device supports",
+   "section": "Detection",
+   "layer": "adb_control",
+   "mechanism": "Service, feature, overlay and display listings",
+   "read_cmd": "cmd -l ; pm list features ; cmd overlay list ; dumpsys display ; device_config list ; settings list global",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "lists",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "cmd -l lists the services that accept shell commands, which answers whether cmd uimode, cmd thermalservice, cmd device_state and others exist before any profile uses them. A key present in settings list is evidence it is stored, not that the OEM honours it.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "adb.page_size",
+   "ui_name": "Kernel page size",
+   "section": "Detection",
+   "layer": "adb_control",
+   "mechanism": "getconf",
+   "read_cmd": "getconf PAGE_SIZE",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "int (4096 or 16384)",
+   "default": "4096",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "16384 confirms a 16 KB device or emulator image.",
+   "sources": [
+    "https://developer.android.com/guide/practices/page-sizes"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "adb.wm_size",
+   "ui_name": "Display size override",
+   "section": "Display",
+   "layer": "adb_control",
+   "mechanism": "WindowManager forced display size; Settings.Global display_size_forced",
+   "read_cmd": "wm size",
+   "write_cmd": "wm size 720x1280",
+   "restore_cmd": "wm size reset (or wm size SAVED_OVERRIDE)",
+   "value_type": "WxH",
+   "default": "physical size",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "display_desktop"
+   ],
+   "oem_notes": "wm size prints Physical size and, when set, Override size: snapshot the override. A size the panel cannot show well can leave the screen unusable; restore still works over adb. Add -d DISPLAY_ID for other displays. Samsung foldables may reset it on fold.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.wm_density",
+   "ui_name": "Display density override (Display size)",
+   "section": "Display",
+   "layer": "adb_control",
+   "mechanism": "WindowManager forced density; Settings.Secure display_density_forced",
+   "read_cmd": "wm density",
+   "write_cmd": "wm density 320",
+   "restore_cmd": "wm density reset (or wm density SAVED_OVERRIDE)",
+   "value_type": "int dpi",
+   "default": "physical density",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "input_accessibility"
+   ],
+   "oem_notes": "Same control as the Smallest width developer option and the Display size accessibility slider. Clamp to roughly 0.85x to 1.5x of the physical density.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "rtl-large-font"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.night_mode",
+   "ui_name": "Dark theme",
+   "section": "Display",
+   "layer": "adb_control",
+   "mechanism": "UiModeManager",
+   "read_cmd": "cmd uimode night",
+   "write_cmd": "cmd uimode night yes|no|auto",
+   "restore_cmd": "cmd uimode night SAVED_MODE",
+   "value_type": "enum yes/no/auto/custom",
+   "default": "no",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "input_accessibility"
+   ],
+   "oem_notes": "Battery saver can force dark theme on. Custom schedule modes exist from Android 11.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "accessibility-display"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.font_scale",
+   "ui_name": "Font size",
+   "section": "Accessibility",
+   "layer": "adb_control",
+   "mechanism": "Settings.System font_scale (per user)",
+   "read_cmd": "settings --user USER get system font_scale",
+   "write_cmd": "settings --user USER put system font_scale 1.3",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "float",
+   "default": "1.0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "layout",
+    "locale_rtl"
+   ],
+   "oem_notes": "AOSP offers up to 1.3 before Android 14 and up to 2.0 (non-linear scaling) from Android 14. Samsung has its own eight-step scale and may clamp other values.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "rtl-large-font"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.app_locale",
+   "ui_name": "Per-app language",
+   "section": "Locale",
+   "layer": "adb_control",
+   "mechanism": "LocaleManager application locales",
+   "read_cmd": "cmd locale get-app-locales PKG --user USER",
+   "write_cmd": "cmd locale set-app-locales PKG --user USER --locales ar",
+   "restore_cmd": "cmd locale set-app-locales PKG --user USER --locales SAVED (empty list to clear)",
+   "value_type": "BCP 47 tag list",
+   "default": "empty (follows system)",
+   "min_api": 33,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "locale_rtl"
+   ],
+   "oem_notes": "The route to RTL and translated-string testing without touching the system language, which the shell user cannot change. Pseudolocales en-XA and ar-XB work only if the app was built with them. Command syntax should be confirmed with cmd locale help on the device.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "rtl-large-font"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.rotation",
+   "ui_name": "Auto-rotate and fixed rotation",
+   "section": "Display",
+   "layer": "adb_control",
+   "mechanism": "Settings.System accelerometer_rotation and user_rotation",
+   "read_cmd": "settings get system accelerometer_rotation ; settings get system user_rotation",
+   "write_cmd": "settings put system accelerometer_rotation 0 ; settings put system user_rotation 1",
+   "restore_cmd": "SNAPSHOT for both keys",
+   "value_type": "int 0/1 plus int 0-3",
+   "default": "device dependent",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "layout",
+    "lifecycle"
+   ],
+   "oem_notes": "Rotation forces a configuration change, the cheapest lifecycle test there is. On large screens from Android 16 apps can no longer lock orientation, so results differ by form factor.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.device_state",
+   "ui_name": "Foldable posture override",
+   "section": "Display",
+   "layer": "adb_control",
+   "mechanism": "DeviceStateManager",
+   "read_cmd": "cmd device_state print-states ; cmd device_state print-state",
+   "write_cmd": "cmd device_state state STATE_ID",
+   "restore_cmd": "cmd device_state state reset",
+   "value_type": "state id",
+   "default": "hardware posture",
+   "min_api": 31,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "display_desktop",
+    "layout",
+    "lifecycle"
+   ],
+   "oem_notes": "State ids differ per device: read them first. The override is tied to the shell command's lifetime on some releases. Samsung foldables may not expose all states.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.battery_unplug",
+   "ui_name": "Simulated battery state",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "Battery service test overrides",
+   "read_cmd": "dumpsys battery",
+   "write_cmd": "cmd battery unplug ; cmd battery set level 15",
+   "restore_cmd": "cmd battery reset",
+   "value_type": "overrides",
+   "default": "real values",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power"
+   ],
+   "oem_notes": "Overrides only what the system reports; the device keeps charging. dumpsys battery shows the faked values, so the readback is the changed plugged and level lines. Clears on reboot. Samsung may keep showing the real state in its own UI.",
+   "sources": [
+    "https://developer.android.com/training/monitoring-device-state/doze-standby"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "battery-doze"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.battery_saver",
+   "ui_name": "Battery saver",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "Settings.Global low_power; cmd power set-mode",
+   "read_cmd": "settings get global low_power",
+   "write_cmd": "cmd power set-mode 1",
+   "restore_cmd": "cmd power set-mode 0 (when the snapshot value was 0)",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "performance"
+   ],
+   "oem_notes": "Refused while the device believes it is charging, so run cmd battery unplug first. Samsung power saving has extra options (CPU limit, 5G off) not covered by this switch.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.doze",
+   "ui_name": "Doze (device idle)",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "deviceidle service",
+   "read_cmd": "dumpsys deviceidle get deep",
+   "write_cmd": "dumpsys deviceidle force-idle",
+   "restore_cmd": "dumpsys deviceidle unforce ; cmd battery reset",
+   "value_type": "state",
+   "default": "ACTIVE",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "lifecycle"
+   ],
+   "oem_notes": "Needs the screen off and the simulated unplug. dumpsys deviceidle step walks through the states one at a time. Wireless adb can drop while the device idles.",
+   "sources": [
+    "https://developer.android.com/training/monitoring-device-state/doze-standby"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "battery-doze"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.app_standby_inactive",
+   "ui_name": "App standby (idle app)",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "UsageStats app idle state",
+   "read_cmd": "am get-inactive PKG ; am get-standby-bucket PKG",
+   "write_cmd": "am set-inactive PKG true",
+   "restore_cmd": "am set-inactive PKG false",
+   "value_type": "boolean",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "lifecycle"
+   ],
+   "oem_notes": "See aosp.standby_apps for buckets.",
+   "sources": [
+    "https://developer.android.com/training/monitoring-device-state/doze-standby"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.background_restriction",
+   "ui_name": "Restrict background activity for one app",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "AppOps RUN_ANY_IN_BACKGROUND",
+   "read_cmd": "cmd appops get PKG RUN_ANY_IN_BACKGROUND",
+   "write_cmd": "cmd appops set PKG RUN_ANY_IN_BACKGROUND ignore",
+   "restore_cmd": "cmd appops set PKG RUN_ANY_IN_BACKGROUND SAVED_MODE",
+   "value_type": "appop mode",
+   "default": "allow",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power",
+    "lifecycle"
+   ],
+   "oem_notes": "The same switch as Battery > Restricted in app info. Samsung adds deep sleeping on top.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "background-restricted"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.thermal_status",
+   "ui_name": "Simulated thermal throttling status",
+   "section": "Performance",
+   "layer": "adb_control",
+   "mechanism": "Thermal service status override",
+   "read_cmd": "dumpsys thermalservice",
+   "write_cmd": "cmd thermalservice override-status 3",
+   "restore_cmd": "cmd thermalservice reset",
+   "value_type": "int 0 none to 6 shutdown",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance",
+    "power"
+   ],
+   "oem_notes": "Only changes what PowerManager thermal listeners are told; the CPU is not really throttled. Never send status 6. Shell access and Samsung support need a device check.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.runtime_permissions",
+   "ui_name": "Runtime permissions",
+   "section": "Permissions",
+   "layer": "adb_control",
+   "mechanism": "Package manager grant and revoke",
+   "read_cmd": "dumpsys package PKG | grep -A40 'runtime permissions'",
+   "write_cmd": "pm grant PKG android.permission.NAME ; pm revoke PKG android.permission.NAME",
+   "restore_cmd": "pm grant or pm revoke each permission back to its saved state",
+   "value_type": "per-permission granted flag",
+   "default": "not granted",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "security",
+    "compatibility"
+   ],
+   "oem_notes": "Works for permissions declared in the app manifest. Revoking kills the app. Do not use pm reset-permissions: it resets every app on the device.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.appops",
+   "ui_name": "App operations (special access)",
+   "section": "Permissions",
+   "layer": "adb_control",
+   "mechanism": "AppOps service",
+   "read_cmd": "cmd appops get PKG",
+   "write_cmd": "cmd appops set PKG OP allow|ignore|deny|default",
+   "restore_cmd": "cmd appops set PKG OP SAVED_MODE",
+   "value_type": "appop mode",
+   "default": "default",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "security",
+    "compatibility"
+   ],
+   "oem_notes": "Covers special access such as SYSTEM_ALERT_WINDOW, MANAGE_EXTERNAL_STORAGE, REQUEST_INSTALL_PACKAGES. Allowlist the operations ADAPT accepts; do not pass arbitrary names through.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.airplane_mode",
+   "ui_name": "Airplane mode",
+   "section": "Network",
+   "layer": "adb_control",
+   "mechanism": "Connectivity service",
+   "read_cmd": "cmd connectivity airplane-mode ; settings get global airplane_mode_on",
+   "write_cmd": "cmd connectivity airplane-mode enable",
+   "restore_cmd": "cmd connectivity airplane-mode disable (when the snapshot value was 0)",
+   "value_type": "enabled/disabled",
+   "default": "disabled",
+   "min_api": 30,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "network"
+   ],
+   "oem_notes": "Cuts wireless adb: refuse when the target is a TCP or mDNS transport. A plain settings write of airplane_mode_on does not switch the radios.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "network-degraded"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.wifi_and_data_toggle",
+   "ui_name": "Wi-Fi and mobile data switches",
+   "section": "Network",
+   "layer": "adb_control",
+   "mechanism": "svc utility",
+   "read_cmd": "settings get global wifi_on ; settings get global mobile_data",
+   "write_cmd": "svc wifi disable ; svc data disable",
+   "restore_cmd": "svc wifi enable ; svc data enable (according to the snapshot)",
+   "value_type": "int 0/1",
+   "default": "1",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "network"
+   ],
+   "oem_notes": "svc wifi disable cuts wireless adb: refuse on a TCP or mDNS transport. Dual-SIM Samsung devices keep per-SIM data keys.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.data_saver",
+   "ui_name": "Data saver",
+   "section": "Network",
+   "layer": "adb_control",
+   "mechanism": "Network policy restrict background",
+   "read_cmd": "cmd netpolicy get restrict-background",
+   "write_cmd": "cmd netpolicy set restrict-background true",
+   "restore_cmd": "cmd netpolicy set restrict-background SAVED",
+   "value_type": "boolean",
+   "default": "false",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "network",
+    "power"
+   ],
+   "oem_notes": "Documented by Google for testing Data Saver behaviour.",
+   "sources": [
+    "https://developer.android.com/develop/connectivity/network-ops/data-saver"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "background-restricted"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.notifications",
+   "ui_name": "Test notifications and Do Not Disturb",
+   "section": "Notifications",
+   "layer": "adb_control",
+   "mechanism": "Notification service shell",
+   "read_cmd": "dumpsys notification --noredact | grep -c NotificationRecord ; settings get global zen_mode",
+   "write_cmd": "cmd notification post -t 'Title' TAG 'Text' ; cmd notification set_dnd priority",
+   "restore_cmd": "cmd notification set_dnd off (when the snapshot zen_mode was 0)",
+   "value_type": "action plus zen mode",
+   "default": "zen_mode 0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility",
+    "input_accessibility"
+   ],
+   "oem_notes": "post exists from Android 10 and posts as the shell package; set_dnd from Android 11. dumpsys notification shows other apps' notification text, so do not export it.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.roles",
+   "ui_name": "Default app roles",
+   "section": "Compatibility",
+   "layer": "adb_control",
+   "mechanism": "Role manager",
+   "read_cmd": "cmd role get-role-holders android.app.role.BROWSER",
+   "write_cmd": "cmd role add-role-holder android.app.role.BROWSER PKG",
+   "restore_cmd": "cmd role add-role-holder ROLE SAVED_HOLDER (or remove-role-holder ROLE PKG)",
+   "value_type": "package name",
+   "default": "device default",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility"
+   ],
+   "oem_notes": "Changing the dialer, SMS or home role affects daily use of the device: restore is mandatory. The app must qualify for the role.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.talkback",
+   "ui_name": "TalkBack and other accessibility services",
+   "section": "Accessibility",
+   "layer": "adb_control",
+   "mechanism": "Settings.Secure enabled_accessibility_services and accessibility_enabled",
+   "read_cmd": "settings get secure enabled_accessibility_services ; settings get secure accessibility_enabled",
+   "write_cmd": "settings put secure enabled_accessibility_services com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService ; settings put secure accessibility_enabled 1",
+   "restore_cmd": "SNAPSHOT for both keys (keep the user's other services in the list)",
+   "value_type": "colon-separated component list plus int",
+   "default": "empty / 0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility"
+   ],
+   "oem_notes": "Append to the saved list instead of replacing it, or the user's own services are switched off. Samsung ships TalkBack as com.samsung.android.accessibility.talkback on some releases: resolve the component with dumpsys accessibility first. TalkBack changes how touch works, so restore even on failure.",
+   "sources": [
+    "https://developer.android.com/guide/topics/ui/accessibility/testing"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.accessibility_display",
+   "ui_name": "High contrast text, bold text, colour inversion",
+   "section": "Accessibility",
+   "layer": "adb_control",
+   "mechanism": "Settings.Secure high_text_contrast_enabled, font_weight_adjustment (300 = bold, Android 12+), accessibility_display_inversion_enabled",
+   "read_cmd": "settings get secure high_text_contrast_enabled ; settings get secure font_weight_adjustment ; settings get secure accessibility_display_inversion_enabled",
+   "write_cmd": "settings put secure high_text_contrast_enabled 1 ; settings put secure font_weight_adjustment 300",
+   "restore_cmd": "SNAPSHOT for each key",
+   "value_type": "int",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "layout"
+   ],
+   "oem_notes": "Android 16 changed high contrast text to an outline style. Samsung bold font uses its own key.",
+   "sources": [
+    "https://developer.android.com/guide/topics/ui/accessibility/testing"
+   ],
+   "confidence": "medium",
+   "automated_by": [
+    "accessibility-display"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.screenrecord",
+   "ui_name": "Screen recording and screenshots",
+   "section": "Capture",
+   "layer": "adb_control",
+   "mechanism": "screenrecord and screencap binaries",
+   "read_cmd": "screenrecord --time-limit 30 /sdcard/Download/test.mp4 ; screencap -p /sdcard/Download/test.png",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "files",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "logging",
+    "performance"
+   ],
+   "oem_notes": "Recording stops at 180 seconds, has no audio, and does not follow rotation. Secure windows are blank. On Android 15 and later sensitive notifications and password fields are hidden unless aosp.disable_screen_share_protections is on.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "adb.package_compile",
+   "ui_name": "App compilation mode",
+   "section": "Performance",
+   "layer": "adb_control",
+   "mechanism": "Package manager / ART dexopt",
+   "read_cmd": "dumpsys package dexopt | grep -A3 PKG",
+   "write_cmd": "cmd package compile -m speed-profile -f PKG",
+   "restore_cmd": "cmd package compile --reset PKG",
+   "value_type": "compiler filter",
+   "default": "verify after install, speed-profile after idle maintenance",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "app_restart",
+   "adapt_class": "profile",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "Makes start-up measurements comparable: -m verify shows the just-installed worst case, speed-profile the steady state (needs a baseline or cloud profile), speed the fully compiled case. --reset returns to the install state.",
+   "sources": [
+    "https://developer.android.com/topic/performance/baselineprofiles/measure-baselineprofile"
+   ],
+   "confidence": "high",
+   "automated_by": [
+    "performance-capture"
+   ],
+   "automation": "adapt_profile",
+   "guidance": null
+  },
+  {
+   "id": "adb.gfxinfo",
+   "ui_name": "Frame timing statistics",
+   "section": "Performance",
+   "layer": "adb_control",
+   "mechanism": "gfxinfo service",
+   "read_cmd": "dumpsys gfxinfo PKG framestats",
+   "write_cmd": "dumpsys gfxinfo PKG reset",
+   "restore_cmd": "none needed",
+   "value_type": "report",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "inspect",
+   "testing_use": [
+    "performance"
+   ],
+   "oem_notes": "reset only clears the app's own counters. Reports janky frame percentage and percentile frame times without any developer option being on.",
+   "sources": [
+    "https://developer.android.com/topic/performance/vitals/render"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "read_only",
+   "guidance": null
+  },
+  {
+   "id": "adb.process_stress",
+   "ui_name": "Process death and memory pressure for one app",
+   "section": "Lifecycle",
+   "layer": "adb_control",
+   "mechanism": "Activity manager commands",
+   "read_cmd": "pidof PKG ; dumpsys activity processes PKG",
+   "write_cmd": "am kill PKG ; am send-trim-memory PKG RUNNING_CRITICAL ; am crash PKG",
+   "restore_cmd": "none needed (one-time actions)",
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle"
+   ],
+   "oem_notes": "am kill only works while the app is in the background, which reproduces system-initiated process death and state restoration more faithfully than Don't keep activities. am force-stop is different: it also cancels alarms and jobs. From Android 14 send-trim-memory levels other than background ones are no longer delivered to apps the same way.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.hide_error_dialogs",
+   "ui_name": "Hide crash and ANR dialogs",
+   "section": "Lifecycle",
+   "layer": "adb_control",
+   "mechanism": "Settings.Global hide_error_dialogs",
+   "read_cmd": "settings get global hide_error_dialogs",
+   "write_cmd": "settings put global hide_error_dialogs 1",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int 0/1",
+   "default": "0",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "lifecycle"
+   ],
+   "oem_notes": "For unattended runs where a dialog would block the next step. The opposite of aosp.show_first_crash_dialog; never apply both.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.navigation_mode",
+   "ui_name": "Gesture or three-button navigation",
+   "section": "Input",
+   "layer": "adb_control",
+   "mechanism": "Navigation bar mode overlays",
+   "read_cmd": "cmd overlay list | grep navbar ; settings get secure navigation_mode",
+   "write_cmd": "cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton",
+   "restore_cmd": "cmd overlay enable-exclusive --category SAVED_NAVBAR_OVERLAY",
+   "value_type": "overlay package",
+   "default": "device dependent",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "input_accessibility",
+    "layout"
+   ],
+   "oem_notes": "Changes window insets, so it belongs in edge-to-edge tests. Samsung uses its own navigation setting and does not ship these overlays on all builds.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "low",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.screen_timeout",
+   "ui_name": "Screen timeout",
+   "section": "Power",
+   "layer": "adb_control",
+   "mechanism": "Settings.System screen_off_timeout",
+   "read_cmd": "settings get system screen_off_timeout",
+   "write_cmd": "settings put system screen_off_timeout 1800000",
+   "restore_cmd": "SNAPSHOT",
+   "value_type": "int ms",
+   "default": "30000 to 60000",
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "power"
+   ],
+   "oem_notes": "Alternative to Stay awake that also works on battery. Device policy and Samsung caps (10 minutes on some builds) can limit it.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.block_untrusted_touches",
+   "ui_name": "Untrusted touch blocking",
+   "section": "Compatibility",
+   "layer": "adb_control",
+   "mechanism": "Settings.Global block_untrusted_touches (0 off, 2 default) and compat change BLOCK_UNTRUSTED_TOUCHES",
+   "read_cmd": "settings get global block_untrusted_touches",
+   "write_cmd": "settings put global block_untrusted_touches 0",
+   "restore_cmd": "settings put global block_untrusted_touches 2 (or SNAPSHOT)",
+   "value_type": "int",
+   "default": "2",
+   "min_api": 31,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "profile",
+   "testing_use": [
+    "compatibility",
+    "security"
+   ],
+   "oem_notes": "Documented by Google for checking whether an overlay is why touches are dropped.",
+   "sources": [
+    "https://developer.android.com/about/versions/12/behavior-changes-all"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "reference_only",
+   "guidance": "Reference only: ADAPT has no profile for this option. The documented commands are listed for manual use and are not run by ADAPT."
+  },
+  {
+   "id": "adb.pm_clear",
+   "ui_name": "Clear app data",
+   "section": "Lifecycle",
+   "layer": "adb_control",
+   "mechanism": "Package manager",
+   "read_cmd": null,
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "lifecycle"
+   ],
+   "oem_notes": "Irreversible loss of that app's data and granted permissions. Never part of a profile; only on an explicit user request for a named package.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "high",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. Irreversible loss of that app's data and granted permissions. Never part of a profile; only on an explicit user request for a named package."
+  },
+  {
+   "id": "adb.lock_settings",
+   "ui_name": "Screen lock credentials",
+   "section": "Security",
+   "layer": "adb_control",
+   "mechanism": "locksettings shell",
+   "read_cmd": "locksettings get-disabled",
+   "write_cmd": null,
+   "restore_cmd": null,
+   "value_type": "action",
+   "default": null,
+   "min_api": 29,
+   "max_api": null,
+   "needs_reboot": "no",
+   "adapt_class": "dangerous",
+   "testing_use": [
+    "security"
+   ],
+   "oem_notes": "locksettings set-pin and clear can lock the owner out or remove their lock. Never automate.",
+   "sources": [
+    "https://developer.android.com/tools/adb"
+   ],
+   "confidence": "medium",
+   "automated_by": [],
+   "automation": "never_automate",
+   "guidance": "Never automated. locksettings set-pin and clear can lock the owner out or remove their lock. Never automate."
+  }
+ ]
+}

@@ -29,6 +29,7 @@ def packages(folder, *, extra=None, name="adapt-adb", missing_bridge=False, cli_
         members["adapt_adb/resources/dex_bridge/adapt-dex-bridge.jar"] = "synthetic bridge fixture"
     if not missing_rules:
         members["adapt_adb/data/51-android.rules"] = "synthetic rules fixture"
+        members["adapt_adb/data/dev-options-catalog.json"] = "{}"
     if extra:
         members[extra] = "synthetic blocked content"
     with zipfile.ZipFile(folder / f"adapt_adb-{version}-py3-none-any.whl", "w") as archive:

@@ -16,9 +16,9 @@ def test_package_data_rules_are_byte_identical_to_packaging_rules():
     assert PACKAGE_DATA_RULES.read_bytes() == PACKAGING_RULES.read_bytes()
 
 
-def test_package_data_directory_holds_only_the_rules_file():
+def test_package_data_directory_holds_only_the_rules_and_catalog_files():
     names = sorted(p.name for p in PACKAGE_DATA_RULES.parent.iterdir() if p.name != "__pycache__")
-    assert names == ["51-android.rules"]
+    assert names == ["51-android.rules", "dev-options-catalog.json"]
 
 
 def test_pyproject_declares_the_rules_as_package_data():

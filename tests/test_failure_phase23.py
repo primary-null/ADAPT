@@ -68,6 +68,8 @@ class FakePhone:
 
     def __call__(self, adb_path, serial, args):
         args = list(args)
+        if args[:2] == ["shell", "getprop"]:  # the best-effort Samsung check after a failed write
+            return ""
         assert args[:2] == ["shell", "settings"], args
         args = args[2:]
         if args[0] == "--user":

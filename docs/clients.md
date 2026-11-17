@@ -7,13 +7,15 @@ operation, and returns data or an error. It does not embed a language model or
 require an OpenAI/Anthropic API key to run the local server itself.
 
 MCP also defines resources (readable context) and prompts (reusable workflows).
-ADAPT currently implements tools; resources and prompts are extension ideas,
-not features already present. *(Development tree.)* The server does send short
-orientation `instructions` when a client connects, and every tool advertises a
-title and the standard annotations (read-only, destructive, idempotent,
-open-world). These are offline-tested; no AI client has yet been observed
-reading them. An agent that has a shell does not need MCP to learn ADAPT: it
-can run `adapt agent primer` (see [MCP access](mcp-access.md#instructions-titles-and-annotations)). See the [MCP architecture](https://modelcontextprotocol.io/docs/learn/architecture).
+*(Development tree.)* ADAPT implements tools and static resources; prompts are
+not implemented. The server sends short orientation `instructions` when a
+client connects, every tool advertises a title and the standard annotations
+(read-only, destructive, idempotent, open-world), and the guidance is served as
+`adapt://` resources and through the `help` tool for clients that do not show
+resources. These are offline-tested; no AI client has yet been observed reading
+them. An agent that has a shell does not need MCP to learn ADAPT: it can run
+`adapt agent primer` (see [MCP access](mcp-access.md#instructions-titles-and-annotations)).
+See the [MCP architecture](https://modelcontextprotocol.io/docs/learn/architecture).
 
 ## Current tools
 
@@ -26,8 +28,11 @@ APK installation, and bounded log capture. Added tools are:
 - `developer_options_inspect`: thirteen allowlisted setting observations, without changes.
 - `tool_catalog`: curated acquisition guidance and local PATH observations.
 - `dex_inspect` and `dex_displays`: existing-display and DeX-state observations.
+- `help`: ADAPT's built-in guidance (primer, session policy, safety rules,
+  workflows, guides, the error reference, one failure guide), the same text as
+  the `adapt://` resources. Offline; no device.
 
-The current server exposes 37 tools: 23 observation tools and 14 tools that act
+The current server exposes 38 tools: 24 observation tools and 14 tools that act
 on the phone (input, installation, app launch and stop, test runs, Developer
 Options profiles, permissions). The complete list and access configuration are in
 [MCP access](mcp-access.md). Use protocol tool discovery for the authoritative installed list. Later
@@ -78,7 +83,8 @@ args = ["mcp", "--read-only", "--device", "SERIAL"]
 
 Use the full executable path if the AI application's PATH does not find ADAPT.
 Codex supports stdio server commands and arguments; see its [official MCP guide](https://learn.chatgpt.com/docs/extend/mcp).
-This setup is user-run guidance: ADAPT does not rewrite an AI client's settings.
+ADAPT changes a client's settings only when you run `adapt agent install`, shows
+the change first, and keeps a backup.
 
 Other local clients may use a configuration shaped like this, but check that
 client's current schema and approval controls rather than assuming identical files:
@@ -98,6 +104,108 @@ ADAPT is not published to PyPI. Install the release wheel as shown above, and
 do not install a similarly named registry package instead.
 
 The server announces itself as `adapt` with the installed ADAPT package version.
+
+## Register ADAPT with a client (`adapt agent`)
+
+*(Development tree; offline-tested only.)* `adapt agent` automates the
+registration shown above and installs the discovery files agents read:
+
+```text
+adapt agent clients                         # which clients are installed here; is adapt registered?
+adapt agent config claude-code              # print the entry or the client's own command; writes nothing
+adapt agent install claude-code --dry-run   # show the diff and the exact command line; writes nothing
+adapt agent install claude-code --yes       # after the user approved that diff
+adapt agent verify                          # start adapt mcp as a child process: handshake and tools/list
+adapt agent skill install --scope project   # copy the Agent Skill to .agents/skills/adapt and .claude/skills/adapt
+adapt agent agents-md --write --yes         # add a short ADAPT block to the project's AGENTS.md
+adapt agent restore --list                  # every file ADAPT changed, with its backup
+```
+
+ADAPT changes a client's settings only when you run `adapt agent install`,
+shows the change first, and keeps a backup. What that means in practice:
+
+- It uses the client's own registration command when that command is on `PATH`
+  and can express the whole entry. Otherwise it merges the config file: it shows
+  a unified diff, copies the original to `<file>.adapt-backup-<UTC>`, records the
+  backup in `agent-installs.json` beside ADAPT's preferences, and replaces the
+  file atomically. `adapt agent uninstall CLIENT` removes only the entry ADAPT
+  added; `adapt agent restore ID --yes` puts a recorded backup back.
+- It refuses, and prints the entry for you to paste, when the file does not
+  parse, when rewriting would lose comments (JSONC, YAML, TOML comments inside the
+  entry), when a different `adapt` entry already exists (`--replace` overrides), or
+  when the client is print-only. It never registers a client that is not installed.
+- The server is registered read-only unless you pass `--allow-actions`. No device
+  serial is written unless you pass `--device`. User scope writes the absolute
+  path of `adapt`; project scope writes a bare `adapt` so a committed file holds
+  no user name.
+- Where a client has a tool-call timeout setting, it writes 180 seconds, so an APK
+  install or a test run is not cut at the 60 s default of Codex, Roo Code and Pi.
+- A run that is not interactive needs `--yes`, which is the user's approval.
+- It never starts, restarts or stops a client and never touches a device. Restart
+  or reload the client yourself afterwards.
+
+The table and notes below are generated from the one client table in
+`src/adapt_adb/agent_clients.py` (`adapt agent config` and `install` read the
+same table), and a test fails when this file drifts from it. Every fact comes
+from the client's own documentation as read on 2026-11-16; a client whose facts
+are third-party or unstated is print-only. No registration below has been
+live-checked against the real client.
+
+<!-- adapt:clients-table:begin (generated by `adapt agent` from the client table; do not edit) -->
+
+Shape of each client's entry, config paths and how `adapt agent install` treats it. `{home}`, `{project}`, `{appdata}`, `{xdg}` (XDG_CONFIG_HOME or `~/.config`) and `{copilot_home}` (COPILOT_HOME or `~/.copilot`) are resolved from environment variables at run time.
+
+| Client (key) | Status | Format and server key | User config | Project config | Timeout written | Own command |
+|---|---|---|---|---|---|---|
+| Claude Code (`claude-code`) | install | json: `mcpServers`, `type: "stdio"` | `{home}/.claude.json` | `{project}/.mcp.json` | - | `claude mcp add --scope user adapt -- adapt mcp --read-only --device SERIAL`<br>`claude mcp add --scope project adapt -- adapt mcp --read-only --device SERIAL` |
+| Claude Desktop (`claude-desktop`) | install | json: `mcpServers` | windows: `{appdata}/Claude/claude_desktop_config.json`; linux: `{xdg}/Claude/claude_desktop_config.json` | - | - | - |
+| OpenAI Codex (CLI) (`codex`) | install | toml: `mcp_servers` | `{home}/.codex/config.toml` | `{project}/.codex/config.toml` | `tool_timeout_sec = 180` | `codex mcp add adapt -- adapt mcp --read-only --device SERIAL` |
+| Cursor (`cursor`) | install | json: `mcpServers`, `type: "stdio"` (required) | `{home}/.cursor/mcp.json` | `{project}/.cursor/mcp.json` | - | - |
+| VS Code (Copilot harness) (`vscode`) | install | json: `mcpServers`, `type: "stdio"` | `{copilot_home}/mcp-config.json` | `{project}/.mcp.json` | - | - |
+| VS Code (Local harness, deprecated) (`vscode-local`) | install | json: `servers`, `type: "stdio"` | - | `{project}/.vscode/mcp.json` | - | - |
+| Gemini CLI (`gemini-cli`) | install | json: `mcpServers` | `{home}/.gemini/settings.json` | `{project}/.gemini/settings.json` | - | - |
+| Google Antigravity (`antigravity`) | install | json: `mcpServers` | `{home}/.gemini/config/mcp_config.json` | `{project}/.agents/mcp_config.json` | - | - |
+| Roo Code (`roo-code`) | install | json: `mcpServers` | - | `{project}/.roo/mcp.json` | `timeout = 180` | - |
+| OpenCode (`opencode`) | install | jsonc: `mcp.servers`, `command` is one array, `type: "local"` (required) | `{xdg}/opencode/opencode.jsonc` | `{project}/opencode.jsonc` | - | `opencode mcp add adapt --global -- adapt mcp --read-only --device SERIAL`<br>`opencode mcp add adapt -- adapt mcp --read-only --device SERIAL` |
+| Pi coding agent (`pi`) | install | json: `mcpServers` | `{home}/.pi/agent/mcp.json` | `{project}/.pi/mcp.json` | `timeout = 180` | `pi mcp add adapt -- adapt mcp --read-only --device SERIAL`<br>`pi mcp add -l adapt -- adapt mcp --read-only --device SERIAL` |
+| Cline (CLI) (`cline`) | install | json: `mcpServers` | `{home}/.cline/data/settings/cline_mcp_settings.json` | - | - | `cline mcp add adapt --yes -- adapt mcp --read-only --device SERIAL` |
+| Amp (`amp`) | install | json: `amp.mcpServers` | `{home}/.config/amp/settings.json` | `{project}/.amp/settings.json` | - | `amp mcp add adapt -- adapt mcp --read-only --device SERIAL` |
+| Kiro (`kiro`) | install | json: `mcpServers` | `{home}/.kiro/settings/mcp.json` | `{project}/.kiro/settings/mcp.json` | - | - |
+| Windsurf / Devin Desktop (`windsurf`) | print-only | json: `mcpServers` | `{xdg}/devin/mcp_config.json` | `{project}/.devin/mcp_config.json` | - | - |
+| Zed (`zed`) | print-only | json: `context_servers` | - | `{project}/.zed/settings.json` | - | - |
+| Continue (`continue`) | print-only | yaml: `mcpServers`, `type: "stdio"` (required) | `{home}/.continue/config.yaml` | `{project}/.continue/mcpServers/adapt.yaml` | - | - |
+| Goose (`goose`) | print-only | yaml: `extensions`, `type: "stdio"` (required) | windows: `{appdata}/Block/goose/config/config.yaml`; linux: `{xdg}/goose/config.yaml` | - | - | - |
+| JetBrains AI Assistant (`jetbrains`) | print-only | json: `mcpServers` | - | - | - | - |
+| JetBrains Junie (`junie`) | print-only | json: `mcpServers` | `{home}/.junie/mcp/mcp.json` | `{project}/.junie/mcp/mcp.json` | - | - |
+| Grok (community CLI) (`grok`) | print-only | toml: `mcp_servers` | - | `{project}/.grok/config.toml` | - | - |
+
+Notes per client (evidence: each client's own documentation read on 2026-11-16; third-party facts are marked):
+
+- **Claude Code** (`claude-code`): User scope uses `claude mcp add` only: ~/.claude.json is Claude Code's own state file, which ADAPT never edits. No timeout key is written (its unit is not stated).
+- **Claude Desktop** (`claude-desktop`): No command-line registration and no project scope. Restart Claude Desktop yourself afterwards; ADAPT never starts or stops a client. macOS is not covered by the sources read.
+- **OpenAI Codex (CLI)** (`codex`): `codex mcp add` cannot set `tool_timeout_sec` (default 60 s), so `install` edits the TOML file unless you pass --method cli. Project config applies in trusted projects only.
+- **Cursor** (`cursor`): `type: "stdio"` is required. No command-line registration is documented.
+- **VS Code (Copilot harness)** (`vscode`): User file is ~/.copilot/mcp-config.json (or $COPILOT_HOME). `code --add-mcp` is not used: which file it writes is not stated. Project scope shares .mcp.json with Claude Code.
+- **VS Code (Local harness, deprecated)** (`vscode-local`): Project scope only (the user-profile file's path is not stated). The Local harness is deprecated, with removal announced for February 2027.
+- **Gemini CLI** (`gemini-cli`): `gemini mcp add` takes the command's arguments positionally, which makes `--read-only` ambiguous, so `install` edits the JSON file. No timeout key is written (its unit is not stated).
+- **Google Antigravity** (`antigravity`): No command-line registration is documented. Its per-call timeout is 180 s already.
+- **Roo Code** (`roo-code`): Project scope only (the global file's path is not stated). Detected only when the project already has a .roo folder, because the extension itself cannot be detected from outside.
+- **OpenCode** (`opencode`): Registered through `opencode mcp add` only: its config is JSONC and ADAPT does not edit JSONC. `command` is one array. Evidence: official; user path third-party.
+- **Pi coding agent** (`pi`): `pi mcp add` cannot set `timeout` (default 60 s), so `install` edits the JSON file unless you pass --method cli. Pi runs tools without asking by default: keep the session read-only.
+- **Cline (CLI)** (`cline`): Registered through `cline mcp add` only. The Cline VS Code extension keeps its settings elsewhere (path not stated): use `adapt agent config cline` and paste it into the extension.
+- **Amp** (`amp`): The key is the single name `amp.mcpServers`. Workspace servers need `amp mcp approve adapt`.
+- **Kiro** (`kiro`): No command-line registration is documented.
+- **Windsurf / Devin Desktop** (`windsurf`): Print-only: the documentation now redirects to Devin Desktop and the server key is not stated on the pages read. The legacy path ~/.codeium/windsurf/mcp_config.json is third-party. Evidence: unverified.
+- **Zed** (`zed`): Print-only: settings.json is JSONC that holds the editor's own settings, and its user path is shown without an OS label. Paste the snippet into Zed's settings yourself. Evidence: official; project path third-party.
+- **Continue** (`continue`): Print-only: YAML is not edited by ADAPT. A project JSON file under .continue/mcpServers/ is the documented alternative.
+- **Goose** (`goose`): Print-only: YAML is not edited by ADAPT. Goose runs tools autonomously by default; set GOOSE_MODE=approve. `goose configure` is interactive.
+- **JetBrains AI Assistant** (`jetbrains`): Print-only: configured in the IDE settings UI; paste the JSON there.
+- **JetBrains Junie** (`junie`): Print-only: its documentation could not be read; the paths come from a third-party table. Evidence: third-party.
+- **Grok (community CLI)** (`grok`): Print-only: whether xAI ships an official CLI is unverified; two third-party listings name `.grok/config.toml`. Evidence: third-party.
+
+Print-only means ADAPT prints the entry and never writes that client's settings. No client registration in this table has been live-checked.
+
+<!-- adapt:clients-table:end -->
 
 ## Access is layered
 
@@ -211,8 +319,9 @@ No configuration is written and no connection starts while generating the entry.
 See [SSH workers](ssh-workers.md) for POSIX/Windows shell selection and host/key
 prerequisites. This is separate from direct Android SSH and from raw ADB forwarding.
 
-Useful additions include display-aware screenshot/input tools,
-versioned workflow resources, and test prompts that require fresh observations.
+Useful additions include display-aware screenshot/input tools and test prompts
+that require fresh observations (prompts are not implemented; the workflow text
+exists as the `adapt://workflows/...` resources).
 Profile mutation would need explicit session capabilities and snapshot/recovery
 semantics. Tool installation should retain a separate confirmation boundary.
 

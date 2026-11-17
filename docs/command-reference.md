@@ -1,8 +1,8 @@
 # Command reference
 
-Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **70 visible leaf commands in 14 groups** (the root plus 13 subcommand groups: 84 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
+Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **79 visible leaf commands in 15 groups** (the root plus 14 subcommand groups: 94 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
 
-This reference describes this repository's development tree, which contains unreleased changes. The 0.1.1 download has 64 visible leaf commands: it lacks `adapt explain`, `adapt agent primer` and the four `adapt dex receiver-*` commands, and it differs in the behaviour noted *(development tree)* below.
+This reference describes this repository's development tree, which contains unreleased changes. The 0.1.1 download has 64 visible leaf commands: it lacks `adapt explain`, the `adapt agent` commands and the four `adapt dex receiver-*` commands, and it differs in the behaviour noted *(development tree)* below.
 
 Conventions: `SERIAL` is an exact ADB transport identifier; placeholders in capitals are yours to supply; example addresses use the RFC 5737 documentation range. Examples are syntax-checked against the source command tree and are **not** a claim that the workflow succeeded on any device. `--json` output is one JSON document on stdout; ADAPT writes banners, tips and progress to stderr and silences them for `--json`, MCP and non-interactive output.
 
@@ -112,7 +112,7 @@ Learn workflows or explore everything this installed ADAPT can do.
 | `all_commands` | `--all` | flag | no | off | Show every registered command and option. |
 | `json_output` | `--json` | flag | no | off | Emit the guide as JSON. |
 
-- 66 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
+- 76 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
 - `--all` lists every registered command and option of the installed build. A failure ID (for example `adb.not_found`) shows the same guide as `adapt explain`. An unknown topic exits 2.
 
 ```text
@@ -243,9 +243,9 @@ Start the ADAPT stdio MCP server.
 | `device` | `--device` | text, repeatable | no |  | Restrict the session to this exact transport; repeat to allow several. Blank, whitespace-padded, control-character or `-`-prefixed values exit 2. |
 
 - Requires the `mcp` extra (`adapt-adb[mcp]`; from a checkout, `pip install -e ".[mcp]"`); without it the command prints an install hint and exits 2.
-- `--read-only` exposes the 23 observation tools; `--device` pins exact targets and requires `device` on the 29 device-bound tools, except that a session started with exactly one `--device` lets the 14 tools that act on the phone omit it. *(development tree)* Without `--device`, the tools that act on the phone (`tap`, `swipe`, `key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`, `test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`, `permission_revoke`, `ui_tap_text`) still need `device` and never pick one; in 0.1.1 they use the only ready device. Error results carry a `failure` object. See [MCP access](mcp-access.md).
+- `--read-only` exposes the 24 observation tools; `--device` pins exact targets and requires `device` on the 29 device-bound tools, except that a session started with exactly one `--device` lets the 14 tools that act on the phone omit it. *(development tree)* Without `--device`, the tools that act on the phone (`tap`, `swipe`, `key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`, `test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`, `permission_revoke`, `ui_tap_text`) still need `device` and never pick one; in 0.1.1 they use the only ready device. Error results carry a `failure` object. See [MCP access](mcp-access.md).
 - Never prints a banner, tips or progress to stdout; logging goes to stderr. Do not run it expecting an interactive prompt.
-- *(development tree)* The server sends short orientation `instructions` at initialization (built by `adapt_adb/agent_guide.py`, the module behind `adapt agent primer`) and advertises a `title` and the standard annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) on every tool, derived from the observation/acting classification in `mcp/access.py`. Offline-tested only; no AI client has been observed reading them. MCP resources and prompts are not implemented.
+- *(development tree)* The server sends short orientation `instructions` at initialization (built by `adapt_adb/agent_guide.py`, the module behind `adapt agent primer`) and advertises a `title` and the standard annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) on every tool, derived from the observation/acting classification in `mcp/access.py`. Offline-tested only; no AI client has been observed reading them. The server also serves static `adapt://` resources and the `help` tool (see [MCP access](mcp-access.md#resources-and-the-help-tool)); prompts are not implemented.
 
 ```text
 adapt mcp --read-only
@@ -1469,7 +1469,7 @@ adapt tailscale worker-mcp-config --peer LAB_HOST --device USB_SERIAL --json
 
 ## `adapt agent`
 
-Orient an AI agent. *(development tree)* Not in 0.1.1. The group prints text or JSON only: it reads the installed command tree and the MCP tool classification, and it never runs adb, touches a device or opens a connection. Banners, tips and progress are not shown for it.
+Orient an AI agent, register ADAPT's MCP server with AI clients, install the Agent Skill and verify the server. *(development tree)* Not in 0.1.1. `primer` prints text or JSON only: it reads the installed command tree and the MCP tool classification. The group never runs adb, touches a device or opens a connection. ADAPT changes a client's settings only when you run `adapt agent install`, shows the change first, and keeps a backup. Banners, tips and progress are not shown for it.
 
 ### `adapt agent primer`
 
@@ -1481,13 +1481,178 @@ Print the agent primer: what ADAPT is, first steps, the development loop, safety
 |---|---|---|---|---|---|
 | `json_output` | `--json` | flag | no | off | Emit the structured primer, with the full command and MCP tool catalog, as JSON. |
 
-- Markdown by default (ASCII only). The JSON document has `what_is_adapt`, `first_steps`, `development_loop`, `safety_rules`, `output_conventions`, `mcp` (start flags, registration forms, per-session tool counts and every tool with its observation or acting kind), `commands` (every visible leaf command with its summary and whether it takes `-s`, `--json` and `--yes`), `quoted_commands` and `claim_boundary`.
+- Markdown by default (ASCII only). The JSON document has `what_is_adapt`, `first_steps`, `development_loop`, `safety_rules`, `output_conventions`, `mcp` (start flags, registration forms, per-session tool counts and every tool with its observation or acting kind), `commands` (every visible leaf command with its summary, its effect class `reads_host`, `reads_device`, `acts_on_device` or `changes_host`, and whether it takes `-s`, `--json` and `--yes`), `quoted_commands` and `claim_boundary`.
 - Every command the primer quotes is checked against the real command tree by `tests/test_agent_guide.py`; that proves the commands and flags exist, not that a workflow works on a device.
 - Bare `adapt agent` prints the same Markdown primer. The root `adapt --help` text points agents here.
 
 ```text
 adapt agent primer
 adapt agent primer --json
+```
+
+### `adapt agent clients`
+
+Detect installed AI clients and show, per client, its config path and whether `adapt` is registered.
+
+**Effects.** Reads PATH and config files; writes nothing; starts no client and contacts no device.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `json_output` | `--json` | flag | no | off | Emit one JSON document. |
+| `project_dir` | `--project-dir` | text | no | current directory | Project directory used for project-scope paths. |
+
+- A client counts as installed when its executable is on PATH or its own config folder exists. Per scope the report gives the config path, whether the file exists, whether an `adapt` entry is registered, and its flags (read-only or not, how many `--device` values; never the serials). A file that does not parse is reported as such.
+- Every path comes from environment variables (`HOME`, `USERPROFILE`, `APPDATA`, `XDG_CONFIG_HOME`, `COPILOT_HOME`) and the project directory; with no home variable set, paths that need it are reported as unavailable.
+
+```text
+adapt agent clients
+adapt agent clients --json
+```
+
+### `adapt agent config`
+
+Print the exact entry, or the client's own command, that registers ADAPT. Writes nothing.
+
+**Effects.** Offline; prints only.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `client` | `CLIENT` (argument) | text | yes |  | A client key from [clients](clients.md#register-adapt-with-a-client-adapt-agent). |
+| `scope` | `--scope` | text | no | `user` | `user` or `project`. |
+| `device` | `--device` | text, repeatable | no |  | Exact transport to restrict the server to. No serial is written unless given. |
+| `allow_actions` | `--allow-actions` | flag | no | off | Drop `--read-only`: the tools that act on the phone are offered. |
+| `json_output` | `--json` | flag | no | off | Emit one JSON document. |
+| `project_dir` | `--project-dir` | text | no | current directory | Project directory. |
+| `adapt_path` | `--adapt-path` | text | no | found on PATH | Absolute path of `adapt` to write at user scope. |
+
+- The default is read-only. User scope shows the absolute `adapt` path (a bare `adapt` if it cannot be found); project scope shows a bare `adapt`.
+- Exit 2 for an unknown client or scope or a bad `--device`.
+
+```text
+adapt agent config claude-code
+adapt agent config codex --scope project --device SERIAL
+```
+
+### `adapt agent install`
+
+Register ADAPT's MCP server with one or more AI clients.
+
+**Effects.** Changes a client's settings, only here: by the client's own command, or by editing its config file after showing a unified diff, backing the file up to `<file>.adapt-backup-<UTC>`, recording the backup in `agent-installs.json` (beside ADAPT's preferences) and replacing the file atomically. Never starts, restarts or stops a client and never touches a device.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `clients` | `CLIENT...` (arguments) | text | yes |  | Client keys. |
+| `scope` | `--scope` | text | no | `user` | `user` or `project`. |
+| `device` | `--device` | text, repeatable | no |  | Restrict the server to this exact transport. |
+| `allow_actions` | `--allow-actions` | flag | no | off | Register without `--read-only`. |
+| `dry_run` | `--dry-run` | flag | no | off | Show the diff and the command; write and run nothing. |
+| `yes` | `--yes` | flag | no | off | Approve the change shown; required when not interactive. |
+| `replace` | `--replace` | flag | no | off | Overwrite a different existing `adapt` entry. |
+| `method` | `--method` | text | no | `auto` | `auto`, `cli` or `file`. |
+| `json_output` | `--json` | flag | no | off | Emit one JSON document. |
+| `project_dir`, `adapt_path` | `--project-dir`, `--adapt-path` | text | no |  | As for `config`. |
+
+- `auto` uses the client's own command when it is on PATH and can express the whole entry; Codex and Pi need a timeout key their command cannot set, so `auto` edits their file. A client whose config ADAPT does not edit (Claude Code at user scope, OpenCode, Cline, Amp at user scope) is registered through its own command or not at all.
+- Refuses, with the entry printed: a print-only client, a client that is not installed, a file that does not parse or has comments, a different existing `adapt` entry without `--replace`, an unresolvable `adapt` path at user scope. `adapt` already registered with the same entry is reported as `unchanged`.
+- Timeouts of 180 s are written where a client has a timeout key (Codex `tool_timeout_sec`, Roo Code and Pi `timeout`).
+- Exit 0 done or nothing to do, 1 a write or command failed, 2 refused or not confirmed. Without a terminal, `--yes` is required.
+
+```text
+adapt agent install claude-code --dry-run
+adapt agent install codex cursor --yes
+adapt agent install cursor --scope project --yes
+```
+
+### `adapt agent uninstall`
+
+Remove only the entry that `adapt agent install` added.
+
+**Effects.** Edits the recorded config file after a diff and a backup; an entry added through a client's own command is reported as a manual step (the client's removal command is not verified here).
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `clients` | `CLIENT...` (arguments) | text | yes |  | Client keys. |
+| `scope` | `--scope` | text | no | `user` | `user` or `project`. |
+| `dry_run`, `yes`, `json_output`, `project_dir` | `--dry-run`, `--yes`, `--json`, `--project-dir` | flags and text | no |  | As for `install`. |
+
+- Refuses when ADAPT has no record of the install, or when the entry was changed after ADAPT added it.
+
+```text
+adapt agent uninstall codex --dry-run
+```
+
+### `adapt agent restore`
+
+List the recorded changes, or put a file back as it was before one of them.
+
+**Effects.** `--list` reads the manifest. Restoring backs the current file up first (so a restore can itself be undone), then replaces the file, or deletes a file ADAPT created.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `entry_id` | `ID` (argument) | text | no |  | A record id from `--list`. |
+| `list_all` | `--list` | flag | no | off | List recorded changes with their backups. |
+| `force` | `--force` | flag | no | off | Restore even though the file changed after ADAPT wrote it. |
+| `dry_run`, `yes`, `json_output` | `--dry-run`, `--yes`, `--json` | flags | no | off | As for `install`. |
+
+```text
+adapt agent restore --list
+adapt agent restore ID --yes
+```
+
+### `adapt agent skill print` and `adapt agent skill install`
+
+Print, or copy, the Agent Skill (`SKILL.md` and `references/`) that ships in the wheel.
+
+**Effects.** `print` is offline. `install` writes the skill under `.agents/skills/adapt` and `.claude/skills/adapt` (project scope, in the project directory) or the user-scope equivalents, after a diff and with backups.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `scope` | `--scope` | text | no | `project` | `project` or `user`. |
+| `target` | `--target` | text | no | `agents,claude` | Comma-separated: `agents`, `claude`, `kiro`, `github` (`.github/skills`, or `~/.copilot/skills` at user scope). |
+| `replace`, `dry_run`, `yes`, `json_output`, `project_dir` | `--replace`, `--dry-run`, `--yes`, `--json`, `--project-dir` | flags and text | no |  | As for `install`. |
+
+- A different existing skill file is refused unless `--replace`. A test checks that every command the skill quotes exists in the command tree.
+
+```text
+adapt agent skill print
+adapt agent skill install --scope project --dry-run
+```
+
+### `adapt agent agents-md`
+
+Print, or write, the short ADAPT block for a project's `AGENTS.md`.
+
+**Effects.** `print` is offline. `--write` inserts the block, or replaces only what lies between `<!-- adapt:begin -->` and `<!-- adapt:end -->`, after a diff and with a backup. Unbalanced or repeated markers are refused.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `action` | `ACTION` (argument) | text | no | `print` | `print` or `write`. |
+| `write` | `--write` | flag | no | off | Same as the action `write`. |
+| `file` | `--file` | text | no | `AGENTS.md` in the project directory | File to change. |
+| `dry_run`, `yes`, `json_output`, `project_dir` | `--dry-run`, `--yes`, `--json`, `--project-dir` | flags and text | no |  | As for `install`. |
+
+```text
+adapt agent agents-md print
+adapt agent agents-md --write --yes
+```
+
+### `adapt agent verify`
+
+Start `adapt mcp` as a child process, run the MCP handshake and `tools/list`, and report.
+
+**Effects.** Starts one local child process and stops it. No device is contacted and no AI client is involved, so a pass does not show that a client accepts the registration.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `client` | `CLIENT` (argument) | text | no |  | Verify the `adapt` entry registered with this client; omit to verify this installation (`adapt mcp --read-only`). |
+| `timeout` | `--timeout` | number | no | 20 | Seconds (1-120) before the child is given up on. |
+| `json_output`, `project_dir`, `adapt_path` | `--json`, `--project-dir`, `--adapt-path` | flag and text | no |  | As for `config`. |
+
+- Runs a registered command only when it is `adapt mcp ...`; anything else a config names is refused. Exit 0 ok, 1 failed or timed out, 2 refused or not registered.
+
+```text
+adapt agent verify
+adapt agent verify claude-code
 ```
 
 ---

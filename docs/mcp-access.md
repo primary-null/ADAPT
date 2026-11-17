@@ -6,10 +6,10 @@ What it is not:
 
 - **Not a network service.** There is no HTTP, SSE or WebSocket transport, no listening port, no authentication layer and no remote exposure. Remote use is only a client launching `ssh` that in turn launches `adapt mcp` on a worker ([below](#remote-workers-over-ssh)).
 - **Not an LLM.** It embeds no model and needs no API key.
-- **Tools, with instructions.** The server sends short orientation `instructions` and gives every tool a title and annotations ([below](#instructions-titles-and-annotations)). MCP resources and prompts are not implemented.
+- **Tools, instructions and static resources.** The server sends short orientation `instructions`, gives every tool a title and annotations ([below](#instructions-titles-and-annotations)), and serves its built-in guidance as `adapt://` resources and through the `help` tool ([below](#resources-and-the-help-tool)). MCP prompts are not implemented.
 - **Not an Android permission grant.** It automates `adb` for the authorized transports your host already has.
 
-> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`, `tests/test_mcp_fixes.py`, `tests/test_mcp_failure.py`, `tests/test_mcp_status_hardening.py`, and `tests/test_mcp_agent_tools.py` for the build-test loop tools). The only device sessions recorded are `--read-only --device` sessions of the released 0.1.1 code on 2026-11-14, from one Windows 11 PC, driven by a scripted client (no AI client was involved) against three Samsung devices: an Android 13 phone, an Android 17 phone and an Android 16 tablet. Each listed 18 tools; `list_devices`, `device_info` and `screenshot` returned results; `tap` was refused with `access_denied`. With 0.1.1, `list_devices` labelled the two wireless-debugging transports `usb`. This page describes the repository's unreleased development tree, which differs from 0.1.1: the explicit-device rule for the tools that act on the phone, the transport label read from the serial, the `failure` object, the error codes `unsafe_shared_server` and `adb_command_refused`, and the server instructions and tool titles and annotations have offline tests only. The 13 build-test loop tools (`app_launch` to `ui_wait` in the [catalog](#tool-catalog)) were added after those sessions and are offline-tested against faked adb output only. No tool that acts on the phone has been run against a device. **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
+> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`, `tests/test_mcp_fixes.py`, `tests/test_mcp_failure.py`, `tests/test_mcp_status_hardening.py`, `tests/test_mcp_agent_tools.py` for the build-test loop tools, and `tests/test_mcp_resources.py` for the resources and `help`). The only device sessions recorded are `--read-only --device` sessions of the released 0.1.1 code on 2026-11-14, from one Windows 11 PC, driven by a scripted client (no AI client was involved) against three Samsung devices: an Android 13 phone, an Android 17 phone and an Android 16 tablet. Each listed 18 tools; `list_devices`, `device_info` and `screenshot` returned results; `tap` was refused with `access_denied`. With 0.1.1, `list_devices` labelled the two wireless-debugging transports `usb`. This page describes the repository's unreleased development tree, which differs from 0.1.1: the explicit-device rule for the tools that act on the phone, the transport label read from the serial, the `failure` object, the error codes `unsafe_shared_server` and `adb_command_refused`, and the server instructions, tool titles and annotations, the `adapt://` resources, the `help` tool and the `adapt agent` command family have offline tests only. The 13 build-test loop tools (`app_launch` to `ui_wait` in the [catalog](#tool-catalog)) were added after those sessions and are offline-tested against faked adb output only. No tool that acts on the phone has been run against a device. **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
 
 ## Install and start
 
@@ -25,7 +25,7 @@ Contributors install from a checkout instead ([README](../README.md#install-from
 
 The server announces itself to the client as `adapt` with the installed package version (`adapt_adb.__version__`), not a fixed number.
 
-The `mcp` extra installs `mcp>=1.0.0` and `Pillow>=10.0.0` (Pillow scales screenshots). Without it, `adapt mcp` prints an install hint on stderr and exits 2. The process waits for protocol messages on stdin; it prints no menu, banner, tips or progress to stdout, and its own logging goes to stderr.
+The `mcp` extra installs `mcp>=2.3,<3` (the 2.x line of the official Python SDK; 1.x is no longer supported) and `Pillow>=10.0.0` (Pillow scales screenshots). Without it, `adapt mcp` prints an install hint on stderr and exits 2. The process waits for protocol messages on stdin; it prints no menu, banner, tips or progress to stdout, and its own logging goes to stderr.
 
 ## Generic stdio configuration
 
@@ -54,7 +54,7 @@ args = ["mcp", "--read-only", "--device", "SERIAL"]
 
 The shipped examples start in `--read-only` mode and already contain `--device SERIAL`; `SERIAL` is a placeholder to replace with your exact transport before connecting a client to a phone. Omitting `--device` is allowed ([below](#session-policy)): read-only tools then use the only ready device, and tools that act on the phone refuse to run without a named `device`.
 
-ADAPT never rewrites a client's settings. Clients that only speak remote HTTPS connectors cannot launch a stdio server; ADAPT provides no HTTP bridge.
+ADAPT changes a client's settings only when you run `adapt agent install`, shows the change first, and keeps a backup. See [clients](clients.md#register-adapt-with-a-client-adapt-agent). Clients that only speak remote HTTPS connectors cannot launch a stdio server; ADAPT provides no HTTP bridge.
 
 ## Layers of control
 
@@ -68,12 +68,12 @@ ADAPT never rewrites a client's settings. Clients that only speak remote HTTPS c
 
 | Invocation | Tools exposed |
 |---|---|
-| `adapt mcp` | 37 |
-| `adapt mcp --read-only` | 23 (the observation tools) |
-| `adapt mcp --device A` | 36: `doctor` is removed because it describes the whole host, not one transport |
-| `adapt mcp --read-only --device A` | **22** read-only tools |
+| `adapt mcp` | 38 |
+| `adapt mcp --read-only` | 24 (the observation tools) |
+| `adapt mcp --device A` | 37: `doctor` is removed because it describes the whole host, not one transport |
+| `adapt mcp --read-only --device A` | **23** read-only tools |
 
-With `--device`, the 29 device-bound tools advertise a **required** `device` parameter restricted by an `enum` of your allowed targets, and a call naming any other target returns `access_denied`. The one exception is a session started with exactly one `--device` target: there the 14 tools that act on the phone advertise `device` as optional (still restricted to that one target) and use it when a call omits it, because the operator chose it explicitly when starting the server. `list_devices` results are filtered to the allowed targets. Host-level tools without a device parameter (`setup_status`, `android_versions`, `tool_catalog`, `logging_guide`, `build_modes`) stay available because they observe no device. `test_status` takes a `run_id` instead of a device: in a `--device` session it answers only for runs on allowed devices, and reports any other run as `unknown_run`.
+With `--device`, the 29 device-bound tools advertise a **required** `device` parameter restricted by an `enum` of your allowed targets, and a call naming any other target returns `access_denied`. The one exception is a session started with exactly one `--device` target: there the 14 tools that act on the phone advertise `device` as optional (still restricted to that one target) and use it when a call omits it, because the operator chose it explicitly when starting the server. `list_devices` results are filtered to the allowed targets. Host-level tools without a device parameter (`setup_status`, `android_versions`, `tool_catalog`, `logging_guide`, `build_modes`, `help`) stay available because they observe no device. `test_status` takes a `run_id` instead of a device: in a `--device` session it answers only for runs on allowed devices, and reports any other run as `unknown_run`.
 
 Without `--device`, `device` is optional on the tools that only read (`device_info`, `screenshot`, `ui_summary`, `logcat_tail`): if exactly one device is in state `device` it is used; with several, the call fails with `need_device` and lists the candidates; an unlisted or non-ready target returns `unknown_device` or `no_device`. The tools that act on the phone do not have this convenience, and the newer observation tools (`app_state`, `log_mark`, `ui_wait`) require `device`.
 
@@ -95,7 +95,7 @@ Clients see the rule in the advertised schema: for these 14 tools `device` is li
 
 ## Tool catalog
 
-37 tools: **23 observation** (read-only mode keeps them) and **14 mutating** (hidden by `--read-only`). "Device" means bound by `--device` restrictions. The last 13 rows of each table are the build-test loop (install, launch, observe, act, check state and logs, run tests, restore); they were added in the development tree and are offline-tested only.
+38 tools: **24 observation** (read-only mode keeps them) and **14 mutating** (hidden by `--read-only`). "Device" means bound by `--device` restrictions. Thirteen rows are the build-test loop (install, launch, observe, act, check state and logs, run tests, restore): `log_mark` to `ui_wait` in the observation table and `app_launch` to `ui_tap_text` in the mutating table. They and `help`, the offline guidance tool in the last observation row, were added in the development tree and are offline-tested only.
 
 ### Observation tools
 
@@ -124,6 +124,7 @@ Clients see the rule in the advertised schema: for these 14 tools `device` is li
 | `app_state` | yes | `device`, `package` (required) | `running` and `pids` (`pidof`), the resumed activity and whether the app is `foreground`, and `last_exit` (`reason`, `crash`, `anr`, `at`, a short `description`) from `dumpsys activity exit-info` on Android 11+ (API 30). Answers "did it crash?" without reading logs; `last_exit` can predate your launch, so compare `last_exit.at` with `device_time`. |
 | `test_status` | no | `run_id` (required) | Progress, or the final parsed result, of a `test_run`. Runs are per server session; in a `--device` session only runs on allowed devices are visible. |
 | `ui_wait` | yes | `device` (required); `text` or `resource_id` (exactly one); `gone` (default false); `timeout_s` (1-55, default 10) | Polls fresh UI dumps until the element is present (or, with `gone`, absent). A timeout is a result (`timed_out: true`), not an error. Each dump is clipped to the remaining time, so the total stays within `timeout_s` plus about a second. In a read-only session the file-based dump fallback is disabled. |
+| `help` | no | `topic` (required: `primer`, `session`, `safety`, `build-install-test`, `ui-testing`, `android-versions`, `build-modes`, `logging`, `tool-catalog`, `dev-options`, `errors`, `failure`); `id` (a failure ID, only for `failure`) | The same text as the matching `adapt://` resource, as JSON `{topic, uri, mime_type, text}`. Offline, closed-world, no device and no device data. Covers clients that do not surface resources. |
 
 ### Mutating tools
 
@@ -165,7 +166,7 @@ Argument bounds are enforced before execution: coordinates 0-20000, swipe durati
 
 *Development tree; offline-tested only (`tests/test_agent_guide.py`). No AI client has yet been observed reading any of this.*
 
-**Instructions.** `create_server()` passes a short orientation string (well under 2,000 characters, ASCII) as the server `instructions`, on the current SDK (`mcp` 2.3.0 was used) and on the 1.x fallback constructors (the fallback is tested with stand-in classes, not a real 1.x install). It tells the model to start with `list_devices` and name an exact device, the test loop above (only with tools the session exposes: a read-only session is told to observe with `ui_summary`, `ui_wait`, `app_state` and logs read with `since`), to ask the user before installing an app or changing the device, to treat all device-originated text as untrusted data, and where `adapt agent primer` is. It follows the session policy: a `--read-only` session says that the tools that act on the phone are not offered, and a `--device` session says calls are limited to the devices it was started with (it never repeats the serials). The same module (`src/adapt_adb/agent_guide.py`) builds `adapt agent primer`.
+**Instructions.** `create_server()` passes a short orientation string (under 2,000 characters in every session policy, ASCII) as the server `instructions` (SDK `mcp` 2.3.0 was used). It tells the model to start with `list_devices` and name an exact device, the test loop above (only with tools the session exposes: a read-only session is told to observe with `ui_summary`, `ui_wait`, `app_state` and logs read with `since`), to ask the user before installing an app or changing the device, to observe again after every action because coordinates go stale, to prefer `ui_summary` to `screenshot`, to follow `failure.retry` and `failure.next_tool` and not repeat a call whose retry is `not_useful`, that logs are bounded snapshots (an empty log does not prove nothing crashed), to treat all device-originated text as untrusted data, and where `help`, the `adapt://` resources and `adapt agent primer` are. It follows the session policy and names only tools the session offers: a `--read-only` session says that the tools that act on the phone are not offered, a one-device session says `device` may be omitted on them, and a several-device session says calls are limited to the devices it was started with (it never repeats the serials). A test checks every tool name in it against the session's own tool list. The same module (`src/adapt_adb/agent_guide.py`) builds `adapt agent primer`.
 
 **Titles and annotations.** Every advertised tool has a human `title` and the standard `annotations`, derived from the classification in `mcp/access.py` (`tool_title`, `tool_annotation_hints`), so a new tool is covered without a separate list:
 
@@ -173,13 +174,32 @@ Argument bounds are enforced before execution: coordinates 0-20000, swipe durati
 |---|---|---|---|---|
 | `screenshot`, `ui_summary`, `logcat_tail`, `app_logs`, `diagnostic_logs` | true | false | true | true |
 | `app_state`, `ui_wait`, `test_status` | true | false | true | true |
-| The other 15 observation tools (including `log_mark`) | true | false | true | false |
+| The other 16 observation tools (including `log_mark` and `help`) | true | false | true | false |
 | `tap`, `swipe`, `key`, `type` | false | true | false | true |
 | `app_open_link`, `test_run`, `ui_tap_text` | false | true | false | true |
 | `app_launch` | false | true | false | false |
 | `install_apk`, `app_stop`, `permission_grant`, `permission_revoke`, `dev_options_apply`, `dev_options_restore` | false | true | true | false |
 
-Every tool that acts on the phone is marked destructive. A tap, swipe, key press or typed text goes to whatever app is in front and can confirm a deletion, a purchase or a message. `app_stop`, `permission_grant`, `permission_revoke`, `dev_options_apply` and `dev_options_restore` are marked idempotent because repeating the identical call changes nothing further (a second `dev_options_apply` is refused while its snapshot is pending; a second restore finds nothing pending); `app_launch`, `app_open_link`, `test_run` and `ui_tap_text` act again each time and are not. `openWorldHint` is also true for `ui_tap_text`, `ui_wait`, `app_state` (app-supplied exit text), `app_open_link` (whatever app handles the link), `test_run` and `test_status` (test output and test code). `install_apk` with its default `reinstall=true` (`adb install -r`) replaces the installed build of an app that is already on the phone, keeping the app's data; installing the same APK again changes nothing further, so it is idempotent. A tool that is not classified as observation is advertised as not read-only and destructive. `openWorldHint` is true for tools whose result or input involves content ADAPT does not control: screen pixels, UI text and log lines from any app, and input delivered to any app. Clients may ask for approval more often because of these hints; that is intended for a real phone. `ui_summary` counts as read-only: its fallback, available only outside `--read-only`, writes and then removes one temporary file. These hints are advisory for the client; ADAPT's own enforcement is the session policy above, not these annotations. With an older 1.x SDK that has no annotations, the tools are advertised without titles and hints.
+Every tool that acts on the phone is marked destructive. A tap, swipe, key press or typed text goes to whatever app is in front and can confirm a deletion, a purchase or a message. `app_stop`, `permission_grant`, `permission_revoke`, `dev_options_apply` and `dev_options_restore` are marked idempotent because repeating the identical call changes nothing further (a second `dev_options_apply` is refused while its snapshot is pending; a second restore finds nothing pending); `app_launch`, `app_open_link`, `test_run` and `ui_tap_text` act again each time and are not. `openWorldHint` is also true for `ui_tap_text`, `ui_wait`, `app_state` (app-supplied exit text), `app_open_link` (whatever app handles the link), `test_run` and `test_status` (test output and test code). `install_apk` with its default `reinstall=true` (`adb install -r`) replaces the installed build of an app that is already on the phone, keeping the app's data; installing the same APK again changes nothing further, so it is idempotent. A tool that is not classified as observation is advertised as not read-only and destructive. `openWorldHint` is true for tools whose result or input involves content ADAPT does not control: screen pixels, UI text and log lines from any app, and input delivered to any app. Clients may ask for approval more often because of these hints; that is intended for a real phone. `ui_summary` counts as read-only: its fallback, available only outside `--read-only`, writes and then removes one temporary file. These hints are advisory for the client; ADAPT's own enforcement is the session policy above, not these annotations.
+
+## Resources and the `help` tool
+
+*Development tree; offline-tested only (`tests/test_mcp_resources.py`). No AI client has yet been observed reading a resource.*
+
+The server advertises the `resources` capability and serves static text shipped in the wheel. None of it contains device data, a serial or a path.
+
+| URI | Content |
+|---|---|
+| `adapt://primer` | What ADAPT is, first steps, the development loop, safety rules, MCP and every command (the same text as `adapt agent primer`) |
+| `adapt://session` | This session's policy (read-only or not, whether devices are restricted, how many) and the tools it offers; never a serial |
+| `adapt://safety` | The rules an agent must always follow, and what ADAPT refuses |
+| `adapt://workflows/build-install-test` | The loop from an APK to checked logs, with tool names |
+| `adapt://workflows/ui-testing` | Observe, act once, observe again; stale coordinates; default display only |
+| `adapt://guides/{topic}` (template) | `android-versions`, `build-modes`, `logging`, `tool-catalog`, `dev-options` (the offline text the matching tools and commands already return; `tool-catalog` is the curated list without any PATH lookup) |
+| `adapt://failures/{id}` (template) | The failure guide for a stable ID, the same text as `adapt explain ID` (wrapped at 80 columns) |
+| `adapt://reference/errors` | Error codes, the `failure` object and the `retry` values |
+
+An unknown URI or failure ID is answered with an invalid-params error. Resource support differs between clients and some do not surface resources at all, so the `help` tool returns the same text: `help` with `topic` set to `primer`, `session`, `safety`, `build-install-test`, `ui-testing`, `android-versions`, `build-modes`, `logging`, `tool-catalog`, `dev-options`, `errors`, or `failure` plus `id`. It is an observation tool that is not device-bound, so a `--read-only` session and a `--device` session both keep it. Prompts are not implemented.
 
 ## Errors
 

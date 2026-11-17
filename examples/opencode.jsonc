@@ -1,0 +1,18 @@
+// OpenCode: `command` is one array. Prefer `opencode mcp add adapt -- adapt mcp --read-only --device SERIAL`.
+// Replace SERIAL with the exact transport name that `adapt devices` prints.
+{
+  "mcp": {
+    "servers": {
+      "adapt": {
+        "type": "local",
+        "command": [
+          "adapt",
+          "mcp",
+          "--read-only",
+          "--device",
+          "SERIAL"
+        ]
+      }
+    }
+  }
+}

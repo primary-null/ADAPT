@@ -150,6 +150,7 @@ def test_mcp_registered_tools_and_client_session(monkeypatch):
         "permission_revoke",
         "ui_tap_text",
         "ui_wait",
+        "help",
     ]
     assert names == expected
 

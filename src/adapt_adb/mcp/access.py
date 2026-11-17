@@ -20,6 +20,8 @@ DEVICE_TOOLS |= frozenset({
     "app_launch", "app_stop", "app_state", "app_open_link", "log_mark", "test_run", "dev_options_apply",
     "dev_options_restore", "permission_grant", "permission_revoke", "ui_tap_text", "ui_wait",
 })
+# Offline guidance (resource twin): an observation that touches no device.
+OBSERVATION_TOOLS |= frozenset({"help"})
 # Successful results of these tools carry text produced by the device and its apps
 # (UI labels, log lines, model names, settings values). `screenshot` is marked in its
 # JSON metadata block separately because its result is not a single JSON payload.

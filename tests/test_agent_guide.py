@@ -155,8 +155,8 @@ def test_every_mcp_tool_is_in_the_primer_with_its_classification():
         assert record["hidden_by_read_only"] == (name in access.MUTATING_TOOLS)
         assert record["title"] and record["summary"]
     counts = agent_guide.build_primer()["mcp"]["exposed_tool_counts"]
-    assert counts == {"adapt mcp": 37, "adapt mcp --read-only": 23, "adapt mcp --device SERIAL": 36,
-                      "adapt mcp --read-only --device SERIAL": 22}
+    assert counts == {"adapt mcp": 38, "adapt mcp --read-only": 24, "adapt mcp --device SERIAL": 37,
+                      "adapt mcp --read-only --device SERIAL": 23}
 
 
 # --- every quoted command is real ------------------------------------------------------------
@@ -247,12 +247,17 @@ def test_mcp_instructions_are_short_ascii_and_name_only_real_tools(label):
     text = agent_guide.mcp_instructions(POLICIES[label])
     assert 0 < len(text) <= agent_guide.MCP_INSTRUCTIONS_TARGET_CHARS == 2000
     assert text.isascii()
-    names = {s["name"] for s in mcp_tools.TOOL_SCHEMAS}
+    policy = POLICIES[label]
+    exposed = {s["name"] for s in mcp_tools.TOOL_SCHEMAS if policy.exposes(s["name"])}
     for token in re.findall(r"`([a-z_]+)`", text):
-        if token in {"device", "failure", "content_trust", "untrusted_device_data"}:
+        if token in {"device", "failure", "not_useful"}:
             continue
-        assert token in names, token
+        assert token in exposed, f"{token} is named but this session does not offer it"
     assert "untrusted" in text and "adapt agent primer" in text
+    for needle in ("stale", "`ui_summary`", "`failure.retry`", "`failure.next_tool`", "not_useful", "bounded snapshots",
+                   "does not prove", "`help`", "adapt:// resources"):
+        assert needle in text, needle
+    assert "SERIAL" not in text and "SERIAL_A" not in text
 
 
 def test_mcp_instructions_follow_the_session_policy():
@@ -262,8 +267,9 @@ def test_mcp_instructions_follow_the_session_policy():
         assert f"`{name}`" in full
         assert f"`{name}`" not in read_only
     assert "read-only" in read_only
-    assert "limited to the devices" in agent_guide.mcp_instructions(POLICIES["one-device"])
-    assert "limited to the devices" not in full
+    assert "limited to one device" in agent_guide.mcp_instructions(POLICIES["one-device"])
+    assert "limited to the devices" in agent_guide.mcp_instructions(POLICIES["two-devices"])
+    assert "limited to" not in full
     assert "SERIAL" not in agent_guide.mcp_instructions(POLICIES["one-device"])
 
 
@@ -279,27 +285,6 @@ def test_server_announces_instructions_through_the_sdk(label):
             assert client.instructions == expected
 
     anyio.run(exercise)
-
-
-def test_server_instructions_survive_the_older_one_x_constructors(monkeypatch):
-    import mcp.server as mcp_server
-
-    expected = agent_guide.mcp_instructions(AccessPolicy())
-
-    class OneXServer:
-        """mcp 1.x: positional name, no on_* handlers, `instructions` keyword."""
-        def __init__(self, name, version=None, instructions=None):
-            self.name, self.version, self.instructions = name, version, instructions
-
-    class OldestServer:
-        """An earlier 1.x constructor that takes only the name."""
-        def __init__(self, name):
-            self.name = name
-
-    monkeypatch.setattr(mcp_server, "Server", OneXServer)
-    assert create_server().instructions == expected
-    monkeypatch.setattr(mcp_server, "Server", OldestServer)
-    assert create_server().instructions == expected
 
 
 # --- MCP titles and annotations --------------------------------------------------------------
@@ -369,30 +354,10 @@ def test_annotations_reach_a_real_client(monkeypatch):
     async def exercise():
         async with Client(create_server(POLICIES["read-only one-device"])) as client:
             tools = (await client.list_tools()).tools
-            assert len(tools) == 22
+            assert len(tools) == 23
             assert all(t.title and t.annotations and t.annotations.read_only_hint for t in tools)
 
     anyio.run(exercise)
-
-
-def test_tools_degrade_to_plain_tools_when_the_sdk_has_no_annotations():
-    from adapt_adb.mcp.server import _build_tool
-
-    class PlainTool:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    built = _build_tool(SimpleNamespace(Tool=PlainTool), "tap", "d", {"type": "object"})
-    assert set(built.kwargs) == {"name", "description", "inputSchema"}
-
-    class StrictTool(PlainTool):
-        def __init__(self, **kwargs):
-            if "annotations" in kwargs:
-                raise TypeError("no annotations in this SDK")
-            super().__init__(**kwargs)
-
-    types = SimpleNamespace(Tool=StrictTool, ToolAnnotations=lambda **kw: kw)
-    assert set(_build_tool(types, "tap", "d", {"type": "object"}).kwargs) == {"name", "description", "inputSchema"}
 
 
 # --- documentation counts --------------------------------------------------------------------

@@ -1,12 +1,12 @@
 {
   "counts": {
     "functional_areas": 19,
-    "visible_cli_entries": 84,
-    "visible_leaf_commands": 70,
-    "visible_groups_including_root": 14,
+    "visible_cli_entries": 94,
+    "visible_leaf_commands": 79,
+    "visible_groups_including_root": 15,
     "hidden_aliases": 2,
-    "mcp_tools": 37,
-    "mcp_read_only_tools": 23,
+    "mcp_tools": 38,
+    "mcp_read_only_tools": 24,
     "mcp_mutating_tools": 14,
     "catalog_tools": 16,
     "catalog_goals": 6,
@@ -14,7 +14,7 @@
     "manual_catalog_entries": 14,
     "developer_profiles": 4,
     "inspected_settings": 13,
-    "authored_help_topics": 66,
+    "authored_help_topics": 76,
     "configured_api_baselines": 9,
     "physical_phones_with_saved_evidence": 2,
     "python_tests": 917,
@@ -117,7 +117,7 @@
       "id": "05",
       "area": "Help and contextual tips",
       "entry": "adapt help-me; adapt explain; adapt tips; adapt guide",
-      "capability": "Full command inventory, 66 authored help topics with generic examples, contextual guidance tips, saved user tip preferences, and (development tree) failure guidance: a Why/Try/More block after errors, a failure object in JSON and MCP errors, and offline lookup with adapt explain.",
+      "capability": "Full command inventory, 76 authored help topics with generic examples, contextual guidance tips, saved user tip preferences, and (development tree) failure guidance: a Why/Try/More block after errors, a failure object in JSON and MCP errors, and offline lookup with adapt explain.",
       "maturity": "Offline-tested",
       "evidence": "Offline-tested in tests/test_help_system.py, tests/test_hints.py, tests/test_cli_help.py, tests/test_failure_guide.py, tests/test_failure_report.py and tests/test_failure_cli.py.",
       "boundary": "Tips are automatically silenced when stdout is not a TTY or when --json is passed to keep machine output clean. Failure guidance runs nothing. Errors and refused or failed results get a specific guide where ADAPT tagged them and the generic internal.unclassified guide otherwise; the dex receiver-* commands are the exception (their refusals carry no guidance, and receiver-status explains a receiver reason code in its own last_failure block). Failure guidance has offline tests only and has not been seen on a real failure.",
@@ -438,14 +438,23 @@
     {
       "id": "19",
       "area": "AI / MCP access",
-      "entry": "adapt mcp; adapt agent primer",
-      "capability": "Local stdio Model Context Protocol (MCP) server offering 37 tools (23 read-only, 14 mutating) with exact transport filtering and bounded outputs, short server instructions, 13 build-test loop tools (app launch, stop and state, log marks with a since window, test runs, Developer Options apply and restore with ADAPT-owned snapshots, runtime permissions, tapping and waiting by text), and a human title plus read-only/destructive/idempotent/open-world annotations on every tool; and (development tree) adapt agent primer, a Markdown or JSON primer for any AI agent with a shell, built from the live command tree and tool classification.",
+      "entry": "adapt mcp; adapt agent",
+      "capability": "Local stdio Model Context Protocol (MCP) server offering 38 tools (24 read-only, 14 mutating) with exact transport filtering and bounded outputs, short server instructions, 13 build-test loop tools (app launch, stop and state, log marks with a since window, test runs, Developer Options apply and restore with ADAPT-owned snapshots, runtime permissions, tapping and waiting by text), a human title plus read-only/destructive/idempotent/open-world annotations on every tool, static adapt:// resources and a help tool; and (development tree) the adapt agent commands: a Markdown or JSON primer for any AI agent with a shell, built from the live command tree and tool classification, a client table with config printing, a diff-first install with backups, an Agent Skill, an AGENTS.md block and a server check.",
       "maturity": "Offline-tested",
-      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py; the primer, the server instructions and the tool titles and annotations in tests/test_agent_guide.py; the 13 build-test loop tools (schemas, access policy, argv shapes, bounded output, the test_run and test_status lifecycle and the snapshot rules) in tests/test_mcp_agent_tools.py against faked adb output. With 0.1.1 on 2026-11-14, read-only --device sessions driven by a scripted client against three Samsung devices listed 18 tools, returned list_devices, device_info and screenshot, and refused tap; list_devices labelled the two wireless-debugging transports usb. No AI client was involved.",
-      "boundary": "No live external AI client registration or live MCP-over-SSH exercised, no AI client has been observed reading the server instructions or the primer, MCP resources and prompts are not implemented, and no tool that acts on the phone recorded against a real device (the 13 build-test loop tools have offline tests only). DeX MCP input currently lacks explicit display targeting (assumes phone display). Development tree: the 14 tools that act on the phone require an explicit device unless the server was started with exactly one --device; read-only tools use the only ready device when none is named; list_devices reads the transport label from the serial (tcp, local or usb); error results carry a failure object, with new error codes adb_command_refused and unsafe_shared_server. These development-tree changes have offline tests only. In 0.1.1 the five tools that then existed to act on the phone also use the only ready device.",
+      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py; the primer, the server instructions and the tool titles and annotations in tests/test_agent_guide.py; the 13 build-test loop tools (schemas, access policy, argv shapes, bounded output, the test_run and test_status lifecycle and the snapshot rules) in tests/test_mcp_agent_tools.py against faked adb output; the resources and the help tool in tests/test_mcp_resources.py; the client table, config, install, restore, skill, AGENTS.md block and verify in tests/test_agent_clients.py, tests/test_agent_install.py and tests/test_agent_skill.py, all against temporary folders. With 0.1.1 on 2026-11-14, read-only --device sessions driven by a scripted client against three Samsung devices listed 18 tools, returned list_devices, device_info and screenshot, and refused tap; list_devices labelled the two wireless-debugging transports usb. No AI client was involved.",
+      "boundary": "No live external AI client registration or live MCP-over-SSH exercised, no AI client has been observed reading the server instructions, the resources or the primer, no client registration written by adapt agent install has been live-checked (clients with third-party or unstated facts are print-only), MCP prompts are not implemented, and no tool that acts on the phone recorded against a real device (the 13 build-test loop tools have offline tests only). DeX MCP input currently lacks explicit display targeting (assumes phone display). Development tree: the 14 tools that act on the phone require an explicit device unless the server was started with exactly one --device; read-only tools use the only ready device when none is named; list_devices reads the transport label from the serial (tcp, local or usb); error results carry a failure object, with new error codes adb_command_refused and unsafe_shared_server. These development-tree changes have offline tests only. In 0.1.1 the five tools that then existed to act on the phone also use the only ready device.",
       "mapped_cli_commands": [
         "adapt mcp",
-        "adapt agent primer"
+        "adapt agent primer",
+        "adapt agent clients",
+        "adapt agent config",
+        "adapt agent install",
+        "adapt agent uninstall",
+        "adapt agent restore",
+        "adapt agent skill print",
+        "adapt agent skill install",
+        "adapt agent agents-md",
+        "adapt agent verify"
       ],
       "mapped_mcp_tools": [
         "doctor",
@@ -484,13 +493,16 @@
         "permission_grant",
         "permission_revoke",
         "ui_tap_text",
-        "ui_wait"
+        "ui_wait",
+        "help"
       ],
       "generic_examples": [
         "adapt mcp --read-only",
         "adapt mcp --read-only --device SERIAL",
         "adapt agent primer",
         "adapt agent primer --json",
+        "adapt agent clients",
+        "adapt agent install claude-code --dry-run",
         "codex mcp add adapt -- adapt mcp --read-only"
       ]
     }

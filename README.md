@@ -101,7 +101,15 @@ No device handy? Try `adapt help-me --all`, `adapt tools list` or `adapt explain
 
 Tell your agent to run `adapt agent primer`. It prints what ADAPT is, the first steps, the development loop, safety rules written for an agent, and every command and MCP tool (`--json` gives the same as structured data). It is built from the installed commands, so it matches your version.
 
-To give an agent MCP tools instead, or as well, register the local server:
+To give an agent MCP tools instead, or as well, let ADAPT register the local server with the agent's client, or add it yourself:
+
+```text
+adapt agent clients                          # which AI clients are installed here
+adapt agent install claude-code --dry-run    # show the exact change; add --yes to apply it
+adapt agent skill install --scope project    # optional: the Agent Skill, for agents that read .agents/skills
+```
+
+ADAPT changes a client's settings only when you run `adapt agent install`, shows the change first, and keeps a backup. Or paste the MCP entry yourself:
 
 ```json
 {
@@ -111,7 +119,8 @@ To give an agent MCP tools instead, or as well, register the local server:
 }
 ```
 
-`adapt mcp` is a local stdio server with 37 tools and no network listener. `--read-only` keeps the 23 observation tools, and `--device` limits calls to the devices you list. The 14 tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`, `test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`, `permission_revoke`, `ui_tap_text`) never choose a device themselves. Thirteen of the 37 (launch, stop and state of an app, log marks, test runs, reversible Developer Options profiles, permissions, tapping by text, waiting for the screen) support a build, install, launch, observe, act and restore loop; they are offline-tested only and have not been run against a device. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions and a title and standard annotations for each tool. These are offline-tested; no AI client has yet been observed reading them.
+`adapt mcp` is a local stdio server with 38 tools and no network listener. `--read-only` keeps the 24 observation tools, and `--device` limits calls to the devices you list. The 14 tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`, `test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`, `permission_revoke`, `ui_tap_text`) never choose a device themselves. Thirteen of the 38 (launch, stop and state of an app, log marks, test runs, reversible Developer Options profiles, permissions, tapping by text, waiting for the screen) support a build, install, launch, observe, act and restore loop; they are offline-tested only and have not been run against a device. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions, a title and standard annotations for each tool, and its guidance as `adapt://` resources and a `help` tool. These and `adapt agent install` are offline-tested only; no AI client has yet been observed reading them and no client registration has been live-checked.
+
 
 More in [MCP access](docs/mcp-access.md) and the [client examples](examples/README.md).
 

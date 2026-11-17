@@ -25,6 +25,7 @@ from adapt_adb.adb import (
     split_adb_prefix,
 )
 from adapt_adb.agent_guide import agent_app, agent_group
+from adapt_adb import agent_cli  # noqa: F401  (registers the `adapt agent` subcommands)
 from adapt_adb.progress import adapting, set_progress_context
 from adapt_adb.banner import emit_banner
 from adapt_adb.dev_options import dev_options_app

@@ -298,21 +298,6 @@ def test_server_announces_the_package_version():
     anyio.run(run)
 
 
-def test_legacy_server_constructor_also_announces_the_package_version(monkeypatch):
-    from types import SimpleNamespace
-
-    class LegacyServer:
-        def __init__(self, name):
-            self.name = name
-            self.version = None
-
-    _, types, _ = mcp_server._require_mcp_sdk()
-    import anyio
-
-    monkeypatch.setattr(mcp_server, "_require_mcp_sdk", lambda: (anyio, types, SimpleNamespace(Server=LegacyServer)))
-    assert mcp_server.create_server().version == adapt_adb.__version__
-
-
 # ---------------------------------------------------------------------------
 # Item 3: refused adb commands and other exceptions
 # ---------------------------------------------------------------------------

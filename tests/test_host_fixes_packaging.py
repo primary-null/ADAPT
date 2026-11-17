@@ -16,14 +16,18 @@ def test_package_data_rules_are_byte_identical_to_packaging_rules():
     assert PACKAGE_DATA_RULES.read_bytes() == PACKAGING_RULES.read_bytes()
 
 
-def test_package_data_directory_holds_only_the_rules_file():
+def test_package_data_directory_holds_only_the_rules_file_and_the_skill():
     names = sorted(p.name for p in PACKAGE_DATA_RULES.parent.iterdir() if p.name != "__pycache__")
-    assert names == ["51-android.rules"]
+    assert names == ["51-android.rules", "skill"]
+    skill = sorted(p.relative_to(PACKAGE_DATA_RULES.parent).as_posix() for p in (PACKAGE_DATA_RULES.parent / "skill").rglob("*") if p.is_file())
+    assert skill == ["skill/adapt/SKILL.md", "skill/adapt/references/failures.md"]
 
 
 def test_pyproject_declares_the_rules_as_package_data():
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert "data/51-android.rules" in config["tool"]["setuptools"]["package-data"]["adapt_adb"]
+    declared = config["tool"]["setuptools"]["package-data"]["adapt_adb"]
+    assert "data/51-android.rules" in declared
+    assert "data/skill/adapt/SKILL.md" in declared and "data/skill/adapt/references/*.md" in declared
 
 
 def test_resolver_prefers_package_data_and_falls_back_to_the_checkout(tmp_path, monkeypatch):

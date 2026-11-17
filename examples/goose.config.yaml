@@ -1,0 +1,8 @@
+# Merge the extension into Goose's config.yaml yourself (ADAPT never writes it).
+# Replace SERIAL with the exact transport name that `adapt devices` prints.
+extensions:
+  adapt:
+    type: stdio
+    cmd: "adapt"
+    args: ["mcp", "--read-only", "--device", "SERIAL"]
+    enabled: true

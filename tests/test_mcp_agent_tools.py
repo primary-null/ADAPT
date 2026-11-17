@@ -171,14 +171,14 @@ def err(name: str, args: dict[str, Any], policy: AccessPolicy | None = None) -> 
 
 def test_new_tools_are_registered_in_order_after_the_existing_ones():
     names = [s["name"] for s in tools.TOOL_SCHEMAS]
-    assert names[24:] == NEW_TOOLS and len(names) == 37
-    assert len(set(names)) == 37
+    assert names[24:37] == NEW_TOOLS and names[37:] == ["help"] and len(names) == 38
+    assert len(set(names)) == 38
 
 
 def test_classification_counts_and_membership():
     assert set(NEW_ACTING) <= access.MUTATING_TOOLS and not set(NEW_ACTING) & access.OBSERVATION_TOOLS
     assert set(NEW_OBSERVATION) <= access.OBSERVATION_TOOLS and not set(NEW_OBSERVATION) & access.MUTATING_TOOLS
-    assert (len(access.MUTATING_TOOLS), len(access.OBSERVATION_TOOLS)) == (14, 23)
+    assert (len(access.MUTATING_TOOLS), len(access.OBSERVATION_TOOLS)) == (14, 24)
     assert access.MUTATING_TOOLS | access.OBSERVATION_TOOLS == {s["name"] for s in tools.TOOL_SCHEMAS}
     # Every tool that takes a device is device-bound; test_status names a run instead.
     for name in NEW_TOOLS:
@@ -192,7 +192,7 @@ def test_exposed_counts_per_session_policy():
     counts = {label: sum(1 for n in names if p.exposes(n)) for label, p in {
         "full": AccessPolicy(), "read-only": AccessPolicy(read_only=True), "device": AccessPolicy(allowed_devices=("A",)),
         "read-only device": AccessPolicy(read_only=True, allowed_devices=("A",))}.items()}
-    assert counts == {"full": 37, "read-only": 23, "device": 36, "read-only device": 22}
+    assert counts == {"full": 38, "read-only": 24, "device": 37, "read-only device": 23}
 
 
 def test_annotations_of_the_new_tools():
@@ -1168,7 +1168,7 @@ def test_instructions_name_the_loop_and_only_tools_the_session_exposes(label):
     text = agent_guide.mcp_instructions(policy)
     assert 0 < len(text) < 2000 and text.isascii()
     exposed = {s["name"] for s in tools.TOOL_SCHEMAS if policy.exposes(s["name"])}
-    allowed_words = {"device", "failure", "content_trust", "untrusted_device_data"}
+    allowed_words = {"device", "failure", "content_trust", "untrusted_device_data", "not_useful"}
     for token in re.findall(r"`([a-z_]+)`", text):
         assert token in exposed | allowed_words, (label, token)
     if policy.read_only:

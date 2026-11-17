@@ -1,6 +1,6 @@
 # Features
 
-ADAPT (Android Device Agent Provisioning Toolkit) is an alpha toolkit of **19 functional areas** exposed through **70 visible CLI leaf commands in 14 groups** and **24 MCP tools**. This guide says what each area does, which commands and tools implement it, what it deliberately does not do, and how much evidence stands behind it. It describes this repository's development tree, which contains unreleased changes that the 0.1.1 download does not have; each such change is marked *development tree* below. 0.1.1 has 64 visible leaf commands and 59 authored help topics.
+ADAPT (Android Device Agent Provisioning Toolkit) is an alpha toolkit of **19 functional areas** exposed through **73 visible CLI leaf commands in 14 groups** and **24 MCP tools**. This guide says what each area does, which commands and tools implement it, what it deliberately does not do, and how much evidence stands behind it. It describes this repository's development tree, which contains unreleased changes that the 0.1.1 download does not have; each such change is marked *development tree* below. 0.1.1 has 64 visible leaf commands and 59 authored help topics.
 
 Counts, flags and examples are taken from the development-tree source. See the [command reference](command-reference.md) for every flag, [MCP access](mcp-access.md) for the tool schemas, [architecture](architecture.md) for topology diagrams and [known limitations](known-limitations.md) for open gaps. `docs/feature-inventory.json` holds the machine-readable inventory behind the counts.
 
@@ -9,18 +9,18 @@ Counts, flags and examples are taken from the development-tree source. See the [
 | What | Count |
 |---|---|
 | Functional areas | 19 |
-| Visible CLI entries / leaf commands / groups (root + 13) | 84 / **70** / **14** |
+| Visible CLI entries / leaf commands / groups (root + 13) | 87 / **73** / **14** |
 | Hidden compatibility aliases | 2 (`home`, `give-me-everything`) |
 | MCP tools | **24** = 19 observation + 5 mutating; `--read-only --device` exposes 18 (12 bound to the allowed devices, 6 host-level or offline) |
 | Catalog tools / goals | **16** / **6** (2 with automatic acquisition, 14 manual guidance) |
-| Developer Options profiles / inspected settings | **4** / **13** |
-| Authored help topics | **64** |
+| Developer Options profiles / inspected settings | **14** / **13** |
+| Authored help topics | **69** |
 | Android baselines in the offline matrix | 9 (API 29-37 = Android 10-17, including 12L) |
 | Samsung devices with recorded observations | Pre-release builds: 2 phones (API 33 and API 37). 2026-11-14: an API 33 phone, an API 37 phone and an API 36 tablet, with released 0.1.1 and native receiver sessions with each. All from a Windows 11 host |
 | Offline tests | 0.1.1: 917 Python tests in 33 modules (all passed on Windows, Python 3.13) and 20 native `#[test]` functions. Development tree: 2034 Python tests in 59 modules collected on 2026-11-14 (a collection count that is still changing; no full-suite result is recorded, see [validation](validation.md)) and 119 native `#[test]` functions. No CI job runs the native tests. Not a pass rate |
-| Failure guides (`adapt explain --list`) | **298** in the development tree, including 33 native receiver reason codes and 19 native receiver command outcomes; none in 0.1.1 |
+| Failure guides (`adapt explain --list`) | **305** in the development tree, including 33 native receiver reason codes and 19 native receiver command outcomes; none in 0.1.1 |
 
-These counts are for the development tree. It adds `adapt explain` and the four `dex receiver-*` commands to 0.1.1, with a help topic each.
+These counts are for the development tree. It adds `adapt explain` and the four `dex receiver-*` commands to 0.1.1, with a help topic each. It also adds the `dev-options profiles`, `catalog` and `pixel-16kb-check` commands (a help topic each), ten Developer Options profiles and seven failure guides.
 
 ### Evidence levels used below
 
@@ -83,7 +83,7 @@ The console is a browser over the CLI: each selection runs the normal command wi
 
 **`adapt help-me`, `adapt explain` (development tree), `adapt tips`, `adapt guide`** | *Offline-tested*
 
-`help-me` explains workflows and, with `--all`, lists every command and option of the installed build. There are **66 authored topics** (59 in 0.1.1) with a generic example and a boundary note, covering command groups, most commands and four workflow topics (`wireless`, `device_manager`, `udev`, `recheck`). `tips on|off|status` stores a per-user preference; `--no-tips` and `ADAPT_TIPS=0` override it per run. Tips never appear for `--json`, MCP or non-terminal output. `guide` prints short official-tooling notes for `testing`, `rom`, `ai`, `wireless`. *Development tree:* when a command fails in a terminal, ADAPT adds a short `Why:`/`Try:`/`More:` block after its error line (one `More: adapt explain ID` line when output is redirected); `adapt explain ID|KEYWORD|TEXT` shows the full guide offline and `adapt explain --list` lists every known failure; JSON and MCP errors carry the same guidance as a `failure` object; and an unexpected error prints a short report instead of a Python traceback (`ADAPT_DEBUG=1` shows it). Errors and refused or failed results get a specific guide where ADAPT tagged them (297 guides) and the generic `internal.unclassified` guide otherwise. The `dex receiver-*` commands use the same guidance: their refusals and failures name a `dexpc.native_receiver.*` guide, or the `dexpc.receiver.CODE` guide of a reason code the receiver recorded, and `receiver-status` also keeps explaining that code in its own `last_failure` block. The guidance has offline tests only and has not been seen on a real failure ([help](help.md#failure-guidance)).
+`help-me` explains workflows and, with `--all`, lists every command and option of the installed build. There are **69 authored topics** (59 in 0.1.1) with a generic example and a boundary note, covering command groups, most commands and four workflow topics (`wireless`, `device_manager`, `udev`, `recheck`). `tips on|off|status` stores a per-user preference; `--no-tips` and `ADAPT_TIPS=0` override it per run. Tips never appear for `--json`, MCP or non-terminal output. `guide` prints short official-tooling notes for `testing`, `rom`, `ai`, `wireless`. *Development tree:* when a command fails in a terminal, ADAPT adds a short `Why:`/`Try:`/`More:` block after its error line (one `More: adapt explain ID` line when output is redirected); `adapt explain ID|KEYWORD|TEXT` shows the full guide offline and `adapt explain --list` lists every known failure; JSON and MCP errors carry the same guidance as a `failure` object; and an unexpected error prints a short report instead of a Python traceback (`ADAPT_DEBUG=1` shows it). Errors and refused or failed results get a specific guide where ADAPT tagged them (304 guides) and the generic `internal.unclassified` guide otherwise. The `dex receiver-*` commands use the same guidance: their refusals and failures name a `dexpc.native_receiver.*` guide, or the `dexpc.receiver.CODE` guide of a reason code the receiver recorded, and `receiver-status` also keeps explaining that code in its own `last_failure` block. The guidance has offline tests only and has not been seen on a real failure ([help](help.md#failure-guidance)).
 
 ## 6. Goal-based tool catalog
 
@@ -139,9 +139,9 @@ adapt everything --yes --device SERIAL --json
 
 ## 11. Recoverable developer profiles
 
-**`adapt dev-options inspect|apply|restore`** | MCP `developer_options_inspect` | *Observed*: inspection on pre-release builds (the stay-awake settings on both phones) and with 0.1.1 on three devices; one `apply --profile touches` and `restore` with 0.1.1 on an Android 13 phone (`show_touches` 0, then 1, then 0). Other profiles, rollback and conflicts are offline-tested only
+**`adapt dev-options inspect|profiles|apply|restore|catalog|pixel-16kb-check`** | MCP `developer_options_inspect` | *Observed*: inspection on pre-release builds (the stay-awake settings on both phones) and with 0.1.1 on three devices; one `apply --profile touches` and `restore` with 0.1.1 on an Android 13 phone (`show_touches` 0, then 1, then 0). The ten newer profiles, the property and command-pair entries, device detection, the catalog and the page-size check are *development tree* and offline-tested only: no profile has been run on a device. The read output formats were written from AOSP source reading, not captured from a phone
 
-13 inspected settings and 4 profiles:
+13 inspected settings and 14 profiles. Three mechanisms share one snapshot model: Settings Provider keys (numeric, enum or pattern rules), `debug.*` properties (restored with `setprop`, or emptied when unset) and command pairs with strict read parsers (`wm density`, `cmd battery`, Doze, night mode, debug app, compile, standby bucket, app ops, app locales, Data Saver, airplane mode). **Property changes take effect when the app restarts**; ADAPT uses no raw Binder calls and no SystemProperties poke.
 
 | Profile | Writes | Notes |
 |---|---|---|
@@ -149,6 +149,18 @@ adapt everything --yes --device SERIAL --json
 | `touches` | `show_touches` = 1 | |
 | `stay-awake` | ORs the **USB bit (2)** into `stay_on_while_plugged_in`, **preserving AC/wireless bits** | Needs USB power; does not unlock or override device policy; readback is not proof of wakefulness; refuses unknown values |
 | `desktop-testing` | `enable_freeform_support` = 1, `force_desktop_mode_on_external_displays` = 1 | API 29-37 only; may need a manual reboot; OEM may ignore |
+| `layout-debug` | `debug.layout` = true, `debug_view_attributes` = 1 | API 29-37; app restart and an effect check |
+| `lifecycle-stress` | Don't keep activities, show background ANRs, first-crash dialog | Settings only (`am kill` and rotation are your steps); whether the shell write takes effect without a reboot is not verified |
+| `performance-capture` | `cmd package compile -m speed-profile -f PKG`, USB stay-awake | Needs `--package`; **restore is approximate** (`compile --reset`) |
+| `battery-doze` | `cmd battery unplug`, Doze `force-idle`, standby bucket `rare` with `--package` | USB only (refused over wireless adb); **restore is approximate** for Doze |
+| `rtl-large-font` | `debug.force_rtl` (property and setting), `font_scale`, `wm density`, per-app locale `ar` with `--package` (Android 13+) | App restart and an effect check; Samsung may clamp the font scale |
+| `accessibility-display` | Night mode, high-contrast text, bold text (Android 12+); options `daltonizer`, `force-dark` | Colour simulation is not visible in screenshots |
+| `input-visualization` | Show touches, show key presses (Android 15+); option `pointer-location` | |
+| `network-degraded` | Download rate limit (Android 13+); option `airplane-mode` (Android 11+) | USB only (refused over wireless adb); the kernel may ignore the limit |
+| `background-restricted` | App op `RUN_ANY_IN_BACKGROUND` = ignore, Data Saver on | Needs `--package`; **restore is approximate** for the app op |
+| `debugger-attach` | `am set-debug-app -w --persistent PKG` | Needs `--package` and a debuggable app; without a restore the app waits for a debugger at every launch |
+
+`profiles` lists each profile with its API range, maker layer, package need and whether this phone is eligible and why not (it contacts the phone and reads only). `inspect` also returns read-only detection: Pixel, Samsung or other from the maker and brand, the One UI version (a property **Samsung does not document**), the Pixel build id and SoC, build type, page size, form factor hints, whether a device administrator is present, and the transport. Samsung **Auto Blocker** (One UI 6 and later) can block USB commands: when a write fails on such a phone the failure guidance says to check Settings > Security and privacy > Auto Blocker; ADAPT never changes it. `catalog` is an offline, curated 176-entry guide (read-only, reversible, "do this on the device" and never-automate entries, each with sources and confidence); `inspect --all` reads the entries that have an allowlisted read. `pixel-16kb-check` reads the page size and points to the emulator image or the Pixel toggle, which needs an unlocked bootloader and wipes the device; ADAPT never changes it. A stored value is not proof of effect: the apply result names the profiles that need an effect check (a screenshot or a lifecycle log line) and says where restore is approximate.
 
 | Inspected (13) | Table / key |
 |---|---|
@@ -160,7 +172,7 @@ adapt everything --yes --device SERIAL --json
 | show_background_anrs | `secure`: `anr_show_background` |
 | freeform_windows, force_desktop | `global`: `enable_freeform_support`, `force_desktop_mode_on_external_displays` |
 
-`apply` writes only the allowlisted keys of one profile, after exclusively creating a 0600 snapshot bound to device serial, build fingerprint and Android user; each write is read back, and a failure rolls back what was applied. `restore` puts back originals **only if a setting still holds the value the profile applied**; anything else is a conflict that aborts without changes and keeps the snapshot. Restore is **best-effort** and explicit.
+`apply` writes only the allowlisted entries of one profile through allowlisted argv shapes, after exclusively creating a 0600 snapshot bound to device serial, build fingerprint and Android user (schema 2; schema 1 snapshots still restore); each write is read back, and a failure rolls back what was applied. `restore` puts back originals **only if an entry still holds the value the profile applied**; anything else is a conflict that aborts without changes and keeps the snapshot. Restore is **best-effort** and explicit. Details: [Developer Options](dev-options.md).
 
 ## 12. App, build and debug validation
 

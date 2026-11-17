@@ -112,7 +112,7 @@ Learn workflows or explore everything this installed ADAPT can do.
 | `all_commands` | `--all` | flag | no | off | Show every registered command and option. |
 | `json_output` | `--json` | flag | no | off | Emit the guide as JSON. |
 
-- 66 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
+- 69 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
 - `--all` lists every registered command and option of the installed build. A failure ID (for example `adb.not_found`) shows the same guide as `adapt explain`. An unknown topic exits 2.
 
 ```text
@@ -328,63 +328,127 @@ adapt guide wireless
 
 ## `adapt dev-options`
 
-Inspect and reversibly apply bounded Developer Options profiles. 3 commands.
+Inspect and reversibly apply bounded Developer Options profiles. 6 commands.
 
 ### `adapt dev-options inspect`
 
-Read allowlisted Developer Options without changing the device.
+Read allowlisted Developer Options and detect the device's maker layer without changing it.
 
-**Effects.** Read-only: 13 allowlisted settings through `settings get`.
+**Effects.** Read-only: 13 allowlisted settings through `settings get`, plus the detection reads (`getprop`, `getconf PAGE_SIZE`, `pm list features`, `dumpsys device_policy`).
 
 | Parameter | Flags | Type | Required | Default | Description |
 |---|---|---|---|---|---|
 | `serial` | `--serial` `-s` | text | yes |  | Explicit ADB target serial. |
 | `json_output` | `--json` | flag | no | off | Emit JSON only. |
+| `all_entries` | `--all` | flag | no | off | Also read every catalog entry with an allowlisted read command for this device's API and maker layer (bounded: 10 s per command, 60 s in all, 256 characters per value). |
 
 - Settings (table/key): developer_mode `global/development_settings_enabled`, usb_debugging `global/adb_enabled`, wireless_debugging `global/adb_wifi_enabled`, stay_awake `global/stay_on_while_plugged_in`, window/transition/animator duration scales `global/*_scale`, show_touches `system/show_touches`, pointer_location `system/pointer_location`, dont_keep_activities `global/always_finish_activities`, show_background_anrs `secure/anr_show_background`, freeform_windows `global/enable_freeform_support`, force_desktop `global/force_desktop_mode_on_external_displays`.
-- Missing and denied reads are reported explicitly; a stored value is not proof an OEM honors it.
+- JSON keys: `ok`, `command`, `target_serial`, `device`, `settings`, `note`, `detection` (`oem`, `manufacturer`, `brand`, `api_level`, `samsung`, `pixel`, `build_type`, `page_size`, `form_factor`, `device_admin`, `transport`, `emulator_hint`, `guidance`, `unread`) and, with `--all`, `catalog_reads`.
+- Missing and denied reads are reported explicitly; a stored value is not proof an OEM honors it. The One UI version property is not documented by Samsung.
 
 ```text
 adapt dev-options inspect -s SERIAL --json
+adapt dev-options inspect -s SERIAL --all
+```
+
+### `adapt dev-options profiles`
+
+List every profile and whether this device is eligible, from read-only facts.
+
+**Effects.** Read-only: `getprop` reads and the device identity; it contacts the phone.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `serial` | `--serial` `-s` | text | yes |  | Explicit ADB target serial. |
+| `package` | `--package` | text | no |  | Optional app id, to see which per-app steps would apply. |
+| `json_output` | `--json` | flag | no | off | Emit JSON only. |
+
+- JSON keys: `ok`, `command`, `target_serial`, `detection`, `unread`, `profiles`, `note`. Each profile has `name`, `description`, `min_api`, `max_api`, `oem`, `oem_caveats`, `package` (`none`, `optional`, `required`), `options`, `mechanisms`, `steps`, `needs_reboot`, `needs_app_restart`, `needs_effect_check`, `effect_check`, `refuses_wireless_adb`, `restore_exactness`, `approximate_restore`, `notes`, `omitted_steps`, and the verdict: `eligible`, `reasons` (hard blockers with a `code`), `warnings`, `needs_package`, `skipped_steps`.
+- Eligibility is not proof the device honours a profile.
+
+```text
+adapt dev-options profiles -s SERIAL --json
 ```
 
 ### `adapt dev-options apply`
 
 Apply a bounded profile after persisting its original values.
 
-**Effects.** Writes only the allowlisted keys of one profile, after exclusively creating a recovery snapshot.
+**Effects.** Writes only the allowlisted entries of one profile, after exclusively creating a recovery snapshot.
 
 | Parameter | Flags | Type | Required | Default | Description |
 |---|---|---|---|---|---|
-| `profile` | `--profile` | text | yes |  | `fast-ui`, `touches`, `stay-awake` or `desktop-testing`. |
+| `profile` | `--profile` | text | yes |  | A profile name; list them with `dev-options profiles`: `fast-ui`, `touches`, `stay-awake`, `desktop-testing`, `layout-debug`, `lifecycle-stress`, `performance-capture`, `battery-doze`, `rtl-large-font`, `accessibility-display`, `input-visualization`, `network-degraded`, `background-restricted`, `debugger-attach`. |
 | `serial` | `--serial` `-s` | text | yes |  | Explicit ADB target serial. |
 | `snapshot` | `--snapshot` | path | yes |  | New recovery snapshot path. Created exclusively (mode 0600); an existing file is refused. |
+| `package` | `--package` | text | no |  | App id for profiles with per-app steps (required by `performance-capture`, `background-restricted` and `debugger-attach`; optional for `battery-doze` and `rtl-large-font`). |
+| `option` | `--option` | text, repeatable | no |  | An optional step the profile lists (`daltonizer`, `force-dark`, `pointer-location`, `airplane-mode`). |
 
-- Profiles: `fast-ui` (three animation scales to 0), `touches` (`show_touches=1`), `stay-awake` (ORs the USB bit `2` into `stay_on_while_plugged_in`, preserving AC/wireless bits; refuses values outside 0-15), `desktop-testing` (`enable_freeform_support=1`, `force_desktop_mode_on_external_displays=1`; requires observed API 29-37; may need a manual reboot).
-- The snapshot binds device serial, build fingerprint and Android user, and is written before the first write; every write is read back and a failure rolls back what was applied. Stay-awake requires USB power and does not unlock the phone.
+- Original profiles: `fast-ui` (three animation scales to 0), `touches` (`show_touches=1`), `stay-awake` (ORs the USB bit `2` into `stay_on_while_plugged_in`, preserving AC/wireless bits; refuses values outside 0-15), `desktop-testing` (`enable_freeform_support=1`, `force_desktop_mode_on_external_displays=1`; requires observed API 29-37; may need a manual reboot). The other ten are described in [Developer Options](dev-options.md).
+- The snapshot (schema 2) binds device serial, build fingerprint and Android user plus the package, options, API level and transport, and is written before the first write; every write is read back and a failure rolls back what was applied. Stay-awake requires USB power and does not unlock the phone.
+- Refused before any write: an unknown profile or option, a missing or invalid package, an API level outside the range, and a wireless or TCP transport for `battery-doze` and `network-degraded`.
+- Property changes take effect when the app restarts. The output ends with the claim boundary: what was not established, which profiles need an effect check and where restore is approximate.
 - There is no `--json` flag. Exit 1 on any failure.
 
 ```text
 adapt dev-options apply --profile stay-awake -s SERIAL --snapshot stay-awake.json
-adapt dev-options apply --profile fast-ui -s SERIAL --snapshot fast-ui.json
+adapt dev-options apply --profile debugger-attach -s SERIAL --snapshot debug.json --package com.example.app
+adapt dev-options apply --profile input-visualization -s SERIAL --snapshot input.json --option pointer-location
 ```
 
 ### `adapt dev-options restore`
 
 Restore a matching snapshot without overwriting external changes.
 
-**Effects.** Restores the original values recorded in the snapshot, under a per-device lock.
+**Effects.** Restores the original values recorded in the snapshot (schema 1 or 2), under a per-device lock.
 
 | Parameter | Flags | Type | Required | Default | Description |
 |---|---|---|---|---|---|
 | `serial` | `--serial` `-s` | text | yes |  | Explicit ADB target serial. |
 | `snapshot` | `--snapshot` | path | yes |  | Snapshot written by `apply`. |
+| `accept_uncertain` | `--accept-uncertain` | flag | no | off | Also restore an entry whose write was interrupted before it was recorded, only when the device holds exactly the value ADAPT intended to write. |
 
-- Refuses when device/build/user identity differs. A setting is restored only if it still equals the value the profile applied; a setting already at its original value is skipped; anything else is a conflict. Any conflict aborts before changing anything, retains the snapshot and exits 1.
-- Best-effort: restore is explicit and not an automatic session supervisor. No `--json` flag.
+- Refuses when device/build/user identity differs. An entry is restored only if it still equals the value the profile applied; an entry already at its original value is skipped; anything else is a conflict. Any conflict aborts before changing anything, retains the snapshot and exits 1.
+- Best-effort: restore is explicit and not an automatic session supervisor. Doze, `compile --reset` and app ops are restored approximately. No `--json` flag.
 
 ```text
 adapt dev-options restore -s SERIAL --snapshot stay-awake.json
+```
+
+### `adapt dev-options catalog`
+
+List the curated Developer Options catalog (offline, no device).
+
+**Effects.** None: reads a packaged JSON file.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `json_output` | `--json` | flag | no | off | Emit JSON only. |
+| `layer` | `--layer` | text | no |  | `aosp`, `pixel`, `samsung` or `adb_control`. Exit 2 for any other value. |
+| `api` | `--api` | integer | no |  | Only entries present at this Android API level. |
+
+- 176 entries: read-only, reversible shell changes (some used by a profile), "do this on the device" entries and never-automate entries, each with sources and a confidence. Nothing in it was run on a device by ADAPT.
+
+```text
+adapt dev-options catalog --layer samsung --api 34
+adapt dev-options catalog --json
+```
+
+### `adapt dev-options pixel-16kb-check`
+
+Read the page size and show how to test 16 KB pages safely (changes nothing).
+
+**Effects.** Read-only: `getconf PAGE_SIZE` and maker detection.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `serial` | `--serial` `-s` | text | yes |  | Explicit ADB target serial. |
+| `json_output` | `--json` | flag | no | off | Emit JSON only. |
+
+- JSON keys: `page_size`, `uses_16kb_pages`, `oem`, `api_level`, `pixel`, `guidance`, `never_automated`, `unread`, `claim_boundary`. The Pixel "Boot with 16KB page size" option needs an unlocked bootloader and wipes the device; ADAPT never changes it.
+
+```text
+adapt dev-options pixel-16kb-check -s SERIAL --json
 ```
 
 ## `adapt tools`

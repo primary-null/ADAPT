@@ -22,7 +22,12 @@ ADAPT/
 |   |-- doctor.py                   host checks, 5037 preflight, setup workflow, PATH edits
 |   |-- safety.py                   adb argv guard (kill-server, sudo, uninstall, shell, logcat)
 |   |-- android_support.py          Android 10-17 matrix and capability evaluation
-|   |-- dev_options.py              13 settings, 4 profiles, snapshots, locks, restore
+|   |-- dev_options.py              13 inspected settings, 14 profiles, schema 2 snapshots, locks,
+|   |                               restore, detection and the profile listing
+|   |-- dev_entries.py              allowlisted settings, debug.* properties, command pairs, parsers
+|   |-- dev_profiles.py             profile registry (names, API range, maker layer, package, gates)
+|   |-- dev_detect.py,              read-only maker detection; curated catalog and planned reads
+|   |   dev_catalog.py
 |   |-- development.py              app validate/build-modes, app logs, debug inspect/plan
 |   |-- diagnostics.py              fixed-tag system logs and vendor-logging guidance
 |   |-- device_state.py             detect scan/inspect (adb + fastboot, no transitions)
@@ -35,9 +40,9 @@ ADAPT/
 |   |-- scrcpy_install.py           pinned, verified user-scope scrcpy installer
 |   |-- everything.py               batch of the implemented setup/check steps
 |   |-- rapid.py                    Rapid ADAPT plan generator
-|   |-- help_system.py, hints.py,   66 help topics, tips, udev/driver hints, guide topics
+|   |-- help_system.py, hints.py,   69 help topics, tips, udev/driver hints, guide topics
 |   |   insights.py
-|   |-- failure_guide.py,           failure guide registry (data only; 298 guides, including the
+|   |-- failure_guide.py,           failure guide registry (data only; 305 guides, including the
 |   |   failure_report.py           receiver's reason codes and receiver-* outcomes) and its
 |   |                               runtime: classify, context, Why/Try/More, JSON/MCP `failure`
 |   |-- banner.py, console.py,      stderr banner, home screen (9 screens), progress dots
@@ -48,6 +53,7 @@ ADAPT/
 |   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy, titles,
 |   |                               annotation hints)
 |   |-- data/51-android.rules       Linux udev rules shipped in the wheel (copy of packaging/linux)
+|   |-- data/dev-options-catalog.json   curated Developer Options catalog (176 entries)
 |   `-- resources/dex_bridge/       AdaptDexBridge.java, locally built JAR, build.json
 |-- tests/                          offline test modules (mocked adb/ssh/tailscale)
 |-- scripts/                        build_dex_bridge.py, build_icon.py, build_public_overview.py,
@@ -70,7 +76,7 @@ The Python wheel contains `src/adapt_adb`, the `dex_bridge` resources and, in th
         v                                        v
  +--------------+                      +-----------------------+
  |  adapt  CLI  |                      |      adapt mcp        |
- | 70 commands  |                      | 24 tools, policy:     |
+ | 73 commands  |                      | 24 tools, policy:     |
  +------+-------+                      | --read-only, --device |
         |                              +-----------+-----------+
         |   typed workflow modules                 |

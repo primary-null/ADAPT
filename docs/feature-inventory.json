@@ -1,8 +1,8 @@
 {
   "counts": {
     "functional_areas": 19,
-    "visible_cli_entries": 84,
-    "visible_leaf_commands": 70,
+    "visible_cli_entries": 87,
+    "visible_leaf_commands": 73,
     "visible_groups_including_root": 14,
     "hidden_aliases": 2,
     "mcp_tools": 24,
@@ -12,15 +12,15 @@
     "catalog_goals": 6,
     "automatic_acquisitions": 2,
     "manual_catalog_entries": 14,
-    "developer_profiles": 4,
+    "developer_profiles": 14,
     "inspected_settings": 13,
-    "authored_help_topics": 66,
+    "authored_help_topics": 69,
     "configured_api_baselines": 9,
     "physical_phones_with_saved_evidence": 2,
     "python_tests": 917,
     "python_test_files": 33,
     "native_tests": 119,
-    "failure_guides": 298
+    "failure_guides": 305
   },
   "counts_basis": "Counts describe this repository's development tree (unreleased changes, uncommitted on the distribution/public-release branch when counted) on 2026-11-14, except python_tests and python_test_files, which are the 0.1.1 pytest collection counts (commit 45b2a0a) because the development-tree count was still changing; on 2026-11-14 the development tree collected 2034 tests in 59 modules (a collection count, not a run). native_tests counts #[test] functions in native/windows-receiver/src. failure_guides counts the guides adapt explain --list shows (GUIDES in failure_guide.py, including 33 native receiver reason codes and 19 native receiver command outcomes); 0.1.1 has none. physical_phones_with_saved_evidence counts the two phones of the pre-release record; the 2026-11-14 record (0.1.1 smoke passes and native receiver sessions, one Windows 11 PC) adds an Android 16 tablet and does not say whether its Android 13 and Android 17 phones are the same units. No count is a pass rate. counts_0_1_1 holds the 0.1.1 values of the counts that differ.",
   "counts_0_1_1": {
@@ -233,15 +233,18 @@
     {
       "id": "11",
       "area": "Recoverable developer profiles",
-      "entry": "adapt dev-options apply/inspect/restore",
-      "capability": "13 inspected settings across Global, System, and Secure tables; 4 profiles (fast-ui, touches, desktop-testing, stay-awake) with conflict-aware snapshots.",
+      "entry": "adapt dev-options inspect/profiles/apply/restore/catalog/pixel-16kb-check",
+      "capability": "13 inspected settings across Global, System, and Secure tables plus read-only maker-layer detection (Pixel, Samsung One UI, other); 14 profiles (fast-ui, touches, desktop-testing, stay-awake, layout-debug, lifecycle-stress, performance-capture, battery-doze, rtl-large-font, accessibility-display, input-visualization, network-degraded, background-restricted, debugger-attach) over settings, debug.* properties and command pairs with conflict-aware schema 2 snapshots (schema 1 still restores); a profile listing with per-device eligibility; an offline 176-entry catalog; a page-size check.",
       "maturity": "Live / partial",
-      "evidence": "Live stay-awake inspection on the API 33 and API 37 phones on pre-release builds; with 0.1.1 on 2026-11-14, one touches apply and restore on an API 33 phone read back as expected; snapshot creation, atomic write, and rollback tested in tests/test_dev_options.py.",
-      "boundary": "Mutates only allowlisted keys. Restores only if current device value matches snapshot target or original; flags external conflicts. Only one apply and restore cycle that changed a value is recorded (touches, API 33); other profiles, rollback and conflicts are offline-tested only.",
+      "evidence": "Live stay-awake inspection on the API 33 and API 37 phones on pre-release builds; with 0.1.1 on 2026-11-14, one touches apply and restore on an API 33 phone read back as expected; snapshot creation, atomic write, and rollback tested in tests/test_dev_options.py; the 14 profiles, property and command-pair entries, detection, the catalog and the page-size check are offline-tested only (tests/test_dev_options_v2.py, test_dev_profiles.py, test_dev_detect.py, test_dev_catalog.py, test_safety_dev_options.py).",
+      "boundary": "Mutates only allowlisted keys, properties and commands; no raw Binder calls and no SystemProperties poke; network-cutting profiles are refused over wireless adb. Restores only if current device value matches snapshot target or original; flags external conflicts. Only one apply and restore cycle that changed a value is recorded (touches, API 33); other profiles, rollback and conflicts are offline-tested only.",
       "mapped_cli_commands": [
         "adapt dev-options apply",
         "adapt dev-options inspect",
-        "adapt dev-options restore"
+        "adapt dev-options restore",
+        "adapt dev-options profiles",
+        "adapt dev-options catalog",
+        "adapt dev-options pixel-16kb-check"
       ],
       "mapped_mcp_tools": [
         "developer_options_inspect"

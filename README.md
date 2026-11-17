@@ -95,7 +95,7 @@ No device handy? Try `adapt help-me --all`, `adapt tools list` or `adapt explain
 | Tools | `tools`, `guide` |
 | AI and help | `agent`, `mcp`, `help-me`, `explain`, `tips`, `console` |
 
-70 commands in all. [Features](docs/features.md) describes each area; the [Command reference](docs/command-reference.md) lists every flag.
+73 commands in all. [Features](docs/features.md) describes each area; the [Command reference](docs/command-reference.md) lists every flag.
 
 ## For AI agents
 

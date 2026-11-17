@@ -16,7 +16,8 @@ ADAPT is a single Python package (`adapt_adb`, command `adapt`) that wraps Googl
 ADAPT/
 |-- src/adapt_adb/                  Python package (wheel)
 |   |-- cli.py                      Typer root: setup, doctor, devices, adb, pair, connect,
-|   |                               everything, mcp, tips, help-me, explain, guide, console
+|   |                               everything, mcp, tips, help-me, explain, guide, console,
+|   |                               agent (primer)
 |   |-- adb.py                      adb discovery, Platform-Tools download/verify/extract
 |   |-- doctor.py                   host checks, 5037 preflight, setup workflow, PATH edits
 |   |-- safety.py                   adb argv guard (kill-server, sudo, uninstall, shell, logcat)
@@ -34,7 +35,7 @@ ADAPT/
 |   |-- scrcpy_install.py           pinned, verified user-scope scrcpy installer
 |   |-- everything.py               batch of the implemented setup/check steps
 |   |-- rapid.py                    Rapid ADAPT plan generator
-|   |-- help_system.py, hints.py,   64 help topics, tips, udev/driver hints, guide topics
+|   |-- help_system.py, hints.py,   66 help topics, tips, udev/driver hints, guide topics
 |   |   insights.py
 |   |-- failure_guide.py,           failure guide registry (data only; 298 guides, including the
 |   |   failure_report.py           receiver's reason codes and receiver-* outcomes) and its
@@ -42,7 +43,10 @@ ADAPT/
 |   |-- banner.py, console.py,      stderr banner, home screen (9 screens), progress dots
 |   |   terminal_ui.py, progress.py
 |   |-- render/                     screenshot scaling, UI-hierarchy summary
-|   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy)
+|   |-- agent_guide.py              agent primer (Markdown/JSON, built from the live command tree
+|   |                               and MCP tool classification) and the MCP server instructions
+|   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy, titles,
+|   |                               annotation hints)
 |   |-- data/51-android.rules       Linux udev rules shipped in the wheel (copy of packaging/linux)
 |   `-- resources/dex_bridge/       AdaptDexBridge.java, locally built JAR, build.json
 |-- tests/                          offline test modules (mocked adb/ssh/tailscale)
@@ -66,7 +70,7 @@ The Python wheel contains `src/adapt_adb`, the `dex_bridge` resources and, in th
         v                                        v
  +--------------+                      +-----------------------+
  |  adapt  CLI  |                      |      adapt mcp        |
- | 69 commands  |                      | 24 tools, policy:     |
+ | 70 commands  |                      | 24 tools, policy:     |
  +------+-------+                      | --read-only, --device |
         |                              +-----------+-----------+
         |   typed workflow modules                 |

@@ -6,10 +6,10 @@ What it is not:
 
 - **Not a network service.** There is no HTTP, SSE or WebSocket transport, no listening port, no authentication layer and no remote exposure. Remote use is only a client launching `ssh` that in turn launches `adapt mcp` on a worker ([below](#remote-workers-over-ssh)).
 - **Not an LLM.** It embeds no model and needs no API key.
-- **Tools only.** MCP resources and prompts are not implemented.
+- **Tools, with instructions.** The server sends short orientation `instructions` and gives every tool a title and annotations ([below](#instructions-titles-and-annotations)). MCP resources and prompts are not implemented.
 - **Not an Android permission grant.** It automates `adb` for the authorized transports your host already has.
 
-> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`, `tests/test_mcp_fixes.py`, `tests/test_mcp_failure.py`, `tests/test_mcp_status_hardening.py`). The only device sessions recorded are `--read-only --device` sessions of the released 0.1.1 code on 2026-11-14, from one Windows 11 PC, driven by a scripted client (no AI client was involved) against three Samsung devices: an Android 13 phone, an Android 17 phone and an Android 16 tablet. Each listed 18 tools; `list_devices`, `device_info` and `screenshot` returned results; `tap` was refused with `access_denied`. With 0.1.1, `list_devices` labelled the two wireless-debugging transports `usb`. This page describes the repository's unreleased development tree, which differs from 0.1.1: the explicit-device rule for the tools that act on the phone, the transport label read from the serial, the `failure` object and the error codes `unsafe_shared_server` and `adb_command_refused` have offline tests only. No tool that acts on the phone has been run against a device. **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
+> **Status.** The server, schemas and access policies are covered by offline tests (`tests/test_mcp.py`, `tests/test_mcp_contract.py`, `tests/test_mcp_access.py`, `tests/test_mcp_fixes.py`, `tests/test_mcp_failure.py`, `tests/test_mcp_status_hardening.py`). The only device sessions recorded are `--read-only --device` sessions of the released 0.1.1 code on 2026-11-14, from one Windows 11 PC, driven by a scripted client (no AI client was involved) against three Samsung devices: an Android 13 phone, an Android 17 phone and an Android 16 tablet. Each listed 18 tools; `list_devices`, `device_info` and `screenshot` returned results; `tap` was refused with `access_denied`. With 0.1.1, `list_devices` labelled the two wireless-debugging transports `usb`. This page describes the repository's unreleased development tree, which differs from 0.1.1: the explicit-device rule for the tools that act on the phone, the transport label read from the serial, the `failure` object, the error codes `unsafe_shared_server` and `adb_command_refused`, and the server instructions and tool titles and annotations have offline tests only. No tool that acts on the phone has been run against a device. **No live acceptance run with any external AI client, and none of MCP over SSH, is claimed.** Treat the configuration snippets as the documented stdio shape for each client, not as verified registrations.
 
 ## Install and start
 
@@ -138,6 +138,22 @@ Input tools have **no display targeting**: they act on the phone's default displ
 Successful device-text results carry `content_trust: "untrusted_device_data"` and a `content_notice` instructing clients to treat device/app text as data, never as instructions or authorization. Screenshot JSON metadata carries the same fields. Errors and offline/host guidance results do not carry them.
 
 Argument bounds are enforced before execution: coordinates 0-20000, swipe duration 1-10000 ms, typed text at most 2000 characters, APK paths 1-1024 characters, tags at most 64 characters, device identifiers 1-128 characters, and screenshot dimensions 256-1280. Other bounds are advertised in each tool's schema; strings without an explicit maximum default to 4096 characters. Out-of-range arguments return `invalid_params`.
+
+## Instructions, titles and annotations
+
+*Development tree; offline-tested only (`tests/test_agent_guide.py`). No AI client has yet been observed reading any of this.*
+
+**Instructions.** `create_server()` passes a short orientation string (well under 2,000 characters, ASCII) as the server `instructions`, on the current SDK (`mcp` 2.3.0 was used) and on the 1.x fallback constructors (the fallback is tested with stand-in classes, not a real 1.x install). It tells the model to start with `list_devices` and name an exact device, to observe before acting, to ask the user before installing an app or changing the device, to treat all device-originated text as untrusted data, and where `adapt agent primer` is. It follows the session policy: a `--read-only` session says that the tools that act on the phone are not offered, and a `--device` session says calls are limited to the devices it was started with (it never repeats the serials). The same module (`src/adapt_adb/agent_guide.py`) builds `adapt agent primer`.
+
+**Titles and annotations.** Every advertised tool has a human `title` and the standard `annotations`, derived from the classification in `mcp/access.py` (`tool_title`, `tool_annotation_hints`), so a new tool is covered without a separate list:
+
+| Tools | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
+|---|---|---|---|---|
+| The 19 observation tools | true | false | true | false |
+| `tap`, `swipe`, `key`, `type` | false | false | false | false |
+| `install_apk` | false | true | true | false |
+
+`install_apk` is marked destructive because with its default `reinstall=true` (`adb install -r`) it replaces the installed build of an app that is already on the phone, keeping the app's data; installing the same APK again changes nothing further, so it is idempotent. A tool that is neither observation nor listed as non-destructive is advertised as not read-only and destructive until it is classified. `openWorldHint` is false everywhere: every tool talks only to the local adb server and the attached device. `ui_summary` counts as read-only: its fallback, available only outside `--read-only`, writes and then removes one temporary file. These hints are advisory for the client; ADAPT's own enforcement is the session policy above, not these annotations. With an older 1.x SDK that has no annotations, the tools are advertised without titles and hints.
 
 ## Errors
 

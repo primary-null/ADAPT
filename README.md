@@ -93,11 +93,15 @@ No device handy? Try `adapt help-me --all`, `adapt tools list` or `adapt explain
 | Developer testing | `dev-options`, `app`, `debug`, `logs`, `rapid` |
 | Displays and Samsung DeX | `desktop`, `dex` |
 | Tools | `tools`, `guide` |
-| AI and help | `mcp`, `help-me`, `explain`, `tips`, `console` |
+| AI and help | `agent`, `mcp`, `help-me`, `explain`, `tips`, `console` |
 
-69 commands in all. [Features](docs/features.md) describes each area; the [Command reference](docs/command-reference.md) lists every flag.
+70 commands in all. [Features](docs/features.md) describes each area; the [Command reference](docs/command-reference.md) lists every flag.
 
 ## For AI agents
+
+Tell your agent to run `adapt agent primer`. It prints what ADAPT is, the first steps, the development loop, safety rules written for an agent, and every command and MCP tool (`--json` gives the same as structured data). It is built from the installed commands, so it matches your version.
+
+To give an agent MCP tools instead, or as well, register the local server:
 
 ```json
 {
@@ -107,7 +111,7 @@ No device handy? Try `adapt help-me --all`, `adapt tools list` or `adapt explain
 }
 ```
 
-`adapt mcp` is a local stdio server with 24 tools and no network listener. `--read-only` keeps the 19 observation tools, and `--device` limits calls to the devices you list. The five tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`) never choose a device themselves. Read-only mode still lets a model see screens and logs, so treat it as sensitive.
+`adapt mcp` is a local stdio server with 24 tools and no network listener. `--read-only` keeps the 19 observation tools, and `--device` limits calls to the devices you list. The five tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`) never choose a device themselves. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions and a title and standard annotations for each tool. These are offline-tested; no AI client has yet been observed reading them.
 
 More in [MCP access](docs/mcp-access.md) and the [client examples](examples/README.md).
 

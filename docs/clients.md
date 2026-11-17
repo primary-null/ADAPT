@@ -8,7 +8,12 @@ require an OpenAI/Anthropic API key to run the local server itself.
 
 MCP also defines resources (readable context) and prompts (reusable workflows).
 ADAPT currently implements tools; resources and prompts are extension ideas,
-not features already present. See the [MCP architecture](https://modelcontextprotocol.io/docs/learn/architecture).
+not features already present. *(Development tree.)* The server does send short
+orientation `instructions` when a client connects, and every tool advertises a
+title and the standard annotations (read-only, destructive, idempotent,
+open-world). These are offline-tested; no AI client has yet been observed
+reading them. An agent that has a shell does not need MCP to learn ADAPT: it
+can run `adapt agent primer` (see [MCP access](mcp-access.md#instructions-titles-and-annotations)). See the [MCP architecture](https://modelcontextprotocol.io/docs/learn/architecture).
 
 ## Current tools
 
@@ -55,7 +60,14 @@ For Codex, the documented local registration form is:
 codex mcp add adapt -- adapt mcp --read-only --device SERIAL
 ```
 
-Or configure the equivalent in `~/.codex/config.toml`:
+Claude Code takes the same stdio form (the shape of its documented
+`claude mcp add NAME -- COMMAND ARGS` command; not live-checked here):
+
+```text
+claude mcp add adapt -- adapt mcp --read-only --device SERIAL
+```
+
+Or configure the Codex equivalent in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.adapt]

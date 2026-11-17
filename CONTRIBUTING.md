@@ -59,7 +59,7 @@ Use placeholders and documentation-reserved values: `SERIAL`, `PHONE_PEER`, `PAI
 2. Give every option a precise name; use `--serial/-s` for the target and `--json` for machine output; add `--yes` for side effects.
 3. Add a `HOW_TO` topic in `src/adapt_adb/help_system.py` if the command deserves a tip, with a generic example.
 4. Add tests (parsing, refusal paths, JSON stdout cleanliness, and safety boundaries) under `tests/`.
-5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (69 visible leaf commands in 13 groups in the development tree at the time of writing; `docs/ADAPT-overview.pdf` is generated from the inventory by `scripts/build_public_overview.py`) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
+5. Update [docs/command-reference.md](docs/command-reference.md), [docs/features.md](docs/features.md) and `docs/feature-inventory.json` so the counts (70 visible leaf commands in 14 groups in the development tree at the time of writing; `docs/ADAPT-overview.pdf` is generated from the inventory by `scripts/build_public_overview.py`) stay true, and the console's screens in `src/adapt_adb/terminal_ui.py` if a new group is added.
 
 ## Adding or changing an MCP tool
 
@@ -67,7 +67,7 @@ Use placeholders and documentation-reserved values: `SERIAL`, `PHONE_PEER`, `PAI
 2. Classify it in `src/adapt_adb/mcp/access.py`: observation vs mutating, and whether it is device-bound (`DEVICE_TOOLS`). Mutating tools must stay hidden by `--read-only`; device-bound tools must honor `--device`.
 3. Dispatch it in `src/adapt_adb/mcp/server.py`; keep errors generic and bounded. A tool that acts on the phone must not choose a device itself: it needs an explicit `device` unless the session was started with exactly one `--device`.
 4. Extend `tests/test_mcp*.py` for the contract and access policy.
-5. Update [docs/mcp-access.md](docs/mcp-access.md) (and the 24 / 19 / 5 / 18 counts).
+5. Update [docs/mcp-access.md](docs/mcp-access.md) (and the 24 / 19 / 5 / 18 counts). The tool's `title` and annotations are derived from the same classification (`tool_title` and `tool_annotation_hints` in `access.py`); give an acting tool that is not destructive or is idempotent an entry there, otherwise it is advertised as destructive and not idempotent. `adapt agent primer` and the MCP `instructions` read the tool list from the code, so they need no edit.
 
 ## Native receiver (`native/windows-receiver`)
 

@@ -1,9 +1,9 @@
 {
   "counts": {
     "functional_areas": 19,
-    "visible_cli_entries": 82,
-    "visible_leaf_commands": 69,
-    "visible_groups_including_root": 13,
+    "visible_cli_entries": 84,
+    "visible_leaf_commands": 70,
+    "visible_groups_including_root": 14,
     "hidden_aliases": 2,
     "mcp_tools": 24,
     "mcp_read_only_tools": 19,
@@ -14,7 +14,7 @@
     "manual_catalog_entries": 14,
     "developer_profiles": 4,
     "inspected_settings": 13,
-    "authored_help_topics": 64,
+    "authored_help_topics": 66,
     "configured_api_baselines": 9,
     "physical_phones_with_saved_evidence": 2,
     "python_tests": 917,
@@ -117,7 +117,7 @@
       "id": "05",
       "area": "Help and contextual tips",
       "entry": "adapt help-me; adapt explain; adapt tips; adapt guide",
-      "capability": "Full command inventory, 64 authored help topics with generic examples, contextual guidance tips, saved user tip preferences, and (development tree) failure guidance: a Why/Try/More block after errors, a failure object in JSON and MCP errors, and offline lookup with adapt explain.",
+      "capability": "Full command inventory, 66 authored help topics with generic examples, contextual guidance tips, saved user tip preferences, and (development tree) failure guidance: a Why/Try/More block after errors, a failure object in JSON and MCP errors, and offline lookup with adapt explain.",
       "maturity": "Offline-tested",
       "evidence": "Offline-tested in tests/test_help_system.py, tests/test_hints.py, tests/test_cli_help.py, tests/test_failure_guide.py, tests/test_failure_report.py and tests/test_failure_cli.py.",
       "boundary": "Tips are automatically silenced when stdout is not a TTY or when --json is passed to keep machine output clean. Failure guidance runs nothing. Errors and refused or failed results get a specific guide where ADAPT tagged them and the generic internal.unclassified guide otherwise; the dex receiver-* commands are the exception (their refusals carry no guidance, and receiver-status explains a receiver reason code in its own last_failure block). Failure guidance has offline tests only and has not been seen on a real failure.",
@@ -438,13 +438,14 @@
     {
       "id": "19",
       "area": "AI / MCP access",
-      "entry": "adapt mcp",
-      "capability": "Local stdio Model Context Protocol (MCP) server offering 24 tools (19 read-only, 5 mutating) with exact transport filtering and bounded outputs.",
+      "entry": "adapt mcp; adapt agent primer",
+      "capability": "Local stdio Model Context Protocol (MCP) server offering 24 tools (19 read-only, 5 mutating) with exact transport filtering and bounded outputs, short server instructions, and a human title plus read-only/destructive/idempotent/open-world annotations on every tool; and (development tree) adapt agent primer, a Markdown or JSON primer for any AI agent with a shell, built from the live command tree and tool classification.",
       "maturity": "Offline-tested",
-      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py. With 0.1.1 on 2026-11-14, read-only --device sessions driven by a scripted client against three Samsung devices listed 18 tools, returned list_devices, device_info and screenshot, and refused tap; list_devices labelled the two wireless-debugging transports usb. No AI client was involved.",
-      "boundary": "No live external AI client registration or live MCP-over-SSH exercised, and no tool that acts on the phone recorded against a real device. DeX MCP input currently lacks explicit display targeting (assumes phone display). Development tree: the five tools that act on the phone require an explicit device unless the server was started with exactly one --device; read-only tools use the only ready device when none is named; list_devices reads the transport label from the serial (tcp, local or usb); error results carry a failure object, with new error codes adb_command_refused and unsafe_shared_server. These development-tree changes have offline tests only. In 0.1.1 the five tools that act on the phone also use the only ready device.",
+      "evidence": "Tested across server lifecycle, schema conformance, and access policies in tests/test_mcp.py, tests/test_mcp_contract.py, and tests/test_mcp_access.py; the primer, the server instructions and the tool titles and annotations in tests/test_agent_guide.py. With 0.1.1 on 2026-11-14, read-only --device sessions driven by a scripted client against three Samsung devices listed 18 tools, returned list_devices, device_info and screenshot, and refused tap; list_devices labelled the two wireless-debugging transports usb. No AI client was involved.",
+      "boundary": "No live external AI client registration or live MCP-over-SSH exercised, no AI client has been observed reading the server instructions or the primer, MCP resources and prompts are not implemented, and no tool that acts on the phone recorded against a real device. DeX MCP input currently lacks explicit display targeting (assumes phone display). Development tree: the five tools that act on the phone require an explicit device unless the server was started with exactly one --device; read-only tools use the only ready device when none is named; list_devices reads the transport label from the serial (tcp, local or usb); error results carry a failure object, with new error codes adb_command_refused and unsafe_shared_server. These development-tree changes have offline tests only. In 0.1.1 the five tools that act on the phone also use the only ready device.",
       "mapped_cli_commands": [
-        "adapt mcp"
+        "adapt mcp",
+        "adapt agent primer"
       ],
       "mapped_mcp_tools": [
         "doctor",
@@ -475,6 +476,8 @@
       "generic_examples": [
         "adapt mcp --read-only",
         "adapt mcp --read-only --device SERIAL",
+        "adapt agent primer",
+        "adapt agent primer --json",
         "codex mcp add adapt -- adapt mcp --read-only"
       ]
     }

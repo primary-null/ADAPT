@@ -1,14 +1,14 @@
 # Command reference
 
-Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **69 visible leaf commands in 13 groups** (the root plus 12 subcommand groups: 82 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
+Every visible `adapt` command with its exact flags, generated from the Typer command tree of this checkout and then annotated from the source modules. It covers **70 visible leaf commands in 14 groups** (the root plus 13 subcommand groups: 84 visible entries) and two hidden aliases. Run `adapt help-me --all` for the same inventory from an installed build.
 
-This reference describes this repository's development tree, which contains unreleased changes. The 0.1.1 download has 64 visible leaf commands: it lacks `adapt explain` and the four `adapt dex receiver-*` commands, and it differs in the behaviour noted *(development tree)* below.
+This reference describes this repository's development tree, which contains unreleased changes. The 0.1.1 download has 64 visible leaf commands: it lacks `adapt explain`, `adapt agent primer` and the four `adapt dex receiver-*` commands, and it differs in the behaviour noted *(development tree)* below.
 
 Conventions: `SERIAL` is an exact ADB transport identifier; placeholders in capitals are yours to supply; example addresses use the RFC 5737 documentation range. Examples are syntax-checked against the source command tree and are **not** a claim that the workflow succeeded on any device. `--json` output is one JSON document on stdout; ADAPT writes banners, tips and progress to stderr and silences them for `--json`, MCP and non-interactive output.
 
 ## Contents
 
-[Global options](#global-options) | [Environment](#environment-variables) | [Hidden aliases](#hidden-aliases) | [Root commands](#root-commands) | [adapt dev-options](#adapt-dev-options) | [adapt tools](#adapt-tools) | [adapt android](#adapt-android) | [adapt dex](#adapt-dex) | [adapt detect](#adapt-detect) | [adapt desktop](#adapt-desktop) | [adapt ssh](#adapt-ssh) | [adapt app](#adapt-app) | [adapt logs](#adapt-logs) | [adapt debug](#adapt-debug) | [adapt rapid](#adapt-rapid) | [adapt tailscale](#adapt-tailscale)
+[Global options](#global-options) | [Environment](#environment-variables) | [Hidden aliases](#hidden-aliases) | [Root commands](#root-commands) | [adapt dev-options](#adapt-dev-options) | [adapt tools](#adapt-tools) | [adapt android](#adapt-android) | [adapt dex](#adapt-dex) | [adapt detect](#adapt-detect) | [adapt desktop](#adapt-desktop) | [adapt ssh](#adapt-ssh) | [adapt app](#adapt-app) | [adapt logs](#adapt-logs) | [adapt debug](#adapt-debug) | [adapt rapid](#adapt-rapid) | [adapt tailscale](#adapt-tailscale) | [adapt agent](#adapt-agent)
 
 ## Global options
 
@@ -112,7 +112,7 @@ Learn workflows or explore everything this installed ADAPT can do.
 | `all_commands` | `--all` | flag | no | off | Show every registered command and option. |
 | `json_output` | `--json` | flag | no | off | Emit the guide as JSON. |
 
-- 64 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
+- 66 authored help topics (commands plus `wireless`, `device_manager`, `udev`, `recheck`) each with a generic example and a boundary note. A topic view also lists its common failures.
 - `--all` lists every registered command and option of the installed build. A failure ID (for example `adb.not_found`) shows the same guide as `adapt explain`. An unknown topic exits 2.
 
 ```text
@@ -245,6 +245,7 @@ Start the ADAPT stdio MCP server.
 - Requires the `mcp` extra (`adapt-adb[mcp]`; from a checkout, `pip install -e ".[mcp]"`); without it the command prints an install hint and exits 2.
 - `--read-only` exposes the 19 observation tools; `--device` pins exact targets and requires `device` on the 17 device-bound tools, except that a session started with exactly one `--device` lets the five tools that act on the phone omit it. *(development tree)* Without `--device`, the tools that act on the phone (`tap`, `swipe`, `key`, `type`, `install_apk`) still need `device` and never pick one; in 0.1.1 they use the only ready device. Error results carry a `failure` object. See [MCP access](mcp-access.md).
 - Never prints a banner, tips or progress to stdout; logging goes to stderr. Do not run it expecting an interactive prompt.
+- *(development tree)* The server sends short orientation `instructions` at initialization (built by `adapt_adb/agent_guide.py`, the module behind `adapt agent primer`) and advertises a `title` and the standard annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) on every tool, derived from the observation/acting classification in `mcp/access.py`. Offline-tested only; no AI client has been observed reading them. MCP resources and prompts are not implemented.
 
 ```text
 adapt mcp --read-only
@@ -1464,6 +1465,29 @@ Generate a target-restricted, read-only MCP-over-SSH entry without connecting.
 
 ```text
 adapt tailscale worker-mcp-config --peer LAB_HOST --device USB_SERIAL --json
+```
+
+## `adapt agent`
+
+Orient an AI agent. *(development tree)* Not in 0.1.1. The group prints text or JSON only: it reads the installed command tree and the MCP tool classification, and it never runs adb, touches a device or opens a connection. Banners, tips and progress are not shown for it.
+
+### `adapt agent primer`
+
+Print the agent primer: what ADAPT is, first steps, the development loop, safety rules, MCP and every command.
+
+**Effects.** Offline. Writes only the primer to stdout.
+
+| Parameter | Flags | Type | Required | Default | Description |
+|---|---|---|---|---|---|
+| `json_output` | `--json` | flag | no | off | Emit the structured primer, with the full command and MCP tool catalog, as JSON. |
+
+- Markdown by default (ASCII only). The JSON document has `what_is_adapt`, `first_steps`, `development_loop`, `safety_rules`, `output_conventions`, `mcp` (start flags, registration forms, per-session tool counts and every tool with its observation or acting kind), `commands` (every visible leaf command with its summary and whether it takes `-s`, `--json` and `--yes`), `quoted_commands` and `claim_boundary`.
+- Every command the primer quotes is checked against the real command tree by `tests/test_agent_guide.py`; that proves the commands and flags exist, not that a workflow works on a device.
+- Bare `adapt agent` prints the same Markdown primer. The root `adapt --help` text points agents here.
+
+```text
+adapt agent primer
+adapt agent primer --json
 ```
 
 ---

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "adapt": {
+      "type": "stdio",
+      "command": "adapt",
+      "args": [
+        "mcp",
+        "--read-only",
+        "--device",
+        "SERIAL"
+      ]
+    }
+  }
+}

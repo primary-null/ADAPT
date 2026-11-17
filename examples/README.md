@@ -6,6 +6,18 @@ These examples start the local `adapt mcp --read-only --device SERIAL` server.
 - `mcp.json`: generic stdio configuration shape.
 - `claude.mcp.json`: the same shape for clients using `mcpServers`.
 - `codex.toml`: an `[mcp_servers.adapt]` configuration block.
+- `cursor.mcp.json`: Cursor (`type: "stdio"` is required).
+- `vscode.mcp.json`: VS Code with the Copilot harness (`mcpServers`, `type: "stdio"`).
+- `opencode.jsonc`: OpenCode (`mcp.servers`; `command` is one array).
+- `zed.settings.json`: Zed (`context_servers`).
+- `gemini.settings.json`: Gemini CLI.
+- `goose.config.yaml`: Goose (`extensions`, YAML).
+
+These six are produced from the same client table as `adapt agent config`, and a
+test fails when they drift (`adapt agent config CLIENT` prints the current
+entry; `adapt agent install CLIENT --dry-run` shows the change to a real file).
+They use a bare `adapt` and `--device SERIAL`; at user scope the installer
+writes the absolute path of `adapt` instead.
 
 Check your client's current configuration format and approval controls. No
 external client registration has been live-accepted as part of this release.

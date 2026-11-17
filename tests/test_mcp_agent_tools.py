@@ -1238,3 +1238,30 @@ def test_apply_rejects_unknown_profiles_and_malformed_options_before_any_device_
     writes = device._put_count
     payload = err("dev_options_apply", {"device": "endpoint-5555", **arguments})
     assert payload["error"] == "invalid_params" and device._put_count == writes and not snapshots(device)
+
+
+# Shape seen on a real Android 13 device (values synthetic): the label in parentheses has spaces,
+# and a crash is labelled "APP CRASH(EXCEPTION)", so the numeric REASON_* code must decide.
+REAL_FORMAT_EXIT_INFO = (
+    "ACTIVITY MANAGER PROCESS EXIT INFO (dumpsys activity exit-info)\n"
+    "  package: com.example.app\n"
+    "    Historical Process Exit for uid=10001\n"
+    "        ApplicationExitInfo #0:\n"
+    "          timestamp=2026-01-02 03:04:05.678 pid=4321 realUid=10001 packageUid=10001 definingUid=10001 user=0\n"
+    "          process=com.example.app reason=13 (OTHER KILLS BY SYSTEM) subreason=0 (UNKNOWN) status=0\n"
+    "          importance=400 pss=10MB rss=20MB description=proc_display_changed(1,2) state=empty trace=null\n"
+    "        ApplicationExitInfo #1:\n"
+    "          timestamp=2026-01-02 03:09:00.000 pid=4322 realUid=10001 packageUid=10001 definingUid=10001 user=0\n"
+    "          process=com.example.app reason=4 (APP CRASH(EXCEPTION)) subreason=0 (UNKNOWN) status=0\n"
+    "          importance=100 pss=10MB rss=20MB description=crash state=empty trace=null\n"
+)
+
+
+def test_exit_info_parser_reads_real_labels_with_spaces_and_uses_the_numeric_reason_code():
+    latest = agent_tools.parse_exit_info(REAL_FORMAT_EXIT_INFO, "com.example.app")
+    assert latest["reason"] == "CRASH" and latest["crash"] is True and latest["anr"] is False and latest["pid"] == 4322
+    older = agent_tools.parse_exit_info(REAL_FORMAT_EXIT_INFO.split("ApplicationExitInfo #1:")[0], "com.example.app")
+    assert older["reason"] == "OTHER" and older["crash"] is False and older["description"] == "proc_display_changed(1,2)"
+    native = agent_tools.parse_exit_info(REAL_FORMAT_EXIT_INFO.replace("reason=4 (APP CRASH(EXCEPTION))", "reason=5 (APP CRASH(NATIVE))"), "com.example.app")
+    assert native["reason"] == "CRASH_NATIVE" and native["crash"] is True
+    assert agent_tools.parse_exit_info(REAL_FORMAT_EXIT_INFO, "com.example.other") is None

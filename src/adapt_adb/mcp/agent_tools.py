@@ -167,10 +167,19 @@ _RESUMED_RE = re.compile(
 _EXIT_BLOCK_RE = re.compile(r"ApplicationExitInfo #\d+:")
 _EXIT_STAMP_RE = re.compile(r"timestamp=(\d{4})-(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})")
 _EXIT_PID_RE = re.compile(r"\bpid=(\d+)")
-_EXIT_REASON_RE = re.compile(r"\breason=(\d+) \(([A-Z_]+)\)")
+# The label in parentheses is free text with spaces on real builds ("OTHER KILLS BY SYSTEM",
+# "APP CRASH(EXCEPTION)"), so the stable public REASON_* code decides; the label is only a fallback.
+_EXIT_REASON_RE = re.compile(r"\breason=(\d+)(?: \(([^)\n]*\)?)\))?")
+EXIT_REASON_NAMES = {
+    0: "UNKNOWN", 1: "EXIT_SELF", 2: "SIGNALED", 3: "LOW_MEMORY", 4: "CRASH", 5: "CRASH_NATIVE", 6: "ANR",
+    7: "INITIALIZATION_FAILURE", 8: "PERMISSION_CHANGE", 9: "EXCESSIVE_RESOURCE_USAGE", 10: "USER_REQUESTED",
+    11: "USER_STOPPED", 12: "DEPENDENCY_DIED", 13: "OTHER", 14: "FREEZER", 15: "PACKAGE_STATE_CHANGE",
+    16: "PACKAGE_UPDATED",
+}
 _EXIT_DESC_RE = re.compile(r"description=(.*?)(?: state=\S*| trace=\S*|$)", re.MULTILINE)
 _MARK_OUTPUT_RE = re.compile(r"(\d{2}-\d{2})_(\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}|%N|N)?)?")
 CRASH_REASONS = frozenset({"CRASH", "CRASH_NATIVE"})
+ANR_REASON = "ANR"
 
 
 def parse_am_start(text: str) -> dict[str, Any]:
@@ -224,13 +233,15 @@ def parse_exit_info(dump: str, package: str) -> dict[str, Any] | None:
             continue
         pid = _EXIT_PID_RE.search(head)
         desc = _EXIT_DESC_RE.search(head)
+        label = re.sub(r"[^A-Z0-9]+", "_", (reason.group(2) or "").upper()).strip("_")
+        name = EXIT_REASON_NAMES.get(int(reason.group(1))) or label or "UNKNOWN"
         record = {
             "at": stamp.group(2),
             "year": int(stamp.group(1)),
             "pid": int(pid.group(1)) if pid else None,
-            "reason": reason.group(2),
-            "crash": reason.group(2) in CRASH_REASONS,
-            "anr": reason.group(2) == "ANR",
+            "reason": name,
+            "crash": name in CRASH_REASONS,
+            "anr": name == ANR_REASON,
             "description": _clean(desc.group(1), 160) if desc else "",
         }
         if best is None or (record["year"], record["at"]) > (best["year"], best["at"]):

@@ -36,8 +36,10 @@ transport name that `adapt devices` prints (a USB serial, or a wireless
 `host:port`); repeat `--device` to allow several. Do not commit your real path
 or device identifier back into these examples. Read-only observation may expose
 screens, logs and identifiers to the AI client. Remove `--read-only` only when
-you intend to expose the five tools that act on the phone: `tap`, `swipe`,
-`key`, `type` and `install_apk`.
+you intend to expose the 14 tools that act on the phone: `tap`, `swipe`,
+`key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`,
+`test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`,
+`permission_revoke` and `ui_tap_text`.
 
 ## If `--device` is omitted
 

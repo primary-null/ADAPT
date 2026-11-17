@@ -27,8 +27,9 @@ APK installation, and bounded log capture. Added tools are:
 - `tool_catalog`: curated acquisition guidance and local PATH observations.
 - `dex_inspect` and `dex_displays`: existing-display and DeX-state observations.
 
-The current server exposes 24 tools: 19 observation tools and five interaction
-or installation tools. The complete list and access configuration are in
+The current server exposes 37 tools: 23 observation tools and 14 tools that act
+on the phone (input, installation, app launch and stop, test runs, Developer
+Options profiles, permissions). The complete list and access configuration are in
 [MCP access](mcp-access.md). Use protocol tool discovery for the authoritative installed list. Later
 integrations can add tools without turning this document into an exhaustive
 API schema. Profiles, host-tool installation, and mirror launching are not

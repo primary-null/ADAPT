@@ -645,7 +645,6 @@ def view_mcp_ssh() -> View:
     access = mcp_access
     observation = sorted(access.OBSERVATION_TOOLS)
     mutating = sorted(access.MUTATING_TOOLS)
-    assert len(observation) == 19 and len(mutating) == 5
     rows = [
         M(f"@w{{$}} adapt mcp --read-only --device {DEMO_SERIAL}", "stdio"),
         BLANK,
@@ -679,7 +678,7 @@ def view_mcp_ssh() -> View:
              "An AI client launches adapt mcp as a subprocess. There is no HTTP service, and no banner or tips are written to protocol output."),
             ("policy", "Server-side policy",
              "Restrictions live in AccessPolicy, independent of a client's own prompts. Tool sets are read from mcp/access.py at build time."),
-            ("tools", "19 observation tools",
+            ("tools", f"{len(observation)} observation tools",
              "Counted from OBSERVATION_TOOLS. Resources and prompts are not implemented yet (docs/clients.md)."),
             ("ssh", "Allowlisted SSH operations",
              "Seven read-only operations run on a chosen worker through existing OpenSSH configuration; there is no generic remote command."),

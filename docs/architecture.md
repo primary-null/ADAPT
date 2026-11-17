@@ -45,7 +45,8 @@ ADAPT/
 |   |-- render/                     screenshot scaling, UI-hierarchy summary
 |   |-- agent_guide.py              agent primer (Markdown/JSON, built from the live command tree
 |   |                               and MCP tool classification) and the MCP server instructions
-|   |-- mcp/                        server.py, tools.py (24 tools), access.py (policy, titles,
+|   |-- mcp/                        server.py, tools.py (37 tools), agent_tools.py (the
+|   |                               build-test loop tools), access.py (policy, titles,
 |   |                               annotation hints)
 |   |-- data/51-android.rules       Linux udev rules shipped in the wheel (copy of packaging/linux)
 |   `-- resources/dex_bridge/       AdaptDexBridge.java, locally built JAR, build.json
@@ -70,7 +71,7 @@ The Python wheel contains `src/adapt_adb`, the `dex_bridge` resources and, in th
         v                                        v
  +--------------+                      +-----------------------+
  |  adapt  CLI  |                      |      adapt mcp        |
- | 70 commands  |                      | 24 tools, policy:     |
+ | 70 commands  |                      | 37 tools, policy:     |
  +------+-------+                      | --read-only, --device |
         |                              +-----------+-----------+
         |   typed workflow modules                 |
@@ -241,4 +242,4 @@ Recovery is best-effort and explicit: a conflict (a setting someone else changed
 
 ## Where each feature lives
 
-See [features](features.md) for the 19 functional areas, [command reference](command-reference.md) for every flag, [MCP access](mcp-access.md) for the 24 tools, and [known limitations](known-limitations.md) for what is unproven or deliberately out of scope.
+See [features](features.md) for the 19 functional areas, [command reference](command-reference.md) for every flag, [MCP access](mcp-access.md) for the 37 tools, and [known limitations](known-limitations.md) for what is unproven or deliberately out of scope.

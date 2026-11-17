@@ -111,7 +111,7 @@ To give an agent MCP tools instead, or as well, register the local server:
 }
 ```
 
-`adapt mcp` is a local stdio server with 24 tools and no network listener. `--read-only` keeps the 19 observation tools, and `--device` limits calls to the devices you list. The five tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`) never choose a device themselves. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions and a title and standard annotations for each tool. These are offline-tested; no AI client has yet been observed reading them.
+`adapt mcp` is a local stdio server with 37 tools and no network listener. `--read-only` keeps the 23 observation tools, and `--device` limits calls to the devices you list. The 14 tools that act on a phone (`tap`, `swipe`, `key`, `type`, `install_apk`, `app_launch`, `app_stop`, `app_open_link`, `test_run`, `dev_options_apply`, `dev_options_restore`, `permission_grant`, `permission_revoke`, `ui_tap_text`) never choose a device themselves. Thirteen of the 37 (launch, stop and state of an app, log marks, test runs, reversible Developer Options profiles, permissions, tapping by text, waiting for the screen) support a build, install, launch, observe, act and restore loop; they are offline-tested only and have not been run against a device. Read-only mode still lets a model see screens and logs, so treat it as sensitive. The server sends short orientation instructions and a title and standard annotations for each tool. These are offline-tested; no AI client has yet been observed reading them.
 
 More in [MCP access](docs/mcp-access.md) and the [client examples](examples/README.md).
 

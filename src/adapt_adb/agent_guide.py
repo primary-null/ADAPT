@@ -224,6 +224,54 @@ OUTPUT_CONVENTIONS: dict[str, Any] = {
     "yes": "Commands with side effects need `--yes` (or an interactive confirmation). Pass it only after the user approved.",
 }
 
+# What a command can do, as one class per command (the most consequential thing it may do):
+#   reads_host      reads this computer or offline text; no device, no change
+#   reads_device    contacts the shared adb server or a device to read; changes nothing
+#   acts_on_device  changes device state, sends input, pairs or connects, installs or starts something on it
+#   changes_host    changes this computer: downloads, installs, preferences, files
+EFFECT_CLASSES = ("reads_host", "reads_device", "acts_on_device", "changes_host")
+COMMAND_EFFECTS: dict[str, str] = {
+    "console": "acts_on_device", "everything": "changes_host", "help-me": "reads_host", "explain": "reads_host",
+    "tips": "changes_host", "doctor": "reads_device", "devices": "reads_device", "setup": "changes_host",
+    "mcp": "acts_on_device", "adb": "acts_on_device", "pair": "acts_on_device", "connect": "acts_on_device",
+    "guide": "reads_host",
+    "dev-options inspect": "reads_device", "dev-options apply": "acts_on_device",
+    "dev-options restore": "acts_on_device",
+    "tools list": "reads_host", "tools info": "reads_host", "tools plan": "reads_host", "tools install": "changes_host",
+    "android capabilities": "reads_device", "android versions": "reads_host",
+    "dex inspect": "reads_device", "dex list-displays": "reads_device", "dex plan-dual-mirror": "reads_host",
+    "dex mirror": "acts_on_device", "dex receiver-plan": "reads_host", "dex receiver-status": "reads_host",
+    "dex receiver-start": "changes_host", "dex receiver-stop": "changes_host", "dex pc-plan": "reads_host",
+    "dex pc-receiver-plan": "reads_host", "dex pc-probe": "acts_on_device", "dex pc-attach": "acts_on_device",
+    "dex pc-start": "acts_on_device", "dex pc-status": "reads_host", "dex pc-stop": "acts_on_device",
+    "dex pc-restore": "acts_on_device",
+    "detect scan": "reads_device", "detect inspect": "reads_device",
+    "desktop inspect": "reads_device", "desktop plan": "reads_host", "desktop start": "acts_on_device",
+    "desktop enable": "acts_on_device",
+    "ssh status": "reads_host", "ssh plan": "reads_host", "ssh run": "reads_device", "ssh mcp-config": "reads_host",
+    "app validate": "reads_device", "app build-modes": "reads_host",
+    "logs capture": "reads_device", "logs guide": "reads_host", "logs diagnostic": "reads_device",
+    "debug inspect": "reads_device", "debug plan": "reads_host", "rapid plan": "reads_host",
+    "tailscale peers": "reads_host", "tailscale status": "reads_host", "tailscale guide": "reads_host",
+    "tailscale plan": "reads_host", "tailscale probe": "reads_host", "tailscale connect": "acts_on_device",
+    "tailscale check": "reads_device", "tailscale pair": "acts_on_device", "tailscale disconnect": "acts_on_device",
+    "tailscale adb": "acts_on_device", "tailscale worker-plan": "reads_host", "tailscale worker-run": "reads_device",
+    "tailscale worker-mcp-config": "reads_host",
+    "agent primer": "reads_host", "agent clients": "reads_host", "agent config": "reads_host",
+    "agent install": "changes_host", "agent uninstall": "changes_host", "agent restore": "changes_host",
+    "agent skill print": "reads_host", "agent skill install": "changes_host", "agent agents-md": "changes_host",
+    "agent verify": "reads_host",
+}
+
+# Commands an agent can run to set ADAPT up in its own client. Quoted in the primer, so every one is checked.
+AGENT_SETUP_COMMANDS: tuple[str, ...] = (
+    "adapt agent clients",
+    "adapt agent config claude-code",
+    "adapt agent install claude-code --dry-run",
+    "adapt agent skill print",
+    "adapt agent verify",
+)
+
 MCP_START = "adapt mcp --read-only --device SERIAL"
 MCP_REGISTRATION: dict[str, str] = {
     "claude_code": "claude mcp add adapt -- adapt mcp --read-only --device SERIAL",
@@ -273,6 +321,7 @@ def command_catalog(root: Any) -> list[dict[str, Any]]:
                 max((n for n in _option_names(p) if n.startswith("--")), key=len)
                 for p in options if p.required and any(n.startswith("--") for n in _option_names(p))
             ),
+            "effect": COMMAND_EFFECTS.get(path),
             "agent_note": NOT_FOR_AGENTS.get(path),
         })
 
@@ -329,7 +378,7 @@ def build_primer(root: Any = None) -> dict[str, Any]:
     commands = command_catalog(root if root is not None else _default_root())
     tools = mcp_tool_catalog()
     acting = [t["name"] for t in tools if t["kind"] == "acting"]
-    quoted = [c for step in (*FIRST_STEPS, *DEVELOPMENT_LOOP) for c in step["commands"]]
+    quoted = [c for step in (*FIRST_STEPS, *DEVELOPMENT_LOOP) for c in step["commands"]] + list(AGENT_SETUP_COMMANDS)
     return {
         "schema_version": PRIMER_SCHEMA_VERSION,
         "name": "adapt",
@@ -353,11 +402,12 @@ def build_primer(root: Any = None) -> dict[str, Any]:
                 ),
             },
             "registration": dict(MCP_REGISTRATION),
+            "setup_commands": list(AGENT_SETUP_COMMANDS),
             "generic_config": json.loads(json.dumps(MCP_GENERIC_CONFIG)),
             "registration_note": (
-                "ADAPT never writes a client's settings; the user (or you, with their approval) runs the "
-                "registration. The forms are the clients' documented stdio shapes and have not been "
-                "live-checked here."
+                "ADAPT changes a client's settings only when you run `adapt agent install`, shows the change "
+                "first, and keeps a backup. The forms are the clients' documented stdio shapes; no client "
+                "registration has been live-checked here. Ask the user before you run `adapt agent install`."
             ),
             "exposed_tool_counts": _session_counts([t["name"] for t in tools]) if tools else {},
             "tools": tools,
@@ -408,8 +458,9 @@ def render_markdown(primer: dict[str, Any]) -> str:
     out += ["## MCP server", "", "Start (the AI client launches this over stdio; do not run it in a shell tool):", "",
             f"    {mcp['start']}", ""]
     out += [f"- `{flag}`: {text}" for flag, text in mcp["flags"].items()]
-    out += ["", "Register it with a client:", ""]
-    out += [f"    {command}" for command in mcp["registration"].values()]
+    out += ["", "Register it with a client (`adapt agent clients` lists what is installed; `adapt agent config CLIENT` "
+            "prints the exact entry; `adapt agent install CLIENT --dry-run` shows the change without making it):", ""]
+    out += [f"    {command}" for command in [*mcp["registration"].values(), *mcp["setup_commands"]]]
     out += ["", "Generic stdio JSON:", "", *("    " + line for line in json.dumps(mcp["generic_config"], indent=2).splitlines()),
             "", mcp["registration_note"], ""]
     if mcp["exposed_tool_counts"]:
@@ -421,10 +472,11 @@ def render_markdown(primer: dict[str, Any]) -> str:
     out += ["## Command catalog", "",
             "Every visible command. `-s` column: the target option; add `--json` and `--yes` where shown. "
             "Run `adapt COMMAND --help` for every flag.", "",
-            "| Command | Flags | What it does |", "|---|---|---|"]
+            "Effect: `reads_host`, `reads_device`, `acts_on_device` (changes the phone) or `changes_host`.", "",
+            "| Command | Flags | Effect | What it does |", "|---|---|---|---|"]
     for record in primer["commands"]:
         note = f" ({record['agent_note']})" if record["agent_note"] else ""
-        out.append(f"| `{record['command']}` | {_flags(record)} | {record['summary']}{note} |")
+        out.append(f"| `{record['command']}` | {_flags(record)} | {record['effect'] or '-'} | {record['summary']}{note} |")
     out += ["", f"_{primer['claim_boundary']}_", ""]
     return "\n".join(out)
 
@@ -498,7 +550,7 @@ def mcp_instructions(policy: Any = None) -> str:
 
 
 agent_app = typer.Typer(
-    help="Orient an AI agent: print the primer that explains how to use ADAPT.",
+    help="Orient an AI agent (primer), register the MCP server with AI clients, install the Agent Skill, verify the server.",
     no_args_is_help=False,
     invoke_without_command=True,
 )

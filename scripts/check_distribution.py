@@ -13,7 +13,11 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 # The only files allowed under adapt_adb/data/ in the wheel; each is required.
-WHEEL_DATA_FILES = ("adapt_adb/data/51-android.rules",)
+WHEEL_DATA_FILES = (
+    "adapt_adb/data/51-android.rules",
+    "adapt_adb/data/skill/adapt/SKILL.md",
+    "adapt_adb/data/skill/adapt/references/failures.md",
+)
 
 
 def version() -> str:

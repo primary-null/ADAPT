@@ -478,6 +478,190 @@ def validate_adb_args(
     return arg_list
 
 
+# ---------------------------------------------------------------------------
+# Agent tool argv shapes (MCP tools for the build-test loop)
+#
+# The guard above is a denylist for the general passthrough. The MCP tools that launch,
+# stop, inspect and test an app run only the exact device-command shapes listed here: every
+# value that reaches `adb shell` first passes a strict pattern, so no value can carry a
+# shell operator, a leading `-`, a control character or another command.
+# ---------------------------------------------------------------------------
+
+_PACKAGE_PATTERN = r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+"
+_CLASS_PATTERN = r"\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
+_QUALIFIED_CLASS_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
+_METHOD_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*"
+# Characters that are safe inside a single-quoted shell word and in a URI (RFC 3986 minus
+# quotes, backslash, backtick, `$`, `<`, `>`, `|`, `^`, braces and whitespace).
+_URI_BODY_PATTERN = r"[A-Za-z0-9\-._~:/?#\[\]@!&()*+,;=%]"
+
+PACKAGE_NAME_RE = re.compile(_PACKAGE_PATTERN)
+CLASS_NAME_RE = re.compile(_CLASS_PATTERN)
+QUALIFIED_CLASS_RE = re.compile(_QUALIFIED_CLASS_PATTERN)
+METHOD_NAME_RE = re.compile(_METHOD_PATTERN)
+COMPONENT_RE = re.compile(f"({_PACKAGE_PATTERN})/({_CLASS_PATTERN})")
+LOG_MARK_RE = re.compile(r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}")
+URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]{0,31}")
+MAX_URI_LENGTH = 2000
+# Schemes that carry code or a nested intent: the VIEW action must not be a way around the guard.
+REFUSED_URI_SCHEMES = frozenset({"javascript", "vbscript", "data", "intent"})
+# Android's runtime ("dangerous") permissions that `pm grant` and `pm revoke` can change for an
+# app. Special-access permissions (overlay, write settings, all-files access, install packages)
+# are app-ops, not runtime permissions, and are not listed.
+RUNTIME_PERMISSIONS = frozenset(
+    f"android.permission.{name}"
+    for name in (
+        "READ_CALENDAR", "WRITE_CALENDAR", "READ_CALL_LOG", "WRITE_CALL_LOG", "PROCESS_OUTGOING_CALLS",
+        "CAMERA", "READ_CONTACTS", "WRITE_CONTACTS", "GET_ACCOUNTS", "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "ACCESS_MEDIA_LOCATION", "RECORD_AUDIO",
+        "READ_PHONE_STATE", "READ_PHONE_NUMBERS", "CALL_PHONE", "ANSWER_PHONE_CALLS", "ADD_VOICEMAIL",
+        "USE_SIP", "ACCEPT_HANDOVER", "BODY_SENSORS", "BODY_SENSORS_BACKGROUND", "ACTIVITY_RECOGNITION",
+        "SEND_SMS", "RECEIVE_SMS", "READ_SMS", "RECEIVE_WAP_PUSH", "RECEIVE_MMS", "READ_CELL_BROADCASTS",
+        "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO", "READ_MEDIA_VISUAL_USER_SELECTED", "BLUETOOTH_CONNECT", "BLUETOOTH_SCAN",
+        "BLUETOOTH_ADVERTISE", "NEARBY_WIFI_DEVICES", "UWB_RANGING", "POST_NOTIFICATIONS",
+    )
+) | {"com.android.voicemail.permission.ADD_VOICEMAIL"}
+_HEALTH_PERMISSION_RE = re.compile(r"android\.permission\.health\.[A-Z][A-Z0-9_]{0,80}")
+
+
+def _plain(value: Any, pattern: re.Pattern[str], limit: int) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= limit and pattern.fullmatch(value) is not None
+
+
+def is_package_name(value: Any) -> bool:
+    """An exact Android application ID such as ``com.example.app``."""
+    return _plain(value, PACKAGE_NAME_RE, 255)
+
+
+def is_class_name(value: Any) -> bool:
+    """A Java/Kotlin class name, fully qualified or starting with ``.``; no ``$`` (a shell character)."""
+    return _plain(value, CLASS_NAME_RE, 255)
+
+
+def is_qualified_class_name(value: Any) -> bool:
+    """A class name without a leading ``.`` (a test class named for `am instrument -e class`)."""
+    return _plain(value, QUALIFIED_CLASS_RE, 255)
+
+
+def is_method_name(value: Any) -> bool:
+    return _plain(value, METHOD_NAME_RE, 128)
+
+
+def is_component_name(value: Any) -> bool:
+    """``package/class`` as `am start -n` and `am instrument` take it."""
+    return _plain(value, COMPONENT_RE, 512)
+
+
+def is_log_mark(value: Any) -> bool:
+    """A device log time in logcat's ``MM-DD HH:MM:SS.mmm`` form, as `log_mark` returns it."""
+    return _plain(value, LOG_MARK_RE, 32)
+
+
+def is_runtime_permission(value: Any, package: str | None = None) -> bool:
+    """A runtime permission: a known Android one, a health permission, or one the app itself defines."""
+    if not isinstance(value, str) or not 0 < len(value) <= 255:
+        return False
+    if value in RUNTIME_PERMISSIONS or _HEALTH_PERMISSION_RE.fullmatch(value):
+        return True
+    return bool(
+        package and is_package_name(package) and value.startswith(package + ".")
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", value)
+    )
+
+
+def is_safe_uri(value: Any) -> bool:
+    """A bounded ASCII URI with a scheme, no whitespace or control characters and no shell characters."""
+    if not isinstance(value, str) or not 0 < len(value) <= MAX_URI_LENGTH:
+        return False
+    scheme, separator, rest = value.partition(":")
+    if not separator or not rest or not URI_SCHEME_RE.fullmatch(scheme) or scheme.lower() in REFUSED_URI_SCHEMES:
+        return False
+    return re.fullmatch(f"{_URI_BODY_PATTERN}+", value) is not None
+
+
+def quote_safe_uri(value: str) -> str:
+    """The device-shell word for an `is_safe_uri` value: single-quoted so `&`, `;` and `?` stay literal."""
+    return f"'{value}'"
+
+
+_URI_WORD = f"'{_URI_BODY_PATTERN}{{1,{MAX_URI_LENGTH}}}'"
+_COORD = r"[0-9]{1,5}"
+_INSTRUMENT = ("shell", "am", "instrument", "-w", "-r")
+_START_VIEW = ("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d")
+_RESOLVE = (
+    "shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN",
+    "-c", "android.intent.category.LAUNCHER",
+)
+
+
+def _token(spec: str | re.Pattern[str]) -> re.Pattern[str]:
+    return spec if isinstance(spec, re.Pattern) else re.compile(re.escape(spec))
+
+
+def _shape(*tokens: str | re.Pattern[str]) -> tuple[re.Pattern[str], ...]:
+    return tuple(_token(t) for t in tokens)
+
+
+_PKG = re.compile(_PACKAGE_PATTERN)
+_COMPONENT = re.compile(f"{_PACKAGE_PATTERN}/{_CLASS_PATTERN}")
+_PERMISSION_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+")
+
+# name -> the exact tokens after `adb [-s SERIAL]`. A token that is a compiled pattern must match in full.
+AGENT_SHELL_SHAPES: dict[str, tuple[re.Pattern[str], ...]] = {
+    "launcher_resolve": _shape(*_RESOLVE, _PKG),
+    "app_start": _shape("shell", "am", "start", "-n", _COMPONENT),
+    "app_start_wait": _shape("shell", "am", "start", "-W", "-n", _COMPONENT),
+    "app_force_stop": _shape("shell", "am", "force-stop", _PKG),
+    "app_pid": _shape("shell", "pidof", _PKG),
+    "activity_resumed": _shape("shell", "dumpsys", "activity", "activities"),
+    "activity_exit_info": _shape("shell", "dumpsys", "activity", "exit-info", _PKG),
+    "device_sdk": _shape("shell", "getprop", "ro.build.version.sdk"),
+    "device_time": _shape("shell", "date", "+%m-%d_%H:%M:%S.%N"),
+    "open_link": _shape(*_START_VIEW, re.compile(_URI_WORD)),
+    "open_link_package": _shape(*_START_VIEW, re.compile(_URI_WORD), "-p", _PKG),
+    "instrument": _shape(*_INSTRUMENT, _COMPONENT),
+    "instrument_class": _shape(*_INSTRUMENT, "-e", "class", re.compile(_QUALIFIED_CLASS_PATTERN), _COMPONENT),
+    "instrument_method": _shape(
+        *_INSTRUMENT, "-e", "class",
+        re.compile(rf"{_QUALIFIED_CLASS_PATTERN}#{_METHOD_PATTERN}"), _COMPONENT,
+    ),
+    "permission_grant": _shape("shell", "pm", "grant", _PKG, _PERMISSION_WORD),
+    "permission_revoke": _shape("shell", "pm", "revoke", _PKG, _PERMISSION_WORD),
+    "input_tap": _shape("shell", "input", "tap", re.compile(_COORD), re.compile(_COORD)),
+}
+
+
+def match_agent_shell_shape(args: Sequence[str]) -> str | None:
+    """Name of the allowlisted agent shape these adb arguments match exactly, else ``None``.
+
+    The global `-s SERIAL` prefix is ignored; the remaining tokens must equal a listed shape
+    token for token, so an extra, missing or reordered token is not a match.
+    """
+    try:
+        _, command = _parsed_command([str(a) for a in args])
+    except SafetyError:
+        return None
+    for name, shape in AGENT_SHELL_SHAPES.items():
+        if len(command) == len(shape) and all(p.fullmatch(t) for p, t in zip(shape, command)):
+            return name
+    return None
+
+
+def match_agent_logcat(args: Sequence[str]) -> bool:
+    """True for the bounded, time-windowed `logcat -d -T MARK` forms (the mark must be a `log_mark`)."""
+    try:
+        _, command = _parsed_command([str(a) for a in args])
+    except SafetyError:
+        return False
+    if not command or command[0] != "logcat" or "-d" not in command:
+        return False
+    if "-T" not in command:
+        return True
+    at = command.index("-T")
+    return at + 1 < len(command) and is_log_mark(command[at + 1])
+
+
 def _extract_serial_from_args(args: Sequence[str] | None) -> str | None:
     """Extract the target serial from `-s` or `--serial` in args if present."""
     if not args:
@@ -577,6 +761,19 @@ __all__ = [
     "check_no_destructive_package_ops",
     "inspect_simple_shell",
     "remote_command_args",
+    "AGENT_SHELL_SHAPES",
+    "RUNTIME_PERMISSIONS",
+    "match_agent_shell_shape",
+    "match_agent_logcat",
+    "is_package_name",
+    "is_class_name",
+    "is_qualified_class_name",
+    "is_method_name",
+    "is_component_name",
+    "is_log_mark",
+    "is_runtime_permission",
+    "is_safe_uri",
+    "quote_safe_uri",
     "validate_adb_args",
     "require_serial_if_many",
 ]

@@ -149,11 +149,12 @@ Argument bounds are enforced before execution: coordinates 0-20000, swipe durati
 
 | Tools | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
 |---|---|---|---|---|
-| The 19 observation tools | true | false | true | false |
-| `tap`, `swipe`, `key`, `type` | false | false | false | false |
+| `screenshot`, `ui_summary`, `logcat_tail`, `app_logs`, `diagnostic_logs` | true | false | true | true |
+| The other 14 observation tools | true | false | true | false |
+| `tap`, `swipe`, `key`, `type` | false | true | false | true |
 | `install_apk` | false | true | true | false |
 
-`install_apk` is marked destructive because with its default `reinstall=true` (`adb install -r`) it replaces the installed build of an app that is already on the phone, keeping the app's data; installing the same APK again changes nothing further, so it is idempotent. A tool that is neither observation nor listed as non-destructive is advertised as not read-only and destructive until it is classified. `openWorldHint` is false everywhere: every tool talks only to the local adb server and the attached device. `ui_summary` counts as read-only: its fallback, available only outside `--read-only`, writes and then removes one temporary file. These hints are advisory for the client; ADAPT's own enforcement is the session policy above, not these annotations. With an older 1.x SDK that has no annotations, the tools are advertised without titles and hints.
+Every tool that acts on the phone is marked destructive. A tap, swipe, key press or typed text goes to whatever app is in front and can confirm a deletion, a purchase or a message. `install_apk` with its default `reinstall=true` (`adb install -r`) replaces the installed build of an app that is already on the phone, keeping the app's data; installing the same APK again changes nothing further, so it is idempotent. A tool that is not classified as observation is advertised as not read-only and destructive. `openWorldHint` is true for tools whose result or input involves content ADAPT does not control: screen pixels, UI text and log lines from any app, and input delivered to any app. Clients may ask for approval more often because of these hints; that is intended for a real phone. `ui_summary` counts as read-only: its fallback, available only outside `--read-only`, writes and then removes one temporary file. These hints are advisory for the client; ADAPT's own enforcement is the session policy above, not these annotations. With an older 1.x SDK that has no annotations, the tools are advertised without titles and hints.
 
 ## Errors
 

@@ -32,9 +32,13 @@ TOOL_TITLES = {
 }
 _TITLE_WORDS = {"ui": "UI", "dex": "DeX", "apk": "APK", "adb": "ADB"}
 
-# Acting tools that change what is on screen or what is typed, but never remove or replace
-# anything the user keeps: not destructive.
-NON_DESTRUCTIVE_ACTING_TOOLS = frozenset({"tap", "swipe", "key", "type"})
+# Tools whose result or effect reaches content ADAPT does not control: free text and pixels
+# from any app (screens, UI labels, logs), or input delivered to whatever app is in front.
+# `openWorldHint` here means "may involve untrusted outside content", the cautious reading.
+OPEN_WORLD_TOOLS = frozenset({
+    "screenshot", "ui_summary", "logcat_tail", "app_logs", "diagnostic_logs",
+    "tap", "swipe", "key", "type",
+})
 # Acting tools where repeating the same call leaves the device as the first call did.
 IDEMPOTENT_ACTING_TOOLS = frozenset({"install_apk"})
 
@@ -55,28 +59,27 @@ def tool_annotation_hints(name: str) -> dict[str, bool]:
     """Standard MCP tool annotation hints, derived from the classification above.
 
     A tool in `OBSERVATION_TOOLS` is read-only. Every other tool acts on the phone and is
-    treated as destructive unless it is listed in `NON_DESTRUCTIVE_ACTING_TOOLS`, so a new
-    acting tool is advertised conservatively until someone classifies it. `install_apk` is
-    deliberately destructive: with its default `reinstall=True` (`adb install -r`) it replaces
-    the installed build of an app that is already on the phone, keeping its data, so it can
-    overwrite something the user had; repeating the identical call changes nothing further,
-    so it is idempotent. Every tool talks only to the local adb server and the attached
-    device, never to an open-ended outside world: `openWorldHint` is always false.
-    `ui_summary` counts as read-only: its unrestricted-session fallback writes and then
-    removes one temporary file, and leaves nothing behind.
+    advertised as destructive: a tap, key, swipe or typed text can confirm a deletion, a
+    purchase or a message in whatever app is in front, and `install_apk` (default
+    `reinstall=True`, `adb install -r`) replaces the installed build of an app already on the
+    phone. A new acting tool is therefore covered conservatively without an entry here.
+    Repeating an identical install changes nothing further, so `install_apk` is idempotent.
+    `openWorldHint` is true for `OPEN_WORLD_TOOLS`, whose results or input involve content
+    ADAPT does not control. `ui_summary` counts as read-only: its unrestricted-session
+    fallback writes and then removes one temporary file, and leaves nothing behind.
     """
     if name in OBSERVATION_TOOLS:
         return {
             "read_only_hint": True,
             "destructive_hint": False,
             "idempotent_hint": True,
-            "open_world_hint": False,
+            "open_world_hint": name in OPEN_WORLD_TOOLS,
         }
     return {
         "read_only_hint": False,
-        "destructive_hint": name not in NON_DESTRUCTIVE_ACTING_TOOLS,
+        "destructive_hint": True,
         "idempotent_hint": name in IDEMPOTENT_ACTING_TOOLS,
-        "open_world_hint": False,
+        "open_world_hint": name in OPEN_WORLD_TOOLS,
     }
 
 

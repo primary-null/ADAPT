@@ -316,7 +316,7 @@ def test_every_advertised_tool_has_a_title_and_annotations_matching_its_classifi
     for tool in advertised:
         hints = tool.annotations
         assert hints is not None and hints.title == tool.title
-        assert hints.open_world_hint is False
+        assert hints.open_world_hint is (tool.name in access.OPEN_WORLD_TOOLS)
         if tool.name in access.OBSERVATION_TOOLS:
             assert hints.read_only_hint is True and hints.destructive_hint is False and hints.idempotent_hint is True
         else:
@@ -327,15 +327,21 @@ def test_every_advertised_tool_has_a_title_and_annotations_matching_its_classifi
         assert all(t.annotations.read_only_hint for t in advertised)
 
 
-def test_acting_tools_are_not_read_only_and_only_install_is_destructive():
+def test_every_acting_tool_is_destructive_and_input_tools_are_open_world():
     by_name = {t.name: t.annotations for t in get_mcp_tools()}
+    assert {n for n, h in by_name.items() if not h.read_only_hint} == access.MUTATING_TOOLS
     for name in ("tap", "swipe", "key", "type"):
         assert by_name[name].read_only_hint is False
-        assert by_name[name].destructive_hint is False
+        assert by_name[name].destructive_hint is True
         assert by_name[name].idempotent_hint is False
+        assert by_name[name].open_world_hint is True
     install = by_name["install_apk"]
     assert install.read_only_hint is False and install.destructive_hint is True
     assert install.idempotent_hint is True and install.open_world_hint is False
+    for name in ("screenshot", "ui_summary", "logcat_tail", "app_logs", "diagnostic_logs"):
+        assert by_name[name].read_only_hint is True and by_name[name].open_world_hint is True
+    for name in ("doctor", "list_devices", "device_info", "android_versions", "build_modes"):
+        assert by_name[name].open_world_hint is False
 
 
 def test_a_new_tool_is_covered_without_touching_the_annotation_code(monkeypatch):

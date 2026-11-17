@@ -21,7 +21,7 @@ AREAS = (
     ("Apps & developer testing", ("app", "debug", "dev-options", "android")),
     ("Displays & Samsung DeX", ("dex", "desktop")),
     ("Tools, ROM workflows & Give Me Everything", ("tools", "guide", "everything")),
-    ("AI / MCP & SSH workers", ("mcp", "ssh")),
+    ("AI / MCP & SSH workers", ("agent", "mcp", "ssh")),
     ("Rapid ADAPT", ("rapid",)),
     ("Logs, help & preferences", ("logs", "help-me", "explain", "tips")),
     ("All ADAPT commands", ()),

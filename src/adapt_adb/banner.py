@@ -49,7 +49,7 @@ def _env_disabled() -> bool:
 
 
 def _machine_facing(ctx: typer.Context) -> bool:
-    if ctx.invoked_subcommand == "mcp":
+    if ctx.invoked_subcommand in {"mcp", "agent"}:
         return True
     meta = getattr(ctx, "meta", None)
     if isinstance(meta, dict) and meta.get("adapt_machine_output"):

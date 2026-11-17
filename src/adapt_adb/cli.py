@@ -24,6 +24,7 @@ from adapt_adb.adb import (
     resolve_adb,
     split_adb_prefix,
 )
+from adapt_adb.agent_guide import agent_app, agent_group
 from adapt_adb.progress import adapting, set_progress_context
 from adapt_adb.banner import emit_banner
 from adapt_adb.dev_options import dev_options_app
@@ -597,7 +598,7 @@ def _run_next_menu(report: dict[str, Any], *, show_fix: bool) -> dict[str, Any]:
 app = typer.Typer(
     cls=GuidedGroup,
     name="adapt",
-    help="ADAPT - Android Device Agent Provisioning Toolkit",
+    help="ADAPT - Android Device Agent Provisioning Toolkit. AI agents: run `adapt agent primer` first.",
     no_args_is_help=False,
     invoke_without_command=True,
     add_completion=False,
@@ -616,6 +617,7 @@ app.add_typer(logs_app, name="logs", callback=group_tip)
 app.add_typer(debug_app, name="debug", callback=group_tip)
 app.add_typer(rapid_app, name="rapid", callback=group_tip)
 app.add_typer(tailscale_app, name="tailscale", callback=group_tip)
+app.add_typer(agent_app, name="agent", callback=agent_group, invoke_without_command=True)
 
 
 def _print_version(value: bool) -> None:
@@ -654,7 +656,7 @@ def _root(
         return
     if ctx.invoked_subcommand not in {"console", "home"}:
         emit_banner(ctx, no_banner=no_banner)
-    if ctx.invoked_subcommand not in {"tools", "dev-options", "android", "dex", "detect", "desktop", "ssh", "app", "logs", "debug", "rapid", "tailscale", "console", "home"}:
+    if ctx.invoked_subcommand not in {"tools", "dev-options", "android", "dex", "detect", "desktop", "ssh", "app", "logs", "debug", "rapid", "tailscale", "agent", "console", "home"}:
         emit_context_tip(ctx.invoked_subcommand or "", ctx)
 
 

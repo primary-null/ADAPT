@@ -118,6 +118,8 @@ HOW_TO: dict[str, tuple[str, ...]] = {
     "dev-options apply": ("Choose stay-awake for USB-powered tests, fast-ui for animations, touches for indicators, or desktop-testing.", "adapt dev-options apply --profile stay-awake -s SERIAL --snapshot stay-awake.json", "Stay-awake preserves existing charging modes and does not unlock the phone. A recovery snapshot precedes writes; restore explicitly after testing."),
     "dev-options restore": ("Restore a saved profile on the matching device, build, and Android user.", "adapt dev-options restore -s SERIAL --snapshot touches.json", "Conflicting external changes are not overwritten. The snapshot is retained."),
     "mcp": ("An AI client starts ADAPT and discovers named device tools through local stdio.", "codex mcp add adapt -- adapt mcp --read-only", "Use --device SERIAL to restrict exact targets. MCP is not an Android permission grant; client approvals and Android authorization remain separate."),
+    "agent": ("Give an AI agent everything it needs to use ADAPT: what it is, first steps, the development loop, safety rules, MCP and every command.", "adapt agent primer\nadapt agent primer --json", "Prints text or JSON only and touches no device. The primer is built from the installed commands and MCP tools, so it matches this version."),
+    "agent primer": ("Print the agent primer as Markdown, or as JSON with the full command and MCP tool catalog.", "adapt agent primer\nadapt agent primer --json", "Nothing but the primer is written to stdout. It describes what ADAPT offers; it does not prove any workflow works on a device."),
     "guide": ("Read the official Android tooling notes for a selected topic.", "adapt guide testing", "Use help-me --all for every currently registered command."),
     "explain": ("Look up why a failure happened and what to try next, by failure ID, keyword or pasted error text.", "adapt explain device.unauthorized\nadapt explain --list\nadapt explain \"failed to authenticate\"", "Explaining runs nothing and contacts no device. Steps that depend on your setup are labelled; adapt doctor checks this PC read-only."),
     "android": ("Inspect version-dependent capabilities before choosing a device workflow.", "adapt android capabilities -s SERIAL --json", "Version eligibility and tested support are different; inspect runtime evidence too."),
@@ -195,7 +197,8 @@ def tips_enabled(ctx: click.Context | None = None) -> bool:
 
 def emit_context_tip(topic: str, ctx: click.Context | None = None) -> None:
     ctx = ctx or _TIP_CONTEXT.get()
-    if topic in {"help-me", "tips", "mcp", "done", "explain"} or not tips_enabled(ctx):
+    # `agent` prints a guide meant to be read as plain text; its help lives in `help-me agent`.
+    if topic in {"help-me", "tips", "mcp", "done", "explain"} or topic.split(" ")[0] == "agent" or not tips_enabled(ctx):
         return
     if not all(getattr(stream, "isatty", lambda: False)() for stream in (sys.stdin, sys.stdout, sys.stderr)):
         return

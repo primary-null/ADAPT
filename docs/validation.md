@@ -390,14 +390,39 @@ changed and nothing was installed or launched.
 | `dev-options profiles --json` | Exit 0; all 14 profiles eligible, with per-app steps skipped where no package was given |
 | `dev-options inspect --all --json` | Exit 0; 84 catalog entries `observed`, 62 skipped by API or OEM, 0 errors |
 | `dev-options pixel-16kb-check --json` | Exit 0; page size 4096, `uses_16kb_pages: false` |
-| `dev-options apply --profile debugger-attach` without `--package` | Exit 2, refused before any snapshot or write |
+| `dev-options apply --profile debugger-attach` without `--package` | Exit 1, `devopts.package_required`; no snapshot written and `debug_app` unchanged (rechecked in the second session below; an earlier attempt passed an unsupported `--json` flag and only showed the usage error) |
 | `adapt mcp --read-only --device` (scripted MCP client) | 23 tools; `app_state` read the process, resumed activity and foreground; `log_mark` at millisecond precision; `logcat_tail` with `since` returned only lines after the mark; `ui_wait` timed out as a result; `help` and `developer_options_inspect` (with `detection`) answered |
 
 This run found that `app_state` never reported `last_exit`: real exit labels
 contain spaces (`OTHER KILLS BY SYSTEM`, `APP CRASH(EXCEPTION)`). The parser now
 uses the numeric reason code, and a rerun on the same phone reported the last exit
-reason. Not observed: any profile apply or restore, any MCP tool that acts on the
-phone, a Pixel, wireless adb, and any AI client driving the server.
+reason. Not observed in this session: any profile apply or restore, any MCP tool
+that acts on the phone, a Pixel, wireless adb, and any AI client driving the server.
+
+### 2026-11-16 (second session): profiles and acting tools on Android 13, read-only on Android 17
+
+Code: the same development tree plus the exit-info fix. Same PC. With the owner's
+approval, settings were changed on the same Android 13 phone (Samsung, One UI 5.1,
+USB) and restored; an Android 17 phone (Google, beta build, wireless debugging)
+was only read.
+
+| Device | Command or tool | Result |
+|---|---|---|
+| Android 13 | `dev-options apply` then `restore`, `input-visualization` | Exit 0 both; `show_touches` 0 then 1 then 0; restore read back as a match |
+| Android 13 | `dev-options apply` then `restore`, `layout-debug` | Exit 0 both; property `debug.layout` unset, then `true`, then unset; `debug_view_attributes` was already 1 and left alone |
+| Android 13 | `dev-options apply` then `restore`, `lifecycle-stress` | Exit 0 both; `always_finish_activities` and `anr_show_background` 0 then 1 then 0 |
+| Android 13 | all three, read directly with `settings get` / `getprop` | Every value equal to the starting value after each restore |
+| Android 13 | `adapt mcp --device` (one target): `dev_options_apply` `input-visualization`, again, `dev_options_restore` twice | Applied (`changed: [show_touches]`, `restore_exactness: exact`); the second apply refused with `snapshot_pending` and `next_tool: dev_options_restore`; restored; the second restore had nothing pending |
+| Android 13 | `app_launch` Calculator, `ui_summary`, `ui_tap_text "7"`, `app_state`, `app_stop`, `app_state` | Launched in 303 ms with the resumed activity; 26 UI nodes; the `7` key matched by text and tapped at its centre; running and in front; stopped; not running, last exit `USER_REQUESTED` |
+| Android 17 | `dev-options inspect --json` | Exit 0; `detection`: `oem: pixel`, API 37, `build_type: user`, page size 4096, transport `tcp` |
+| Android 17 | `dev-options profiles --json` | Exit 0; `battery-doze` and `network-degraded` not eligible with reason `wireless_transport`; the other 12 eligible |
+| Android 17 | `dev-options inspect --all --json` | Exit 0; 90 catalog entries `observed`, 61 skipped, 0 errors |
+| Android 17 | `adapt mcp --read-only --device` | `app_state` read `last_exit` (`LOW_MEMORY`); `log_mark` and `logcat_tail` with `since` answered; `ui_wait` returned `ui_dump_failed` with the screen off or locked |
+
+Not observed: the other eleven profiles applied on a device, any write on the Android 17 phone,
+`test_run`, `install_apk`, `app_open_link`, `permission_grant` and
+`permission_revoke`, `ui_wait` finding an element, and an AI client driving the
+server end to end.
 
 ### Not observed
 

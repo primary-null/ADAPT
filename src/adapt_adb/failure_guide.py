@@ -4105,6 +4105,139 @@ _NATIVE_RECEIVER_GUIDES: tuple[FailureGuide, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Agent build-test loop (MCP tools app_launch, app_open_link, test_run, ui_tap_text, ui_wait,
+# permission_grant, dev_options_apply). Their error payloads are tagged with these IDs.
+# ---------------------------------------------------------------------------
+
+_MCP_DOCS = "docs/mcp-access.md"
+_VALIDATE = Step("Check the app is installed for the current user:", "adapt app validate -s SERIAL --package PACKAGE", mcp_tool="app_validate")
+_SEE_SCREEN = Step("Look at the current screen:", mcp_tool="ui_summary", effect="read_only")
+
+_AGENT_LOOP_GUIDES: tuple[FailureGuide, ...] = (
+    _p4("app.launch_failed",
+        "Android did not start the app's activity, or the start did not finish within the time limit; the device's own message is in the result.",
+        ("The package is not installed for the phone's current Android user.",
+         "The activity name is wrong, or the activity is not exported.",
+         "The app crashed while starting; the crash is in the logs.",
+         "The phone is busy or locked and the start timed out."),
+        (_VALIDATE,
+         Step("Read the app's logs for a startup crash:", mcp_tool="app_logs", effect="read_only"),
+         Step("Check the phone is awake and unlocked, then launch again.", effect="on_phone")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",), diagnose="adapt devices",
+        aliases=("app_launch_failed", "the app did not start"),
+        mcp=McpHint("app_validate", ("app_logs",), "with_changed_arguments", False,
+                    argument_hint="Check `package`, or pass `activity` as a class such as .MainActivity.")),
+    _p4("app.no_launcher_activity",
+        "ADAPT found no launcher activity for that package, so it started nothing.",
+        ("The package is not installed for the current Android user.",
+         "The app has no launcher entry (a service-only app or a test APK).",
+         "The app is installed under another application ID, for example one with a .debug suffix."),
+        (_VALIDATE, Step("If the app has no launcher entry, pass the activity class to launch.", effect="manual")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",), diagnose="adapt devices",
+        aliases=("no_launcher_activity", "no launcher activity was found"),
+        mcp=McpHint("app_validate", (), "with_changed_arguments", False,
+                    argument_hint="Install the app first (install_apk), or pass `activity` as a class such as .MainActivity.")),
+    _p4("app.link_invalid",
+        "The link is not a URI ADAPT accepts, so nothing was sent to the device.",
+        ("It has no scheme, contains a space, a quote or another character that is not allowed, or is longer than 2000 characters.",
+         "It uses a scheme ADAPT refuses because it carries code or a nested intent (javascript:, data:, vbscript:, intent:)."),
+        (Step("Percent-encode the special characters and pass an ASCII URI such as https://example.com/path or myapp://item/42.", effect="manual"),),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("invalid_uri",),
+        mcp=McpHint(None, (), "with_changed_arguments", False, argument_hint="Pass `uri` as an ASCII URI with a scheme, percent-encoded, at most 2000 characters.")),
+    _p4("app.link_unhandled",
+        "Android reported that no app opened the link.",
+        ("No installed app registers for that scheme or host.",
+         "The `package` you passed does not handle the link.",
+         "The link has a typo in its scheme."),
+        (_VALIDATE, _SEE_SCREEN,
+         Step("Try the link without `package` to let Android choose the app.", effect="manual")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("link_not_handled",),
+        mcp=McpHint("app_validate", ("ui_summary",), "with_changed_arguments", False)),
+    _p4("app.permission_refused",
+        "The permission change was refused, by ADAPT's check or by Android.",
+        ("The permission is not a runtime permission (special-access permissions such as overlay or all-files access cannot be changed this way).",
+         "The app does not request that permission in its manifest.",
+         "The package is not installed for the current Android user."),
+        (_VALIDATE,
+         Step("Use a runtime permission such as android.permission.CAMERA that the app declares.", effect="manual")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",), diagnose="adapt devices",
+        aliases=("permission_failed", "invalid_permission"),
+        mcp=McpHint("app_validate", (), "with_changed_arguments", False,
+                    argument_hint="Pass `permission` as a runtime permission the app declares, for example android.permission.CAMERA.")),
+    _p4("app.test_busy",
+        "A test run is already active on that device, and ADAPT runs only one per device.",
+        ("An earlier test_run has not finished yet.",),
+        (Step("Check the active run's progress:", mcp_tool="test_status", effect="read_only"),
+         Step("Wait for it to finish (a run is stopped after 10 minutes), then start the next one.", effect="manual")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("test_run_busy",),
+        mcp=McpHint("test_status", (), "not_useful", False)),
+    _p4("app.test_run_unknown",
+        "No test run has that id in this server session.",
+        ("The id was mistyped, or the run belongs to an earlier server session.",
+         "The run was evicted: only the 8 most recent finished runs are kept.",
+         "The run is on a device this session is not allowed to use."),
+        (Step("Start a new run:", mcp_tool="test_run", effect="manual"),),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("unknown_run",),
+        mcp=McpHint("test_run", (), "with_changed_arguments", False)),
+    _p4("app.ui_no_match",
+        "No element on the current screen matches, or the matching element cannot be tapped.",
+        ("The screen is not the one you expected: the app is still loading, or a dialog or another app is in front.",
+         "The text differs from what is shown (case, spacing, a different language).",
+         "The element is off-screen, or is not interactive and has no label or content description."),
+        (_SEE_SCREEN, Step("Wait for the element, then try again:", mcp_tool="ui_wait", effect="read_only")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("ui_no_match",),
+        mcp=McpHint("ui_summary", ("screenshot",), "with_changed_arguments", False,
+                    argument_hint="Use text or resource_id exactly as ui_summary shows it, or wait for the screen with ui_wait.")),
+    _p4("app.ui_ambiguous",
+        "More than one element on the screen matches, so ADAPT tapped nothing.",
+        ("A label such as OK or Back appears more than once.",),
+        (_SEE_SCREEN,
+         Step("Call ui_tap_text again with `index` (0-based, in screen order) or a more specific `resource_id`.", effect="manual")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",),
+        aliases=("ui_ambiguous",),
+        mcp=McpHint("ui_summary", (), "with_changed_arguments", False,
+                    argument_hint="Pass `index` (0-based, in screen order) or use `resource_id` instead of `text`.")),
+    _p4("app.ui_dump_failed",
+        "ADAPT could not read the screen's UI hierarchy, so it could not look for the element.",
+        ("The screen is off or locked.",
+         "Another UI automation (for example a running test) holds the accessibility service.",
+         "The current screen blocks accessibility dumps (a secure window).",
+         "In a read-only session the file-based fallback is disabled."),
+        (Step("Check the lock state:", "adapt adb -- -s SERIAL shell dumpsys window", mcp_tool="device_info"),
+         Step("Wake and unlock the phone, or wait for the test run to finish, then try again.", effect="on_phone")),
+        help_topic="mcp", docs=_MCP_DOCS, commands=("mcp",), diagnose="adapt devices",
+        aliases=("ui_dump_failed", "ui hierarchy could not be dumped"),
+        mcp=McpHint("device_info", ("screenshot",), "after_user_action", False,
+                    ask_user="Is the phone's screen on and unlocked, and is no test running on it?")),
+    FailureGuide(
+        id="devopts.snapshot_pending",
+        summary="A Developer Options snapshot for this device and profile is still pending restore, so ADAPT applied nothing.",
+        certainty="observed",
+        causes=(
+            Cause("An earlier dev_options_apply was never restored."),
+            Cause("An earlier restore stopped on a conflict and kept its snapshot."),
+        ),
+        steps=(
+            Step("Restore what is pending, then apply again:", mcp_tool="dev_options_restore", effect="changes_device"),
+            Step("Or, from a shell, the same restore:", "adapt dev-options restore -s SERIAL --snapshot SNAPSHOT_FILE", "changes_device"),
+        ),
+        help_topic="dev-options restore",
+        docs="docs/dev-options.md",
+        avoid=("Deleting a pending snapshot by hand; it holds the original values.",),
+        diagnose=None,
+        aliases=("snapshot_pending", "still pending restore"),
+        commands=("dev-options apply",),
+        mcp=McpHint("dev_options_restore", ("developer_options_inspect",), "not_useful", False),
+    ),
+)
+
+
 def _build(guides: tuple[FailureGuide, ...]) -> dict[str, FailureGuide]:
     built: dict[str, FailureGuide] = {}
     for guide in guides:
@@ -4114,7 +4247,7 @@ def _build(guides: tuple[FailureGuide, ...]) -> dict[str, FailureGuide]:
     return built
 
 
-GUIDES: Mapping[str, FailureGuide] = _build(_GUIDE_LIST + _PHASE4_GUIDES + tuple(RECEIVER_GUIDES.values()) + _NATIVE_RECEIVER_GUIDES)
+GUIDES: Mapping[str, FailureGuide] = _build(_GUIDE_LIST + _PHASE4_GUIDES + tuple(RECEIVER_GUIDES.values()) + _NATIVE_RECEIVER_GUIDES + _AGENT_LOOP_GUIDES)
 RENAMED: Mapping[str, str] = {}
 
 

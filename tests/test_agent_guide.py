@@ -155,8 +155,8 @@ def test_every_mcp_tool_is_in_the_primer_with_its_classification():
         assert record["hidden_by_read_only"] == (name in access.MUTATING_TOOLS)
         assert record["title"] and record["summary"]
     counts = agent_guide.build_primer()["mcp"]["exposed_tool_counts"]
-    assert counts == {"adapt mcp": 24, "adapt mcp --read-only": 19, "adapt mcp --device SERIAL": 23,
-                      "adapt mcp --read-only --device SERIAL": 18}
+    assert counts == {"adapt mcp": 37, "adapt mcp --read-only": 23, "adapt mcp --device SERIAL": 36,
+                      "adapt mcp --read-only --device SERIAL": 22}
 
 
 # --- every quoted command is real ------------------------------------------------------------
@@ -369,7 +369,7 @@ def test_annotations_reach_a_real_client(monkeypatch):
     async def exercise():
         async with Client(create_server(POLICIES["read-only one-device"])) as client:
             tools = (await client.list_tools()).tools
-            assert len(tools) == 18
+            assert len(tools) == 22
             assert all(t.title and t.annotations and t.annotations.read_only_hint for t in tools)
 
     anyio.run(exercise)

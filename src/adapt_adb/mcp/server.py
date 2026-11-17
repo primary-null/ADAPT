@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import sys
 from copy import deepcopy
@@ -14,6 +15,7 @@ from adapt_adb import __version__ as ADAPT_VERSION
 from adapt_adb import agent_guide, failure_report
 from adapt_adb.adb import AdbProbeError
 from adapt_adb.doctor import UnsafeAdbServerError
+from adapt_adb.mcp import agent_tools
 from adapt_adb.mcp import tools as mcp_tools
 from adapt_adb.mcp.access import (
     AccessPolicy,
@@ -73,6 +75,8 @@ def _arguments_match_schema(name: str, arguments: Any) -> bool:
             if len(value) < prop.get("minLength", 0):
                 return False
             if len(value) > prop.get("maxLength", mcp_tools.DEFAULT_MAX_STRING_LENGTH):
+                return False
+            if "pattern" in prop and re.search(prop["pattern"], value) is None:
                 return False
         if "minimum" in prop and value < prop["minimum"]:
             return False
@@ -227,6 +231,8 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
             payload = mcp_tools.tool_doctor()
         elif name in {"app_validate", "app_logs", "debug_app_inspect", "build_modes", "diagnostic_logs", "logging_guide"}:
             payload = mcp_tools.tool_development(name, **args)
+            if name == "app_logs":
+                payload = agent_tools.bound_payload(payload)
         elif name == "dex_inspect":
             payload = mcp_tools.tool_dex_inspect(device=args["device"])
         elif name == "dex_displays":
@@ -353,6 +359,12 @@ def dispatch_tool_call(name: str, arguments: dict[str, Any] | None = None, *, po
                 tag=args.get("tag"),
                 level=args.get("level"),
                 device=args.get("device"),
+                **({"since": args["since"]} if "since" in args else {}),
+            )
+            payload = agent_tools.bound_payload(payload)
+        elif name in agent_tools.AGENT_TOOLS:
+            payload = agent_tools.call_tool(
+                name, args, allow_device_file=not policy.read_only, allowed_devices=policy.allowed_devices,
             )
         else:
             payload = {
@@ -514,8 +526,12 @@ async def run_stdio_async(stdin: Any = None, stdout: Any = None, *, policy: Acce
 
     server = create_server(policy)
     init_options = server.create_initialization_options()
-    async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, init_options)
+    try:
+        async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, init_options)
+    finally:
+        # A test run started by `test_run` must not outlive the server that started it.
+        agent_tools.shutdown_test_runs()
 
 
 def run_stdio(*, policy: AccessPolicy | None = None) -> None:

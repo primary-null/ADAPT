@@ -137,6 +137,19 @@ def test_mcp_registered_tools_and_client_session(monkeypatch):
         "diagnostic_logs",
         "logging_guide",
         "build_modes",
+        "app_launch",
+        "app_stop",
+        "app_state",
+        "app_open_link",
+        "log_mark",
+        "test_run",
+        "test_status",
+        "dev_options_apply",
+        "dev_options_restore",
+        "permission_grant",
+        "permission_revoke",
+        "ui_tap_text",
+        "ui_wait",
     ]
     assert names == expected
 

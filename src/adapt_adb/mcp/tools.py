@@ -18,11 +18,14 @@ from adapt_adb.failure_report import UNSAFE_SHARED_SERVER_MESSAGE, classify, tag
 from adapt_adb.mcp.access import MAX_DEVICE_LENGTH
 from adapt_adb.render.screenshot import capture_screenshot_jpeg
 from adapt_adb.render.ui_summary import UiDumpUnavailableError, capture_ui_summary
+from adapt_adb.safety import is_log_mark
 
 _ORIG_GET_CONNECTED_DEVICES = _adb_mod.get_connected_devices
 
 ALLOWED_KEYS = ("BACK", "HOME", "ENTER", "APP_SWITCH", "POWER", "DEL")
 ALLOWED_LOG_LEVELS = ("V", "D", "I", "W", "E", "F")
+# Developer Options profiles `dev_options_apply` accepts (the same four the CLI knows).
+PROFILE_NAMES = ("fast-ui", "touches", "desktop-testing", "stay-awake")
 
 # Argument bounds advertised in TOOL_SCHEMAS and enforced by the server's validator.
 MAX_COORDINATE = 20000
@@ -66,6 +69,26 @@ REFUSED_COMMAND_MESSAGE = (
 
 def _coordinate_prop() -> dict[str, Any]:
     return {"type": "integer", "minimum": 0, "maximum": MAX_COORDINATE}
+
+
+def _since_prop() -> dict[str, Any]:
+    return {
+        "type": "string", "minLength": 18, "maxLength": 18, "pattern": r"^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$",
+        "description": "A mark returned by log_mark (device time, MM-DD HH:MM:SS.mmm): only lines logged since then are read.",
+    }
+
+
+def _package_prop(description: str = "Exact application ID, for example com.example.app.") -> dict[str, Any]:
+    return {"type": "string", "minLength": 3, "maxLength": 255, "description": description}
+
+
+def _selector_props() -> dict[str, Any]:
+    return {
+        "text": {"type": "string", "minLength": 1, "maxLength": 200,
+                 "description": "Exact visible text or content description of the element (pass this or `resource_id`)."},
+        "resource_id": {"type": "string", "minLength": 1, "maxLength": 200,
+                        "description": "Exact resource id such as com.example.app:id/login (pass this or `text`)."},
+    }
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -197,7 +220,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "logcat_tail",
-        "description": "Dump recent logcat lines using `adb logcat -d` (non-streaming, default 100, max 500).",
+        "description": (
+            "Read recent device-wide logcat lines (finite, never streaming, default 100, max 500, result cut to about 20 KB). "
+            "To read only what one step logged, call log_mark first and pass its mark as `since`; buffers are never cleared. "
+            "Narrow with `tag` and `level`."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -205,6 +232,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "lines": {"type": "integer", "default": 100, "minimum": 1, "maximum": 500},
                 "tag": {"type": "string", "maxLength": 64},
                 "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)},
+                "since": _since_prop(),
             },
         },
     },
@@ -225,8 +253,8 @@ TOOL_SCHEMAS.extend([
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string", "enum": ["testing", "mirroring", "aosp-build", "lineage-build", "image-inspection", "remote-worker"]}}}},
     {"name": "app_validate", "description": "Check exact current-user package installation and optional version/debuggable expectations. Does not infer R8/signing or launch the app.",
      "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": {"type": "string", "minLength": 1, "maxLength": 255}, "expected_version_code": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807}, "expected_debuggable": {"type": "boolean"}}, "required": ["device", "package"]}},
-    {"name": "app_logs", "description": "Read a finite app-UID logcat main/crash snapshot; no buffer clearing or file export. Empty logs do not prove no crash.",
-     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": {"type": "string", "minLength": 1, "maxLength": 255}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "buffer": {"type": "string", "enum": ["main", "crash", "main,crash"]}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}}, "required": ["device", "package"]}},
+    {"name": "app_logs", "description": "Read an app's own logs (UID-filtered main and crash buffers; finite, result cut to about 20 KB). For one step's logs, call log_mark first and pass its mark as `since`; buffers are never cleared. Empty logs do not prove no crash: check app_state too.",
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": {"type": "string", "minLength": 1, "maxLength": 255}, "lines": {"type": "integer", "minimum": 1, "maximum": 500}, "buffer": {"type": "string", "enum": ["main", "crash", "main,crash"]}, "level": {"type": "string", "enum": list(ALLOWED_LOG_LEVELS)}, "since": _since_prop()}, "required": ["device", "package"]}},
     {"name": "debug_app_inspect", "description": "Read persisted debug-app/wait settings on an exact device; transient runtime selection and debugger attachment remain unverified.",
      "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
     {"name": "diagnostic_logs", "description": "Read recent fixed-tag window/DeX/print system logs. May contain multiple apps/users or sensitive details. No verbose toggles, clearing, export or wider fallback; empty output is not a test pass.",
@@ -235,6 +263,99 @@ TOOL_SCHEMAS.extend([
      "inputSchema": {"type": "object", "properties": {"topic": {"type": "string", "enum": ["all", "samsung", "vendor", "window", "dex", "print", "wifi", "app"]}}}},
     {"name": "build_modes", "description": "Offline developer/AI guidance distinguishing debuggable, variants, R8, profiling, signing and production evidence.",
      "inputSchema": {"type": "object", "properties": {}}},
+])
+
+TOOL_SCHEMAS.extend([
+    {"name": "app_launch",
+     "description": "Start an installed app so you can test it: opens its launcher activity (or the `activity` you name) and waits for the launch. "
+                    "Returns launch time and the resumed activity. Next: ui_summary to see the screen, app_state to check it did not crash."
+                    + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), "package": _package_prop(),
+         "activity": {"type": "string", "minLength": 1, "maxLength": 255,
+                      "description": "Optional activity class, such as .MainActivity or com.example.app.MainActivity. Default: the launcher activity."},
+         "wait": {"type": "boolean", "default": True, "description": "Wait for the launch to complete (at most 30 s). False returns at once."},
+     }, "required": ["package"]}},
+    {"name": "app_stop",
+     "description": "Stop an app's processes (force-stop) to test a cold start or end a hung app. App data and the installed build are untouched. "
+                    "Next: app_launch." + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(explicit=True), "package": _package_prop()}, "required": ["package"]}},
+    {"name": "app_state",
+     "description": "Answer 'did the app crash?' without reading logs: whether the app is running (process ids), whether it is in the foreground, "
+                    "and its last recorded exit reason (CRASH, ANR, killed, user stop; Android 11+). Next: app_logs with `since` for the stack trace.",
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop(), "package": _package_prop()}, "required": ["device", "package"]}},
+    {"name": "app_open_link",
+     "description": "Open a web link or deep link on the device (android.intent.action.VIEW) to test routing into your app. Optionally restrict it to "
+                    "one app with `package`. Next: ui_summary. Only ASCII URIs with a scheme; javascript:, data: and intent: are refused."
+                    + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True),
+         "uri": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "For example https://example.com/path or myapp://item/42. Percent-encode special characters."},
+         "package": _package_prop("Optional: only this app may handle the link."),
+     }, "required": ["uri"]}},
+    {"name": "log_mark",
+     "description": "Take a log mark: the device's current time. Call it just before a step, then pass the mark as `since` to app_logs or logcat_tail "
+                    "to read only that step's logs. Nothing is cleared or changed.",
+     "inputSchema": {"type": "object", "properties": {"device": _device_prop()}, "required": ["device"]}},
+    {"name": "test_run",
+     "description": "Run an app's instrumented tests (am instrument) and get pass/fail counts and failures. Waits up to `timeout_s` (default 50); if the run is "
+                    "not finished it returns status `running` and a `run_id`: poll test_status. One run per device; a run is stopped after 10 minutes. "
+                    "Install the app and test APKs first (install_apk)." + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True),
+         "test_package": {**_package_prop("Application ID of the test APK, for example com.example.app.test."), "minLength": 1},
+         "runner": {"type": "string", "minLength": 1, "maxLength": 255, "description": "Instrumentation runner class, for example androidx.test.runner.AndroidJUnitRunner."},
+         "class": {"type": "string", "minLength": 1, "maxLength": 255, "description": "Optional fully qualified test class; narrows the run."},
+         "method": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Optional test method; needs `class`."},
+         "timeout_s": {"type": "integer", "default": 50, "minimum": 1, "maximum": 55, "description": "How long to wait before returning `running`."},
+     }, "required": ["test_package", "runner"]}},
+    {"name": "test_status",
+     "description": "Check a test run started by test_run: progress while it runs, the parsed result (counts and failures) when it has finished.",
+     "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string", "minLength": 12, "maxLength": 12, "description": "The run_id test_run returned."}}, "required": ["run_id"]}},
+    {"name": "dev_options_apply",
+     "description": "Prepare the phone for testing with a reversible Developer Options profile (fast-ui animations off, touches, stay-awake, desktop-testing). "
+                    "ADAPT stores the recovery snapshot itself. Refused while a snapshot for this device and profile is still pending. "
+                    "Always call dev_options_restore before you finish." + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), "profile": {"type": "string", "enum": list(PROFILE_NAMES)},
+     }, "required": ["profile"]}},
+    {"name": "dev_options_restore",
+     "description": "Undo what dev_options_apply changed: restores every pending snapshot for this device (newest first) and lists what was pending. "
+                    "Call it before you finish; with nothing pending it changes nothing. A setting someone else changed since is left alone and reported."
+                    + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), "profile": {"type": "string", "enum": list(PROFILE_NAMES), "description": "Optional: restore only this profile."},
+     }}},
+    {"name": "permission_grant",
+     "description": "Grant a runtime permission (for example android.permission.CAMERA) to an app so a test does not stop at the permission dialog. "
+                    "Runtime permissions only. Undo with permission_revoke." + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), "package": _package_prop(),
+         "permission": {"type": "string", "minLength": 1, "maxLength": 255, "description": "For example android.permission.CAMERA."},
+     }, "required": ["package", "permission"]}},
+    {"name": "permission_revoke",
+     "description": "Revoke a runtime permission from an app to test the permission-denied path. Runtime permissions only. Undo with permission_grant."
+                    + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), "package": _package_prop(),
+         "permission": {"type": "string", "minLength": 1, "maxLength": 255, "description": "For example android.permission.CAMERA."},
+     }, "required": ["package", "permission"]}},
+    {"name": "ui_tap_text",
+     "description": "Tap an element by its visible text or resource id: takes a fresh UI dump, then taps the centre of the one match. Prefer this to `tap`: "
+                    "no stale coordinates. Fails clearly on no match, or on several matches unless you pass `index`. Next: ui_summary or ui_wait."
+                    + ACTS_ON_PHONE_NOTE,
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(explicit=True), **_selector_props(),
+         "index": {"type": "integer", "minimum": 0, "maximum": 499, "description": "Which match to tap (0-based, screen order) when several match."},
+     }}},
+    {"name": "ui_wait",
+     "description": "Wait for a screen to settle instead of sleeping: polls the UI until an element with this text or resource id appears (or, with `gone`, "
+                    "disappears), for at most `timeout_s`. A timeout is a result, not an error. Next: ui_summary.",
+     "inputSchema": {"type": "object", "properties": {
+         "device": _device_prop(), **_selector_props(),
+         "gone": {"type": "boolean", "default": False, "description": "Wait for the element to disappear instead."},
+         "timeout_s": {"type": "integer", "default": 10, "minimum": 1, "maximum": 55},
+     }, "required": ["device"]}},
 ])
 
 for _tool_schema in TOOL_SCHEMAS:
@@ -1202,8 +1323,19 @@ def tool_logcat_tail(
     tag: str | None = None,
     level: str | None = None,
     device: str | None = None,
+    since: str | None = None,
 ) -> dict[str, Any]:
-    """Execute the `logcat_tail` MCP tool (`adb logcat -d`, default 100, max 500)."""
+    """Execute the `logcat_tail` MCP tool (`adb logcat -d`, default 100, max 500).
+
+    With `since` (a `log_mark`) the window is `logcat -d -T MARK`: everything logged after the mark,
+    newest `lines` kept; nothing is cleared.
+    """
+    if since is not None and not is_log_mark(since):
+        return {
+            "error": "invalid_params",
+            "message": "`since` must be a mark returned by log_mark (MM-DD HH:MM:SS.mmm).",
+            "devices": [],
+        }
     adb_path = resolve_adb()
     if adb_path is None:
         return {
@@ -1217,7 +1349,7 @@ def tool_logcat_tail(
         return err or {"error": "no_device", "message": "No target device.", "devices": []}
 
     clamped_lines = max(1, min(int(lines), 500))
-    args = ["logcat", "-d", "-t", str(clamped_lines)]
+    args = ["logcat", "-d", *(["-T", since] if since is not None else ["-t", str(clamped_lines)])]
 
     lvl = (level or "").strip().upper()
     if lvl and lvl not in ALLOWED_LOG_LEVELS:

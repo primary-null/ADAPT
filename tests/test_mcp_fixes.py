@@ -88,7 +88,8 @@ def adb(monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 
 def test_the_set_of_tools_acting_on_the_phone_is_pinned():
-    assert set(MUTATING_ARGS) == set(MUTATING_TOOLS) == {"tap", "swipe", "key", "type", "install_apk"}
+    # The original five; the agent-loop tools added later are pinned in tests/test_mcp_agent_tools.py.
+    assert set(MUTATING_ARGS) == {"tap", "swipe", "key", "type", "install_apk"} <= set(MUTATING_TOOLS)
 
 
 @pytest.mark.parametrize("listing", [ONE_READY, TWO_READY, NONE_READY], ids=["one-ready", "two-ready", "none-ready"])

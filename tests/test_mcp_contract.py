@@ -412,8 +412,8 @@ def _bound_cases():
                     yield tool["name"], base, key, prop[bound], prop[bound] + delta
             elif prop["type"] == "string":
                 assert "maxLength" in prop
-                if "enum" in prop:
-                    continue
+                if "enum" in prop or "pattern" in prop:
+                    continue  # enums and patterns have their own tests (a pattern defines its own valid value)
                 yield tool["name"], base, key, "a" * prop["maxLength"], "a" * (prop["maxLength"] + 1)
                 if prop.get("minLength", 0):
                     yield tool["name"], base, key, "a" * prop["minLength"], ""
@@ -421,12 +421,13 @@ def _bound_cases():
 
 @pytest.mark.parametrize("name,base,key,valid,invalid", list(_bound_cases()))
 def test_all_advertised_bounds_enforced(name, base, key, valid, invalid, monkeypatch):
-    from adapt_adb.mcp import server, tools
+    from adapt_adb.mcp import agent_tools, server, tools
 
     # Keep semantic/device validation out of this schema boundary test.
-    for attr in dir(tools):
-        if attr.startswith("tool_"):
-            monkeypatch.setattr(tools, attr, lambda *a, **k: {"ok": True})
+    for module in (tools, agent_tools):
+        for attr in dir(module):
+            if attr.startswith("tool_"):
+                monkeypatch.setattr(module, attr, lambda *a, **k: {"ok": True})
     monkeypatch.setattr(tools, "tool_screenshot", lambda **k: ("AA==", {}))
     args = {**base, key: invalid}
     result = dispatch_tool_call(name, args)

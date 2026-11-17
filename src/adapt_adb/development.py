@@ -21,6 +21,7 @@ from adapt_adb.doctor import preflight_adb_server
 from adapt_adb.failure_report import (FailureContext, UNANSWERED_STATUSES, attach_failure, cause_failure_id, classify,
                                      current_command, emit_failure, query_failure_id, tagged)
 from adapt_adb.progress import operation
+from adapt_adb.safety import is_log_mark
 
 app_app = typer.Typer(help="Validate installed app identity, version and debug flags without launching it.")
 logs_app = typer.Typer(help="Extract bounded app or focused system diagnostics; read guidance without changing logging switches.")
@@ -165,9 +166,12 @@ def validate_app(serial: str, package: str, *, expected_version_code: int | None
 
 
 @operation("Extracting app logs")
-def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "main,crash", level: str = "V") -> dict[str, Any]:
+def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "main,crash", level: str = "V",
+                 since: str | None = None) -> dict[str, Any]:
     validate_package(package)
     validate_target(serial)
+    if since is not None and not is_log_mark(since):
+        raise tagged(DevelopmentError("`since` must be a mark returned by log_mark, in MM-DD HH:MM:SS.mmm form."), "logs.args_invalid")
     if type(lines) is not int or not 1 <= lines <= 500 or buffer not in {"main", "crash", "main,crash"} or level not in {"V", "D", "I", "W", "E", "F"}:
         raise tagged(DevelopmentError("Use 1–500 lines, main/crash/main,crash buffers and V/D/I/W/E/F severity."), "logs.args_invalid")
     session = Session(serial)
@@ -176,7 +180,8 @@ def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "
     if app["installation"] != "installed" or uid is None:
         raise tagged(DevelopmentError("Installed app UID could not be observed; device-wide log fallback is disabled."),
                      "logs.app_not_installed" if app["installation"] == "not_installed" else "device.command_denied" if app["listing_status"] == "denied" else "logs.uid_unobserved")
-    args = ["logcat", "-d", "-t", str(lines), "-v", "threadtime", f"--uid={uid}"]
+    # With `since`, logcat prints everything from that device time (`-T` replaces `-t N`); the cap below still applies.
+    args = ["logcat", "-d", *(["-T", since] if since is not None else ["-t", str(lines)]), "-v", "threadtime", f"--uid={uid}"]
     for item in buffer.split(","):
         args.extend(["-b", item])
     args.append(f"*:{level}")
@@ -197,7 +202,7 @@ def capture_logs(serial: str, package: str, *, lines: int = 200, buffer: str = "
         raise tagged(DevelopmentError("App UID or current user changed during capture; captured contents were discarded."), "logs.target_changed")
     return {"schema_version": 1, "status": "captured", "serial": serial, "package": package, "android_user": app["android_user"],
             "uid": uid, "buffers": buffer.split(","), "minimum_level": level, "requested_lines": lines,
-            "lines": records, "truncated": truncated, "max_bytes": LOG_MAX_BYTES,
+            "lines": records, **({"since": since} if since is not None else {}), "truncated": truncated, "max_bytes": LOG_MAX_BYTES,
             "captured_at_utc": datetime.now(timezone.utc).isoformat(), "app_snapshot": app,
             "mutations": [], "privacy": "Logs can contain credentials or personal data. UID filtering can include shared-UID packages or historical reused-UID events; system-originated crash reports may be omitted.",
             "claim_boundary": "A bounded ring-buffer snapshot. Empty output does not prove no crashes, and successful capture is not a test pass. No buffers were cleared."}
